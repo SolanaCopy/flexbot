@@ -1,42 +1,19 @@
 const express = require("express");
 const app = express();
 
-app.use(express.text({ type: "*/*" }));
+app.use(express.json({ type: "*/*" }));
 
 let last = null;
 
-function parseBody(raw) {
-  if (!raw) return null;
-
-  try { return JSON.parse(raw); } catch {}
-
-  try {
-    const obj = {};
-    for (const part of String(raw).split("&")) {
-      const [k, v] = part.split("=");
-      if (!k) continue;
-      obj[decodeURIComponent(k)] = decodeURIComponent(v || "");
-    }
-    return obj;
-  } catch {
-    return null;
-  }
-}
-
 app.post("/price", (req, res) => {
-  const raw = req.body;
-  console.log("RAW:", raw);
-
-  const payload = parseBody(raw) || {};
-  const { symbol, bid, ask, time } = payload;
-
+  const { symbol, bid, ask, time } = req.body || {};
   if (!symbol || bid == null || ask == null) return res.status(400).send("bad");
 
   last = {
     symbol: String(symbol),
     bid: Number(bid),
     ask: Number(ask),
-    time: time || new Date().toISOString()
+    time: time || new Date().toISOString(),
   };
 
   res.send("ok");
