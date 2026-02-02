@@ -22,36 +22,33 @@ function firstJsonObject(raw) {
   return s.slice(a, b + 1);
 }
 
-/** ---- Time parsing (robust fallback) ---- */
+/** ---- Time parsing (fallback) ---- */
 function parseTimeToMs(input) {
-  if (input == null) return Date.now();
+  if (input == null) return NaN;
 
   // number
   if (typeof input === "number" && Number.isFinite(input)) {
-    // seconden vs ms
     return input < 1e12 ? input * 1000 : input;
   }
 
   const s = String(input).trim();
-  if (!s) return Date.now();
+  if (!s) return NaN;
 
   // numeric string
   if (/^\d+(\.\d+)?$/.test(s)) {
     const n = Number(s);
-    if (!Number.isFinite(n)) return Date.now();
+    if (!Number.isFinite(n)) return NaN;
     return n < 1e12 ? n * 1000 : n;
   }
 
   // MetaTrader format: "YYYY.MM.DD HH:MM:SS"
-  // We interpreteren dit als UTC (maar dit is alleen fallback).
   const m = s.match(/^(\d{4})\.(\d{2})\.(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
   if (m) {
     return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
   }
 
-  // ISO / parseable strings
   const p = Date.parse(s);
-  return Number.isFinite(p) ? p : Date.now();
+  return Number.isFinite(p) ? p : NaN;
 }
 
 /** ---- Candle aggregation (15m) ---- */
@@ -103,10 +100,8 @@ function update15mCandle({ symbol, price, tsMs }) {
 
   const currentStartMs = Date.parse(store.current.start);
 
-  // Out-of-order tick vóór huidige candle -> negeren
-  if (tsMs < currentStartMs) return;
+  if (tsMs < currentStartMs) return; // out-of-order -> negeren
 
-  // Zelfde bucket
   if (currentStartMs === bucketStart) {
     store.current.high = Math.max(store.current.high, price);
     store.current.low = Math.min(store.current.low, price);
@@ -115,12 +110,12 @@ function update15mCandle({ symbol, price, tsMs }) {
     return;
   }
 
-  // Nieuwe bucket: sluit huidige candle
+  // sluit candle
   const finished = store.current;
   store.current = null;
   pushHistoryCapped(store, finished);
 
-  // Gaps vullen (handig voor charting)
+  // gaps vullen (flat candles)
   const prevClose = finished.close;
   let nextStart = currentStartMs + intervalMs;
   while (nextStart < bucketStart) {
@@ -139,7 +134,7 @@ function update15mCandle({ symbol, price, tsMs }) {
     nextStart += intervalMs;
   }
 
-  // Start nieuwe candle
+  // start nieuwe candle
   store.current = {
     symbol: String(symbol),
     interval: "15m",
@@ -161,7 +156,7 @@ app.post("/price", (req, res) => {
     if (!jsonStr) return res.status(400).send("bad");
 
     const parsed = JSON.parse(jsonStr);
-    const { symbol, bid, ask, time, ts } = parsed; // ✅ ts erbij
+    const { symbol, bid, ask, time, ts } = parsed;
 
     if (!symbol || bid == null || ask == null) {
       return res.status(400).send("bad");
@@ -174,22 +169,38 @@ app.post("/price", (req, res) => {
       return res.status(400).send("bad");
     }
 
-    // ✅ 1) als ts bestaat -> gebruik die (beste)
-    // ✅ 2) anders fallback naar time parse (oude clients)
-    const tsMs = ts != null ? Number(ts) : parseTimeToMs(time);
+    // ✅ KRITIEKE FIX: vertrouw server tijd, tenzij client-tijd "dichtbij" is
+    const now = Date.now();
+    const MAX_DRIFT_MS = 5 * 60 * 1000; // 5 minuten
 
-    if (!Number.isFinite(tsMs)) {
-      return res.status(400).send("bad_time");
+    let tsCandidate = NaN;
+
+    // 1) ts kandidaat
+    if (ts != null) {
+      const n = Number(ts);
+      if (Number.isFinite(n)) tsCandidate = n;
     }
 
-    // ✅ last.time altijd ISO UTC maken
+    // 2) fallback: parse time string
+    if (!Number.isFinite(tsCandidate) && time != null) {
+      tsCandidate = parseTimeToMs(time);
+    }
+
+    // 3) kies tsMs
+    const tsMs =
+      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS
+        ? tsCandidate
+        : now;
+
     last = {
       symbol: String(symbol),
       bid: bidNum,
       ask: askNum,
-      time: new Date(tsMs).toISOString(),
+      time: new Date(tsMs).toISOString(), // ✅ altijd correcte ISO UTC
       ts: tsMs,
-      raw_time: time ?? null, // handig om te debuggen wat EA stuurde
+      raw_time: time ?? null,            // handig om te zien wat EA stuurde
+      raw_ts: ts ?? null,                // handig om te zien wat EA stuurde
+      used_server_time: tsMs === now,    // debug flag
     };
 
     const mid = (bidNum + askNum) / 2;
@@ -207,7 +218,6 @@ app.get("/price", (req, res) => {
 });
 
 // Candles ophalen
-// Voorbeeld: /candles?symbol=XAUUSD&interval=15m&limit=200
 app.get("/candles", (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "";
   const interval = req.query.interval ? String(req.query.interval) : "15m";
@@ -228,7 +238,6 @@ app.get("/candles", (req, res) => {
 });
 
 // Chart image (png) voor Telegram bots
-// Voorbeeld: /chart.png?symbol=XAUUSD&interval=15m&limit=80
 app.get("/chart.png", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
