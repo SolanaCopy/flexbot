@@ -3,6 +3,11 @@ const app = express();
 
 app.use(express.text({ type: "*/*" }));
 
+// Node 18+ heeft fetch standaard. Voor oudere Node versies: npm i node-fetch
+const fetchFn =
+  globalThis.fetch?.bind(globalThis) ||
+  ((...args) => import("node-fetch").then(({ default: f }) => f(...args)));
+
 let last = null;
 
 /**
@@ -17,16 +22,45 @@ function firstJsonObject(raw) {
   return s.slice(a, b + 1);
 }
 
-/** ---- Candle aggregation (15m) ---- */
+/** ---- Time parsing (robust) ---- */
+function parseTimeToMs(input) {
+  if (input == null) return Date.now();
 
+  // number
+  if (typeof input === "number" && Number.isFinite(input)) {
+    // seconden vs ms
+    return input < 1e12 ? input * 1000 : input;
+  }
+
+  const s = String(input).trim();
+  if (!s) return Date.now();
+
+  // numeric string
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (!Number.isFinite(n)) return Date.now();
+    return n < 1e12 ? n * 1000 : n;
+  }
+
+  // MetaTrader format: "YYYY.MM.DD HH:MM:SS"
+  // We interpreteren dit als UTC om een consistente bucket te krijgen.
+  const m = s.match(/^(\d{4})\.(\d{2})\.(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (m) {
+    return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  }
+
+  // ISO / parseable strings
+  const p = Date.parse(s);
+  return Number.isFinite(p) ? p : Date.now();
+}
+
+/** ---- Candle aggregation (15m) ---- */
 const INTERVALS = {
   "15m": 15 * 60 * 1000,
 };
 
-// Per symbol houden we bij:
-// - current: de candle die nu bezig is
-// - history: afgesloten candles (array)
 const candleStore = new Map(); // symbol -> { current, history }
+const MAX_HISTORY_PER_SYMBOL = 2000;
 
 function floorToBucketStart(tsMs, intervalMs) {
   return Math.floor(tsMs / intervalMs) * intervalMs;
@@ -34,21 +68,9 @@ function floorToBucketStart(tsMs, intervalMs) {
 
 function getOrCreateSymbolStore(symbol) {
   const key = String(symbol);
-  if (!candleStore.has(key)) {
-    candleStore.set(key, { current: null, history: [] });
-  }
+  if (!candleStore.has(key)) candleStore.set(key, { current: null, history: [] });
   return candleStore.get(key);
 }
-
-function finalizeCurrent(store) {
-  if (store.current) {
-    store.history.push(store.current);
-    store.current = null;
-  }
-}
-
-// Optioneel: limiet op geheugen per symbool
-const MAX_HISTORY_PER_SYMBOL = 2000;
 
 function pushHistoryCapped(store, candle) {
   store.history.push(candle);
@@ -57,17 +79,13 @@ function pushHistoryCapped(store, candle) {
   }
 }
 
-function update15mCandle({ symbol, price, timeISO }) {
+function update15mCandle({ symbol, price, tsMs }) {
   const intervalMs = INTERVALS["15m"];
-
-  const tsMs = timeISO ? Date.parse(timeISO) : Date.now();
-  if (!Number.isFinite(tsMs)) return; // ongeldige time string
-
   const store = getOrCreateSymbolStore(symbol);
+
   const bucketStart = floorToBucketStart(tsMs, intervalMs);
   const bucketEnd = bucketStart + intervalMs;
 
-  // Eerste candle voor dit symbool
   if (!store.current) {
     store.current = {
       symbol: String(symbol),
@@ -78,7 +96,6 @@ function update15mCandle({ symbol, price, timeISO }) {
       high: price,
       low: price,
       close: price,
-      // volume: null, // geen volume info in jouw payload
       lastTs: tsMs,
     };
     return;
@@ -86,10 +103,10 @@ function update15mCandle({ symbol, price, timeISO }) {
 
   const currentStartMs = Date.parse(store.current.start);
 
-  // Out-of-order tick die vóór huidige candle valt: negeren (simpel & safe)
+  // Out-of-order tick vóór huidige candle -> negeren
   if (tsMs < currentStartMs) return;
 
-  // Tick valt nog in dezelfde 15m bucket
+  // Zelfde bucket
   if (currentStartMs === bucketStart) {
     store.current.high = Math.max(store.current.high, price);
     store.current.low = Math.min(store.current.low, price);
@@ -98,17 +115,16 @@ function update15mCandle({ symbol, price, timeISO }) {
     return;
   }
 
-  // Tick is in een nieuwe bucket: sluit huidige candle af
+  // Nieuwe bucket: sluit huidige candle
   const finished = store.current;
   store.current = null;
   pushHistoryCapped(store, finished);
 
-  // (Optioneel) gaps vullen: als er buckets ontbreken, kun je “flat” candles toevoegen
-  // met open=high=low=close=vorige close. Handig voor charting.
+  // Gaps vullen (handig voor charting)
   const prevClose = finished.close;
   let nextStart = currentStartMs + intervalMs;
   while (nextStart < bucketStart) {
-    const gapCandle = {
+    pushHistoryCapped(store, {
       symbol: String(symbol),
       interval: "15m",
       start: new Date(nextStart).toISOString(),
@@ -119,12 +135,11 @@ function update15mCandle({ symbol, price, timeISO }) {
       close: prevClose,
       lastTs: nextStart,
       gap: true,
-    };
-    pushHistoryCapped(store, gapCandle);
+    });
     nextStart += intervalMs;
   }
 
-  // Start nieuwe candle met deze tick
+  // Start nieuwe candle
   store.current = {
     symbol: String(symbol),
     interval: "15m",
@@ -159,16 +174,18 @@ app.post("/price", (req, res) => {
       return res.status(400).send("bad");
     }
 
+    // time bewaren zoals binnenkomt, maar ook een ms versie maken voor candles
+    const tsMs = parseTimeToMs(time);
+
     last = {
       symbol: String(symbol),
       bid: bidNum,
       ask: askNum,
-      time: time || new Date().toISOString(),
+      time: time || new Date(tsMs).toISOString(),
     };
 
-    // mid price voor candle (je kan ook bid of ask nemen, maar mid is meestal netjes)
     const mid = (bidNum + askNum) / 2;
-    update15mCandle({ symbol: last.symbol, price: mid, timeISO: last.time });
+    update15mCandle({ symbol: last.symbol, price: mid, tsMs });
 
     return res.send("ok");
   } catch (e) {
@@ -181,8 +198,8 @@ app.get("/price", (req, res) => {
   return res.json({ ok: true, ...last });
 });
 
-// ✅ Nieuwe endpoint voor candles
-// Voorbeeld: /candles?symbol=EURUSD&interval=15m&limit=200
+// Candles ophalen
+// Voorbeeld: /candles?symbol=XAUUSD&interval=15m&limit=200
 app.get("/candles", (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "";
   const interval = req.query.interval ? String(req.query.interval) : "15m";
@@ -195,11 +212,86 @@ app.get("/candles", (req, res) => {
   const store = candleStore.get(symbol);
   if (!store) return res.json({ ok: true, symbol, interval, candles: [] });
 
-  // history + current (current is nog niet “afgesloten” maar wel bruikbaar)
   const all = store.current ? [...store.history, store.current] : [...store.history];
-  const sliced = all.slice(Math.max(0, all.length - Math.min(limit, 5000))); // hard cap
+  const hardCap = Math.min(Math.max(limit, 10), 5000);
+  const candles = all.slice(Math.max(0, all.length - hardCap));
 
-  return res.json({ ok: true, symbol, interval, candles: sliced });
+  return res.json({ ok: true, symbol, interval, candles });
+});
+
+// Chart image (png) voor Telegram bots
+// Voorbeeld: /chart.png?symbol=XAUUSD&interval=15m&limit=80
+app.get("/chart.png", async (req, res) => {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
+    const interval = req.query.interval ? String(req.query.interval) : "15m";
+    const limit = req.query.limit ? Number(req.query.limit) : 80;
+
+    if (!INTERVALS[interval]) return res.status(400).send("unsupported_interval");
+
+    const store = candleStore.get(symbol);
+    if (!store) return res.status(404).send("no_data");
+
+    const all = store.current ? [...store.history, store.current] : [...store.history];
+    const hardCap = Math.min(Math.max(limit, 10), 500);
+    const candles = all.slice(Math.max(0, all.length - hardCap));
+
+    // QuickChart + chartjs-chart-financial (candlestick) gebruikt Chart.js v3+ :contentReference[oaicite:2]{index=2}
+    // In Chart.js v3 is de standaard tijd-key "x" (niet "t") :contentReference[oaicite:3]{index=3}
+    const data = candles.map((c) => ({
+      x: new Date(c.start).getTime(),
+      o: c.open,
+      h: c.high,
+      l: c.low,
+      c: c.close,
+    }));
+
+    const qc = {
+      version: "3",
+      backgroundColor: "#0b1220",
+      width: 900,
+      height: 500,
+      format: "png",
+      chart: {
+        type: "candlestick",
+        data: {
+          datasets: [{ label: `${symbol} ${interval}`, data }],
+        },
+        options: {
+          plugins: {
+            legend: { labels: { color: "#e5e7eb" } },
+          },
+          scales: {
+            x: {
+              type: "time",
+              ticks: { color: "#9ca3af" },
+              grid: { color: "rgba(255,255,255,0.06)" },
+            },
+            y: {
+              ticks: { color: "#9ca3af" },
+              grid: { color: "rgba(255,255,255,0.06)" },
+            },
+          },
+        },
+      },
+    };
+
+    const r = await fetchFn("https://quickchart.io/chart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(qc),
+    });
+
+    if (!r.ok) return res.status(502).send("chart_failed");
+
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "no-store");
+
+    const buf = Buffer.from(await r.arrayBuffer());
+    return res.end(buf);
+  } catch (e) {
+    return res.status(500).send("error");
+  }
 });
 
 app.get("/", (_, res) => res.send("ok"));
