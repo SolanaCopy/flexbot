@@ -57,22 +57,32 @@ function parseTimeToMs(input) {
   return Number.isFinite(p) ? p : NaN;
 }
 
-/** ---- Candle aggregation (15m) ---- */
+/** ---- Candle aggregation (1m/5m/15m) ---- */
 const INTERVALS = {
+  "1m": 1 * 60 * 1000,
+  "5m": 5 * 60 * 1000,
   "15m": 15 * 60 * 1000,
 };
 
-const candleStore = new Map(); // symbol -> { current, history }
-const MAX_HISTORY_PER_SYMBOL = 2000;
+// symbol -> interval -> { current, history }
+const candleStore = new Map();
+const MAX_HISTORY_PER_SYMBOL = 4000;
 
 function floorToBucketStart(tsMs, intervalMs) {
   return Math.floor(tsMs / intervalMs) * intervalMs;
 }
 
-function getOrCreateSymbolStore(symbol) {
-  const key = String(symbol);
-  if (!candleStore.has(key)) candleStore.set(key, { current: null, history: [] });
-  return candleStore.get(key);
+function getOrCreateStore(symbol, interval) {
+  const sym = String(symbol);
+  if (!candleStore.has(sym)) candleStore.set(sym, new Map());
+  const m = candleStore.get(sym);
+  if (!m.has(interval)) m.set(interval, { current: null, history: [] });
+  return m.get(interval);
+}
+
+function getStoreIfExists(symbol, interval) {
+  const symMap = candleStore.get(String(symbol));
+  return symMap ? symMap.get(interval) : null;
 }
 
 function pushHistoryCapped(store, candle) {
@@ -82,9 +92,11 @@ function pushHistoryCapped(store, candle) {
   }
 }
 
-function update15mCandle({ symbol, price, tsMs }) {
-  const intervalMs = INTERVALS["15m"];
-  const store = getOrCreateSymbolStore(symbol);
+function updateCandle({ symbol, interval, price, tsMs }) {
+  const intervalMs = INTERVALS[interval];
+  if (!intervalMs) return;
+
+  const store = getOrCreateStore(symbol, interval);
 
   const bucketStart = floorToBucketStart(tsMs, intervalMs);
   const bucketEnd = bucketStart + intervalMs;
@@ -92,7 +104,7 @@ function update15mCandle({ symbol, price, tsMs }) {
   if (!store.current) {
     store.current = {
       symbol: String(symbol),
-      interval: "15m",
+      interval,
       start: new Date(bucketStart).toISOString(),
       end: new Date(bucketEnd).toISOString(),
       open: price,
@@ -115,16 +127,18 @@ function update15mCandle({ symbol, price, tsMs }) {
     return;
   }
 
+  // sluit candle
   const finished = store.current;
   store.current = null;
   pushHistoryCapped(store, finished);
 
+  // gaps vullen (flat candles)
   const prevClose = finished.close;
   let nextStart = currentStartMs + intervalMs;
   while (nextStart < bucketStart) {
     pushHistoryCapped(store, {
       symbol: String(symbol),
-      interval: "15m",
+      interval,
       start: new Date(nextStart).toISOString(),
       end: new Date(nextStart + intervalMs).toISOString(),
       open: prevClose,
@@ -137,9 +151,10 @@ function update15mCandle({ symbol, price, tsMs }) {
     nextStart += intervalMs;
   }
 
+  // start nieuwe candle
   store.current = {
     symbol: String(symbol),
-    interval: "15m",
+    interval,
     start: new Date(bucketStart).toISOString(),
     end: new Date(bucketEnd).toISOString(),
     open: price,
@@ -170,12 +185,10 @@ function normImpact(x) {
 }
 
 function getEventTsMs(e) {
-  // Vaak heeft de JSON feed "timestamp" (in seconds). Anders proberen date+time.
   if (e && e.timestamp != null) {
     const n = Number(e.timestamp);
     if (Number.isFinite(n)) return n * 1000;
   }
-
   const date = e?.date ?? "";
   const time = e?.time ?? "";
   const p = Date.parse(`${date} ${time}`.trim());
@@ -230,7 +243,6 @@ async function getFfEvents() {
   return events;
 }
 
-// Shared red-news logic (voor /ff/red, /news, /news.txt)
 async function getRedNews(req) {
   const currency = req.query.currency ? String(req.query.currency).toUpperCase() : null;
   const limit = req.query.limit ? Number(req.query.limit) : 20;
@@ -238,7 +250,7 @@ async function getRedNews(req) {
 
   const all = await getFfEvents();
 
-  let events = all.filter((e) => e.impact === "high"); // "red/high impact"
+  let events = all.filter((e) => e.impact === "high");
   if (currency) events = events.filter((e) => e.currency === currency);
 
   if (Number.isFinite(minutes) && minutes > 0) {
@@ -270,6 +282,7 @@ function formatNewsText(events, currency) {
 
 /** ---- Routes ---- */
 
+// ✅ Live tick ingest
 app.post("/price", (req, res) => {
   try {
     const jsonStr = firstJsonObject(req.body);
@@ -294,15 +307,12 @@ app.post("/price", (req, res) => {
       const n = Number(ts);
       if (Number.isFinite(n)) tsCandidate = n;
     }
-
     if (!Number.isFinite(tsCandidate) && time != null) {
       tsCandidate = parseTimeToMs(time);
     }
 
     const tsMs =
-      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS
-        ? tsCandidate
-        : now;
+      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS ? tsCandidate : now;
 
     last = {
       symbol: String(symbol),
@@ -316,7 +326,11 @@ app.post("/price", (req, res) => {
     };
 
     const mid = (bidNum + askNum) / 2;
-    update15mCandle({ symbol: last.symbol, price: mid, tsMs });
+
+    // ✅ optie 2: update alle TF’s per tick
+    updateCandle({ symbol: last.symbol, interval: "1m", price: mid, tsMs });
+    updateCandle({ symbol: last.symbol, interval: "5m", price: mid, tsMs });
+    updateCandle({ symbol: last.symbol, interval: "15m", price: mid, tsMs });
 
     return res.send("ok");
   } catch (e) {
@@ -329,6 +343,7 @@ app.get("/price", (req, res) => {
   return res.json({ ok: true, ...last });
 });
 
+// ✅ /candles?symbol=XAUUSD&interval=1m&limit=200
 app.get("/candles", (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "";
   const interval = req.query.interval ? String(req.query.interval) : "15m";
@@ -338,7 +353,7 @@ app.get("/candles", (req, res) => {
   if (!INTERVALS[interval]) return res.status(400).json({ ok: false, error: "unsupported_interval" });
   if (!Number.isFinite(limit) || limit <= 0) return res.status(400).json({ ok: false, error: "bad_limit" });
 
-  const store = candleStore.get(symbol);
+  const store = getStoreIfExists(symbol, interval);
   if (!store) return res.json({ ok: true, symbol, interval, candles: [] });
 
   const all = store.current ? [...store.history, store.current] : [...store.history];
@@ -348,22 +363,105 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, candles });
 });
 
-// Chart image (png)
+// ✅ optie 3: seed/backfill candles (bv. 200 M15 bars uit EA)
+// POST /seed
+// body: { symbol:"XAUUSD", interval:"15m", candles:[{start,end,open,high,low,close}] }
+app.post("/seed", express.json({ type: "*/*" }), (req, res) => {
+  try {
+    const { symbol, interval, candles } = req.body || {};
+    if (!symbol || !INTERVALS[interval] || !Array.isArray(candles)) {
+      return res.status(400).json({ ok: false, error: "bad_seed" });
+    }
+
+    const store = getOrCreateStore(symbol, interval);
+
+    // dedupe op start
+    const map = new Map();
+    for (const c of store.history) map.set(c.start, c);
+
+    for (const c of candles) {
+      if (!c || !c.start) continue;
+
+      const start = String(c.start);
+      const end = c.end ? String(c.end) : "";
+
+      const open = Number(c.open);
+      const high = Number(c.high);
+      const low = Number(c.low);
+      const close = Number(c.close);
+
+      if (![open, high, low, close].every(Number.isFinite)) continue;
+
+      map.set(start, {
+        symbol: String(symbol),
+        interval: String(interval),
+        start,
+        end,
+        open,
+        high,
+        low,
+        close,
+        seeded: true,
+      });
+    }
+
+    // sort op start
+    const merged = Array.from(map.values()).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
+    store.history = merged.slice(Math.max(0, merged.length - MAX_HISTORY_PER_SYMBOL));
+
+    return res.json({ ok: true, symbol: String(symbol), interval: String(interval), count: store.history.length });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "seed_error" });
+  }
+});
+
+// ✅ /chart.png?symbol=XAUUSD&interval=15m&limit=200&v=123
+// Als te weinig candles: fallback 15m -> 5m -> 1m
 app.get("/chart.png", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
-    const interval = req.query.interval ? String(req.query.interval) : "15m";
+    const requestedInterval = req.query.interval ? String(req.query.interval) : "15m";
+
+    // default veel candles
     const reqLimit = req.query.limit ? Number(req.query.limit) : 200;
     const limit = Number.isFinite(reqLimit) ? reqLimit : 200;
 
-    if (!INTERVALS[interval]) return res.status(400).send("unsupported_interval");
+    const tryIntervals = [];
+    if (INTERVALS[requestedInterval]) tryIntervals.push(requestedInterval);
+    if (!tryIntervals.includes("5m")) tryIntervals.push("5m");
+    if (!tryIntervals.includes("1m")) tryIntervals.push("1m");
 
-    const store = candleStore.get(symbol);
-    if (!store) return res.status(404).send("no_data");
+    let chosenInterval = null;
+    let store = null;
+
+    for (const iv of tryIntervals) {
+      const s = getStoreIfExists(symbol, iv);
+      const count = s ? (s.current ? s.history.length + 1 : s.history.length) : 0;
+      if (s && count >= 10) {
+        chosenInterval = iv;
+        store = s;
+        break;
+      }
+    }
+
+    // als echt geen interval genoeg data heeft: pak wat er is
+    if (!store) {
+      const s = getStoreIfExists(symbol, requestedInterval);
+      if (s) {
+        chosenInterval = requestedInterval;
+        store = s;
+      } else {
+        // last resort: 1m store aanmaken is ok, maar die is leeg
+        return res.status(404).send("no_data");
+      }
+    }
 
     const all = store.current ? [...store.history, store.current] : [...store.history];
+
+    // min 120, max 500 (maar als er minder is: gebruik minder)
     const hardCap = Math.min(Math.max(limit, 120), 500);
     const candles = all.slice(Math.max(0, all.length - hardCap));
+
     if (candles.length < 10) return res.status(404).send("too_few_candles");
 
     const data = candles.map((c) => ({
@@ -374,6 +472,7 @@ app.get("/chart.png", async (req, res) => {
       c: c.close,
     }));
 
+    // y-scale: min/max + marge
     let minL = Infinity;
     let maxH = -Infinity;
     for (const c of candles) {
@@ -400,7 +499,7 @@ app.get("/chart.png", async (req, res) => {
         data: {
           datasets: [
             {
-              label: `${symbol} ${interval}`,
+              label: `${symbol} ${chosenInterval}`,
               data,
               color: {
                 up: "rgba(34,197,94,0.9)",
@@ -421,7 +520,7 @@ app.get("/chart.png", async (req, res) => {
       },
     };
 
-    const key = `${symbol}|${interval}`;
+    const key = `${symbol}|${chosenInterval}`;
 
     const r = await fetchFn("https://quickchart.io/chart", {
       method: "POST",
@@ -432,8 +531,9 @@ app.get("/chart.png", async (req, res) => {
     if (!r.ok) {
       const cached = lastChartPng.get(key);
       if (cached?.buf) {
-        setNoCachePngHeaders(res, symbol, interval);
+        setNoCachePngHeaders(res, symbol, chosenInterval);
         res.setHeader("X-Chart-Fallback", "1");
+        res.setHeader("X-Chart-Interval-Used", chosenInterval);
         return res.end(cached.buf);
       }
       return res.status(502).send("chart_failed");
@@ -442,15 +542,16 @@ app.get("/chart.png", async (req, res) => {
     const buf = Buffer.from(await r.arrayBuffer());
     lastChartPng.set(key, { buf, tsMs: Date.now() });
 
-    setNoCachePngHeaders(res, symbol, interval);
+    setNoCachePngHeaders(res, symbol, chosenInterval);
     res.setHeader("X-Chart-Fallback", "0");
+    res.setHeader("X-Chart-Interval-Used", chosenInterval);
     return res.end(buf);
   } catch (e) {
     return res.status(500).send("error");
   }
 });
 
-// ✅ ForexFactory “red news” endpoint (High impact)
+// ✅ ForexFactory “red news” endpoint
 app.get("/ff/red", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
@@ -460,7 +561,7 @@ app.get("/ff/red", async (req, res) => {
   }
 });
 
-// ✅ Alias voor Telegram: /news (JSON)
+// ✅ Alias: /news (JSON)
 app.get("/news", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
@@ -470,7 +571,7 @@ app.get("/news", async (req, res) => {
   }
 });
 
-// ✅ Telegram-vriendelijke tekst: /news.txt
+// ✅ Telegram tekst: /news.txt
 app.get("/news.txt", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
