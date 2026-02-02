@@ -10,8 +10,8 @@ const fetchFn =
 
 let last = null;
 
-// ✅ laatste succesvolle PNG per symbol+interval (fallback als QuickChart faalt)
-const lastChartPng = new Map(); // key -> { buf, tsMs }
+// ✅ laatste succesvolle chart per symbol+interval+format (fallback als QuickChart faalt)
+const lastChartBuf = new Map(); // key -> { buf, tsMs, mime }
 
 // ---- ForexFactory calendar feed (JSON, geen npm nodig) ----
 const FF_JSON_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
@@ -166,13 +166,13 @@ function updateCandle({ symbol, interval, price, tsMs }) {
 }
 
 /** ---- Helpers ---- */
-function setNoCachePngHeaders(res, symbol, interval) {
-  res.setHeader("Content-Type", "image/png");
+function setNoCacheImageHeaders(res, mime, symbol, interval, ext) {
+  res.setHeader("Content-Type", mime);
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.setHeader("Surrogate-Control", "no-store");
-  res.setHeader("Content-Disposition", `inline; filename="chart-${symbol}-${interval}-${Date.now()}.png"`);
+  res.setHeader("Content-Disposition", `inline; filename="chart-${symbol}-${interval}-${Date.now()}.${ext}"`);
 }
 
 /** ---- ForexFactory JSON helpers ---- */
@@ -302,7 +302,6 @@ app.post("/price", (req, res) => {
     const MAX_DRIFT_MS = 5 * 60 * 1000;
 
     let tsCandidate = NaN;
-
     if (ts != null) {
       const n = Number(ts);
       if (Number.isFinite(n)) tsCandidate = n;
@@ -327,7 +326,7 @@ app.post("/price", (req, res) => {
 
     const mid = (bidNum + askNum) / 2;
 
-    // ✅ optie 2: update alle TF’s per tick
+    // ✅ update alle TF’s per tick
     updateCandle({ symbol: last.symbol, interval: "1m", price: mid, tsMs });
     updateCandle({ symbol: last.symbol, interval: "5m", price: mid, tsMs });
     updateCandle({ symbol: last.symbol, interval: "15m", price: mid, tsMs });
@@ -363,9 +362,8 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, candles });
 });
 
-// ✅ optie 3: seed/backfill candles (bv. 200 M15 bars uit EA)
-// POST /seed
-// body: { symbol:"XAUUSD", interval:"15m", candles:[{start,end,open,high,low,close}] }
+// ✅ seed/backfill candles (EA stuurt batches)
+// POST /seed { symbol, interval, candles:[{start,end,open,high,low,close}] }
 app.post("/seed", express.json({ type: "*/*" }), (req, res) => {
   try {
     const { symbol, interval, candles } = req.body || {};
@@ -415,140 +413,162 @@ app.post("/seed", express.json({ type: "*/*" }), (req, res) => {
   }
 });
 
-// ✅ /chart.png?symbol=XAUUSD&interval=15m&limit=200&v=123
-// Als te weinig candles: fallback 15m -> 5m -> 1m
-app.get("/chart.png", async (req, res) => {
-  try {
-    const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
-    const requestedInterval = req.query.interval ? String(req.query.interval) : "15m";
+// ------------ Chart rendering (png/jpg) ------------
 
-    // default veel candles
-    const reqLimit = req.query.limit ? Number(req.query.limit) : 200;
-    const limit = Number.isFinite(reqLimit) ? reqLimit : 200;
+async function renderChart(req, res, format /* "png" | "jpg" */) {
+  const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
+  const requestedInterval = req.query.interval ? String(req.query.interval) : "15m";
 
-    const tryIntervals = [];
-    if (INTERVALS[requestedInterval]) tryIntervals.push(requestedInterval);
-    if (!tryIntervals.includes("5m")) tryIntervals.push("5m");
-    if (!tryIntervals.includes("1m")) tryIntervals.push("1m");
+  const reqLimit = req.query.limit ? Number(req.query.limit) : 200;
+  const limit = Number.isFinite(reqLimit) ? reqLimit : 200;
 
-    let chosenInterval = null;
-    let store = null;
+  const MIN_GOOD = 30; // “goede chart”
+  const MIN_MIN = 3;   // minimale chart als we echt net gestart zijn
 
+  const tryIntervals = [];
+  if (INTERVALS[requestedInterval]) tryIntervals.push(requestedInterval);
+  if (!tryIntervals.includes("15m")) tryIntervals.push("15m");
+  if (!tryIntervals.includes("5m")) tryIntervals.push("5m");
+  if (!tryIntervals.includes("1m")) tryIntervals.push("1m");
+
+  // 1) kies interval met genoeg candles voor GOOD
+  let chosenInterval = null;
+  let store = null;
+  let quality = "low";
+
+  for (const iv of tryIntervals) {
+    const s = getStoreIfExists(symbol, iv);
+    const count = s ? (s.current ? s.history.length + 1 : s.history.length) : 0;
+    if (s && count >= MIN_GOOD) {
+      chosenInterval = iv;
+      store = s;
+      quality = "good";
+      break;
+    }
+  }
+
+  // 2) anders: pak eerste interval met MIN_MIN candles (low)
+  if (!store) {
     for (const iv of tryIntervals) {
       const s = getStoreIfExists(symbol, iv);
       const count = s ? (s.current ? s.history.length + 1 : s.history.length) : 0;
-      if (s && count >= 10) {
+      if (s && count >= MIN_MIN) {
         chosenInterval = iv;
         store = s;
+        quality = "low";
         break;
       }
     }
+  }
 
-    // als echt geen interval genoeg data heeft: pak wat er is
-    if (!store) {
-      const s = getStoreIfExists(symbol, requestedInterval);
-      if (s) {
-        chosenInterval = requestedInterval;
-        store = s;
-      } else {
-        // last resort: 1m store aanmaken is ok, maar die is leeg
-        return res.status(404).send("no_data");
-      }
-    }
+  if (!store) return res.status(404).send("no_data");
 
-    const all = store.current ? [...store.history, store.current] : [...store.history];
+  const all = store.current ? [...store.history, store.current] : [...store.history];
 
-    // min 120, max 500 (maar als er minder is: gebruik minder)
-    const hardCap = Math.min(Math.max(limit, 120), 500);
-    const candles = all.slice(Math.max(0, all.length - hardCap));
+  // min 120, max 500 (maar als er minder is: gebruik minder)
+  const hardCap = Math.min(Math.max(limit, 120), 500);
+  const candles = all.slice(Math.max(0, all.length - hardCap));
 
-    if (candles.length < 10) return res.status(404).send("too_few_candles");
+  if (candles.length < MIN_MIN) return res.status(404).send("too_few_candles");
 
-    const data = candles.map((c) => ({
-      x: new Date(c.start).getTime(),
-      o: c.open,
-      h: c.high,
-      l: c.low,
-      c: c.close,
-    }));
+  // y-scale: min/max + marge
+  let minL = Infinity;
+  let maxH = -Infinity;
+  for (const c of candles) {
+    if (Number.isFinite(c.low)) minL = Math.min(minL, c.low);
+    if (Number.isFinite(c.high)) maxH = Math.max(maxH, c.high);
+  }
+  if (!Number.isFinite(minL) || !Number.isFinite(maxH) || minL === maxH) {
+    minL = Number.isFinite(minL) ? minL - 1 : 0;
+    maxH = Number.isFinite(maxH) ? maxH + 1 : 1;
+  }
+  const range = maxH - minL;
+  const pad = Math.max(range * 0.03, maxH * 0.0005);
+  const yMin = minL - pad;
+  const yMax = maxH + pad;
 
-    // y-scale: min/max + marge
-    let minL = Infinity;
-    let maxH = -Infinity;
-    for (const c of candles) {
-      if (Number.isFinite(c.low)) minL = Math.min(minL, c.low);
-      if (Number.isFinite(c.high)) maxH = Math.max(maxH, c.high);
-    }
-    if (!Number.isFinite(minL) || !Number.isFinite(maxH) || minL === maxH) {
-      minL = Number.isFinite(minL) ? minL - 1 : 0;
-      maxH = Number.isFinite(maxH) ? maxH + 1 : 1;
-    }
-    const range = maxH - minL;
-    const pad = Math.max(range * 0.03, maxH * 0.0005);
-    const yMin = minL - pad;
-    const yMax = maxH + pad;
+  const data = candles.map((c) => ({
+    x: new Date(c.start).getTime(),
+    o: c.open,
+    h: c.high,
+    l: c.low,
+    c: c.close,
+  }));
 
-    const qc = {
-      version: "3",
-      backgroundColor: "#0b1220",
-      width: 900,
-      height: 500,
-      format: "png",
-      chart: {
-        type: "candlestick",
-        data: {
-          datasets: [
-            {
-              label: `${symbol} ${chosenInterval}`,
-              data,
-              color: {
-                up: "rgba(34,197,94,0.9)",
-                down: "rgba(239,68,68,0.9)",
-                unchanged: "rgba(148,163,184,0.9)",
-              },
+  const qc = {
+    version: "3",
+    backgroundColor: "#0b1220",
+    width: 900,
+    height: 500,
+    format, // png of jpg
+    chart: {
+      type: "candlestick",
+      data: {
+        datasets: [
+          {
+            label: `${symbol} ${chosenInterval}`,
+            data,
+            color: {
+              up: "rgba(34,197,94,0.9)",
+              down: "rgba(239,68,68,0.9)",
+              unchanged: "rgba(148,163,184,0.9)",
             },
-          ],
-        },
-        options: {
-          animation: false,
-          plugins: { legend: { labels: { color: "#e5e7eb" } } },
-          scales: {
-            x: { type: "time", ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
-            y: { suggestedMin: yMin, suggestedMax: yMax, ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
           },
+        ],
+      },
+      options: {
+        animation: false,
+        plugins: { legend: { labels: { color: "#e5e7eb" } } },
+        scales: {
+          x: { type: "time", ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
+          y: { suggestedMin: yMin, suggestedMax: yMax, ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
         },
       },
-    };
+    },
+  };
 
-    const key = `${symbol}|${chosenInterval}`;
+  const mime = format === "jpg" ? "image/jpeg" : "image/png";
+  const ext = format === "jpg" ? "jpg" : "png";
+  const cacheKey = `${symbol}|${chosenInterval}|${format}`;
 
-    const r = await fetchFn("https://quickchart.io/chart", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(qc),
-    });
+  const r = await fetchFn("https://quickchart.io/chart", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(qc),
+  });
 
-    if (!r.ok) {
-      const cached = lastChartPng.get(key);
-      if (cached?.buf) {
-        setNoCachePngHeaders(res, symbol, chosenInterval);
-        res.setHeader("X-Chart-Fallback", "1");
-        res.setHeader("X-Chart-Interval-Used", chosenInterval);
-        return res.end(cached.buf);
-      }
-      return res.status(502).send("chart_failed");
+  if (!r.ok) {
+    const cached = lastChartBuf.get(cacheKey);
+    if (cached?.buf) {
+      setNoCacheImageHeaders(res, cached.mime, symbol, chosenInterval, ext);
+      res.setHeader("X-Chart-Fallback", "1");
+      res.setHeader("X-Chart-Interval-Used", chosenInterval);
+      res.setHeader("X-Chart-Quality", quality);
+      res.setHeader("X-Chart-Count", String(candles.length));
+      return res.end(cached.buf);
     }
-
-    const buf = Buffer.from(await r.arrayBuffer());
-    lastChartPng.set(key, { buf, tsMs: Date.now() });
-
-    setNoCachePngHeaders(res, symbol, chosenInterval);
-    res.setHeader("X-Chart-Fallback", "0");
-    res.setHeader("X-Chart-Interval-Used", chosenInterval);
-    return res.end(buf);
-  } catch (e) {
-    return res.status(500).send("error");
+    return res.status(502).send("chart_failed");
   }
+
+  const buf = Buffer.from(await r.arrayBuffer());
+  lastChartBuf.set(cacheKey, { buf, tsMs: Date.now(), mime });
+
+  setNoCacheImageHeaders(res, mime, symbol, chosenInterval, ext);
+  res.setHeader("X-Chart-Fallback", "0");
+  res.setHeader("X-Chart-Interval-Used", chosenInterval);
+  res.setHeader("X-Chart-Quality", quality);
+  res.setHeader("X-Chart-Count", String(candles.length));
+  return res.end(buf);
+}
+
+app.get("/chart.png", async (req, res) => {
+  try { return await renderChart(req, res, "png"); }
+  catch (e) { return res.status(500).send("error"); }
+});
+
+app.get("/chart.jpg", async (req, res) => {
+  try { return await renderChart(req, res, "jpg"); }
+  catch (e) { return res.status(500).send("error"); }
 });
 
 // ✅ ForexFactory “red news” endpoint
