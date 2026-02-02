@@ -10,6 +10,9 @@ const fetchFn =
 
 let last = null;
 
+// ✅ laatste succesvolle PNG per symbol+interval (fallback als QuickChart faalt)
+const lastChartPng = new Map(); // key -> { buf, tsMs }
+
 /**
  * Probeert de eerste "echte" JSON object string uit een tekst te halen.
  * Neemt alles tussen de eerste '{' en de laatste '}'.
@@ -26,7 +29,6 @@ function firstJsonObject(raw) {
 function parseTimeToMs(input) {
   if (input == null) return NaN;
 
-  // number
   if (typeof input === "number" && Number.isFinite(input)) {
     return input < 1e12 ? input * 1000 : input;
   }
@@ -34,7 +36,6 @@ function parseTimeToMs(input) {
   const s = String(input).trim();
   if (!s) return NaN;
 
-  // numeric string
   if (/^\d+(\.\d+)?$/.test(s)) {
     const n = Number(s);
     if (!Number.isFinite(n)) return NaN;
@@ -100,7 +101,7 @@ function update15mCandle({ symbol, price, tsMs }) {
 
   const currentStartMs = Date.parse(store.current.start);
 
-  if (tsMs < currentStartMs) return; // out-of-order -> negeren
+  if (tsMs < currentStartMs) return;
 
   if (currentStartMs === bucketStart) {
     store.current.high = Math.max(store.current.high, price);
@@ -110,12 +111,10 @@ function update15mCandle({ symbol, price, tsMs }) {
     return;
   }
 
-  // sluit candle
   const finished = store.current;
   store.current = null;
   pushHistoryCapped(store, finished);
 
-  // gaps vullen (flat candles)
   const prevClose = finished.close;
   let nextStart = currentStartMs + intervalMs;
   while (nextStart < bucketStart) {
@@ -134,7 +133,6 @@ function update15mCandle({ symbol, price, tsMs }) {
     nextStart += intervalMs;
   }
 
-  // start nieuwe candle
   store.current = {
     symbol: String(symbol),
     interval: "15m",
@@ -146,6 +144,24 @@ function update15mCandle({ symbol, price, tsMs }) {
     close: price,
     lastTs: tsMs,
   };
+}
+
+/** ---- Helpers ---- */
+
+function setNoCachePngHeaders(res, symbol, interval) {
+  res.setHeader("Content-Type", "image/png");
+
+  // Super agressief anti-cache (werkt beter met Telegram + proxies)
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
+
+  // Unieke “filename” helpt soms ook bij caching/clients
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="chart-${symbol}-${interval}-${Date.now()}.png"`
+  );
 }
 
 /** ---- Routes ---- */
@@ -169,24 +185,21 @@ app.post("/price", (req, res) => {
       return res.status(400).send("bad");
     }
 
-    // ✅ KRITIEKE FIX: vertrouw server tijd, tenzij client-tijd "dichtbij" is
+    // ✅ vertrouw server tijd, tenzij client-tijd "dichtbij" is
     const now = Date.now();
-    const MAX_DRIFT_MS = 5 * 60 * 1000; // 5 minuten
+    const MAX_DRIFT_MS = 5 * 60 * 1000;
 
     let tsCandidate = NaN;
 
-    // 1) ts kandidaat
     if (ts != null) {
       const n = Number(ts);
       if (Number.isFinite(n)) tsCandidate = n;
     }
 
-    // 2) fallback: parse time string
     if (!Number.isFinite(tsCandidate) && time != null) {
       tsCandidate = parseTimeToMs(time);
     }
 
-    // 3) kies tsMs
     const tsMs =
       Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS
         ? tsCandidate
@@ -196,11 +209,11 @@ app.post("/price", (req, res) => {
       symbol: String(symbol),
       bid: bidNum,
       ask: askNum,
-      time: new Date(tsMs).toISOString(), // ✅ altijd correcte ISO UTC
+      time: new Date(tsMs).toISOString(),
       ts: tsMs,
-      raw_time: time ?? null,            // handig om te zien wat EA stuurde
-      raw_ts: ts ?? null,                // handig om te zien wat EA stuurde
-      used_server_time: tsMs === now,    // debug flag
+      raw_time: time ?? null,
+      raw_ts: ts ?? null,
+      used_server_time: tsMs === now,
     };
 
     const mid = (bidNum + askNum) / 2;
@@ -217,7 +230,6 @@ app.get("/price", (req, res) => {
   return res.json({ ok: true, ...last });
 });
 
-// Candles ophalen
 app.get("/candles", (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "";
   const interval = req.query.interval ? String(req.query.interval) : "15m";
@@ -237,8 +249,9 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, candles });
 });
 
-// Chart image (png) voor Telegram bots
+// ✅ Chart image (png) met anti-cache + fallback cache
 app.get("/chart.png", async (req, res) => {
+  // tip: laat je bot altijd &v=Date.now() meegeven (cache bust)
   try {
     const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
     const interval = req.query.interval ? String(req.query.interval) : "15m";
@@ -273,19 +286,14 @@ app.get("/chart.png", async (req, res) => {
         options: {
           plugins: { legend: { labels: { color: "#e5e7eb" } } },
           scales: {
-            x: {
-              type: "time",
-              ticks: { color: "#9ca3af" },
-              grid: { color: "rgba(255,255,255,0.06)" },
-            },
-            y: {
-              ticks: { color: "#9ca3af" },
-              grid: { color: "rgba(255,255,255,0.06)" },
-            },
+            x: { type: "time", ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
+            y: { ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
           },
         },
       },
     };
+
+    const key = `${symbol}|${interval}`;
 
     const r = await fetchFn("https://quickchart.io/chart", {
       method: "POST",
@@ -293,14 +301,34 @@ app.get("/chart.png", async (req, res) => {
       body: JSON.stringify(qc),
     });
 
-    if (!r.ok) return res.status(502).send("chart_failed");
-
-    res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "no-store");
+    if (!r.ok) {
+      // ✅ fallback: stuur laatste chart terug als we die hebben
+      const cached = lastChartPng.get(key);
+      if (cached?.buf) {
+        setNoCachePngHeaders(res, symbol, interval);
+        res.setHeader("X-Chart-Fallback", "1");
+        return res.end(cached.buf);
+      }
+      return res.status(502).send("chart_failed");
+    }
 
     const buf = Buffer.from(await r.arrayBuffer());
+    lastChartPng.set(key, { buf, tsMs: Date.now() });
+
+    setNoCachePngHeaders(res, symbol, interval);
+    res.setHeader("X-Chart-Fallback", "0");
     return res.end(buf);
   } catch (e) {
+    // ✅ fallback bij exception
+    const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
+    const interval = req.query.interval ? String(req.query.interval) : "15m";
+    const key = `${symbol}|${interval}`;
+    const cached = lastChartPng.get(key);
+    if (cached?.buf) {
+      setNoCachePngHeaders(res, symbol, interval);
+      res.setHeader("X-Chart-Fallback", "1");
+      return res.end(cached.buf);
+    }
     return res.status(500).send("error");
   }
 });
