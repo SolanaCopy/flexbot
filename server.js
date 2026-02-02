@@ -230,6 +230,44 @@ async function getFfEvents() {
   return events;
 }
 
+// Shared red-news logic (voor /ff/red, /news, /news.txt)
+async function getRedNews(req) {
+  const currency = req.query.currency ? String(req.query.currency).toUpperCase() : null;
+  const limit = req.query.limit ? Number(req.query.limit) : 20;
+  const minutes = req.query.minutes ? Number(req.query.minutes) : null;
+
+  const all = await getFfEvents();
+
+  let events = all.filter((e) => e.impact === "high"); // "red/high impact"
+  if (currency) events = events.filter((e) => e.currency === currency);
+
+  if (Number.isFinite(minutes) && minutes > 0) {
+    const now = Date.now();
+    const until = now + minutes * 60 * 1000;
+    events = events.filter((e) => e.ts == null || (e.ts >= now && e.ts <= until));
+  }
+
+  const hardCap = Math.min(Math.max(Number.isFinite(limit) ? limit : 20, 1), 200);
+  events = events.slice(0, hardCap);
+
+  return { currency, events };
+}
+
+function formatNewsText(events, currency) {
+  if (!events.length) return "Geen red news gevonden.";
+
+  const cur = currency ? ` (${currency})` : "";
+  const lines = [`🟥 ForexFactory RED news${cur} (top ${events.length})`];
+
+  for (const e of events) {
+    const when = e.ts
+      ? new Date(e.ts).toISOString().slice(0, 16).replace("T", " ") + "Z"
+      : `${e.date} ${e.time}`;
+    lines.push(`• ${when} — ${e.currency} — ${e.title}`);
+  }
+  return lines.join("\n");
+}
+
 /** ---- Routes ---- */
 
 app.post("/price", (req, res) => {
@@ -413,33 +451,36 @@ app.get("/chart.png", async (req, res) => {
 });
 
 // ✅ ForexFactory “red news” endpoint (High impact)
-// Voorbeelden:
-// /ff/red
-// /ff/red?currency=USD&limit=25
-// /ff/red?minutes=120
 app.get("/ff/red", async (req, res) => {
   try {
-    const currency = req.query.currency ? String(req.query.currency).toUpperCase() : null;
-    const limit = req.query.limit ? Number(req.query.limit) : 50;
-    const minutes = req.query.minutes ? Number(req.query.minutes) : null;
-
-    const all = await getFfEvents();
-
-    let events = all.filter((e) => e.impact === "high"); // "red"
-    if (currency) events = events.filter((e) => e.currency === currency);
-
-    if (Number.isFinite(minutes) && minutes > 0) {
-      const now = Date.now();
-      const until = now + minutes * 60 * 1000;
-      events = events.filter((e) => e.ts == null || (e.ts >= now && e.ts <= until));
-    }
-
-    const hardCap = Math.min(Math.max(Number.isFinite(limit) ? limit : 50, 1), 200);
-    events = events.slice(0, hardCap);
-
+    const { currency, events } = await getRedNews(req);
     return res.json({ ok: true, source: "forexfactory_json", currency, count: events.length, events });
   } catch (e) {
     return res.status(502).json({ ok: false, error: "ff_unavailable" });
+  }
+});
+
+// ✅ Alias voor Telegram: /news (JSON)
+app.get("/news", async (req, res) => {
+  try {
+    const { currency, events } = await getRedNews(req);
+    return res.json({ ok: true, source: "forexfactory_json", currency, count: events.length, events });
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: "ff_unavailable" });
+  }
+});
+
+// ✅ Telegram-vriendelijke tekst: /news.txt
+app.get("/news.txt", async (req, res) => {
+  try {
+    const { currency, events } = await getRedNews(req);
+    const text = formatNewsText(events, currency);
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(text);
+  } catch (e) {
+    return res.status(502).send("ff_unavailable");
   }
 });
 
