@@ -1,6 +1,7 @@
 const express = require("express");
-const app = express();
+const { XMLParser } = require("fast-xml-parser");
 
+const app = express();
 app.use(express.text({ type: "*/*" }));
 
 // Node 18+ heeft fetch standaard. Voor oudere Node versies: npm i node-fetch
@@ -12,6 +13,16 @@ let last = null;
 
 // ✅ laatste succesvolle PNG per symbol+interval (fallback als QuickChart faalt)
 const lastChartPng = new Map(); // key -> { buf, tsMs }
+
+// ---- ForexFactory calendar feed ----
+const FF_XML_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"; // :contentReference[oaicite:1]{index=1}
+const ffParser = new XMLParser({
+  ignoreAttributes: false,
+  // CDATA netjes als string
+  processEntities: true,
+});
+let ffCache = { ts: 0, events: [] };
+const FF_CACHE_MS = 60 * 1000; // 60s cache
 
 /**
  * Probeert de eerste "echte" JSON object string uit een tekst te halen.
@@ -114,7 +125,6 @@ function update15mCandle({ symbol, price, tsMs }) {
   store.current = null;
   pushHistoryCapped(store, finished);
 
-  // gaps vullen (flat candles)
   const prevClose = finished.close;
   let nextStart = currentStartMs + intervalMs;
   while (nextStart < bucketStart) {
@@ -147,7 +157,6 @@ function update15mCandle({ symbol, price, tsMs }) {
 }
 
 /** ---- Helpers ---- */
-
 function setNoCachePngHeaders(res, symbol, interval) {
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -155,6 +164,80 @@ function setNoCachePngHeaders(res, symbol, interval) {
   res.setHeader("Expires", "0");
   res.setHeader("Surrogate-Control", "no-store");
   res.setHeader("Content-Disposition", `inline; filename="chart-${symbol}-${interval}-${Date.now()}.png"`);
+}
+
+/** ---- ForexFactory fetch/parse ---- */
+function normImpact(x) {
+  const s = String(x ?? "").toLowerCase();
+  if (s.includes("high")) return "high";
+  if (s.includes("medium")) return "medium";
+  if (s.includes("low")) return "low";
+  // soms komt impact als "3" of iets raars binnen → laat ‘m dan door als string
+  return s || "unknown";
+}
+
+function pickEventsFromParsed(parsed) {
+  // XML structuur verschilt soms; we proberen defensief:
+  // Zoek naar iets als ...weeklyevents.event of calendar.event
+  const root = parsed?.weeklyevents || parsed?.calendar || parsed;
+  let events = root?.event || root?.events || [];
+
+  if (!events) return [];
+  if (!Array.isArray(events)) events = [events];
+
+  // Normaliseer event fields
+  return events.map((e) => {
+    const title = e.title ?? e.name ?? "";
+    const country = e.country ?? e.currency ?? "";
+    const impact = normImpact(e.impact ?? e.impactTitle ?? e["impact-title"]);
+    const date = e.date ?? "";
+    const time = e.time ?? "";
+    const actual = e.actual ?? null;
+    const forecast = e.forecast ?? null;
+    const previous = e.previous ?? null;
+
+    // Sommige feeds geven een url
+    const url = e.url ?? null;
+
+    // Probeer een ISO-ish timestamp te maken (als date/time parseable zijn)
+    const dtStr = `${date} ${time}`.trim();
+    const ts = Number.isFinite(Date.parse(dtStr)) ? Date.parse(dtStr) : null;
+
+    return {
+      title: String(title),
+      currency: String(country),
+      impact,
+      date: String(date),
+      time: String(time),
+      ts,
+      actual,
+      forecast,
+      previous,
+      url,
+    };
+  });
+}
+
+async function getFfEvents() {
+  const now = Date.now();
+  if (now - ffCache.ts < FF_CACHE_MS && ffCache.events.length) return ffCache.events;
+
+  const r = await fetchFn(FF_XML_URL, {
+    method: "GET",
+    headers: {
+      "User-Agent": "flexbot/1.0",
+      "Accept": "application/xml,text/xml,*/*",
+    },
+  });
+
+  if (!r.ok) throw new Error(`ff_fetch_failed_${r.status}`);
+  const xml = await r.text();
+
+  const parsed = ffParser.parse(xml);
+  const events = pickEventsFromParsed(parsed);
+
+  ffCache = { ts: now, events };
+  return events;
 }
 
 /** ---- Routes ---- */
@@ -183,12 +266,15 @@ app.post("/price", (req, res) => {
       const n = Number(ts);
       if (Number.isFinite(n)) tsCandidate = n;
     }
+
     if (!Number.isFinite(tsCandidate) && time != null) {
       tsCandidate = parseTimeToMs(time);
     }
 
     const tsMs =
-      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS ? tsCandidate : now;
+      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS
+        ? tsCandidate
+        : now;
 
     last = {
       symbol: String(symbol),
@@ -234,13 +320,11 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, candles });
 });
 
-// ✅ Chart image (png) met: meer candles + betere y-scale + anti-cache + fallback cache
+// Chart image (png) (jouw bestaande versie; laat ik hier even kort)
 app.get("/chart.png", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
     const interval = req.query.interval ? String(req.query.interval) : "15m";
-
-    // ✅ default veel candles
     const reqLimit = req.query.limit ? Number(req.query.limit) : 200;
     const limit = Number.isFinite(reqLimit) ? reqLimit : 200;
 
@@ -250,11 +334,8 @@ app.get("/chart.png", async (req, res) => {
     if (!store) return res.status(404).send("no_data");
 
     const all = store.current ? [...store.history, store.current] : [...store.history];
-
-    // ✅ min 120, max 500
     const hardCap = Math.min(Math.max(limit, 120), 500);
     const candles = all.slice(Math.max(0, all.length - hardCap));
-
     if (candles.length < 10) return res.status(404).send("too_few_candles");
 
     const data = candles.map((c) => ({
@@ -265,22 +346,19 @@ app.get("/chart.png", async (req, res) => {
       c: c.close,
     }));
 
-    // ✅ y-axis auto (min/max + marge)
+    // y-scale: min/max + marge
     let minL = Infinity;
     let maxH = -Infinity;
     for (const c of candles) {
       if (Number.isFinite(c.low)) minL = Math.min(minL, c.low);
       if (Number.isFinite(c.high)) maxH = Math.max(maxH, c.high);
     }
-
     if (!Number.isFinite(minL) || !Number.isFinite(maxH) || minL === maxH) {
-      // fallback als data raar is
       minL = Number.isFinite(minL) ? minL - 1 : 0;
       maxH = Number.isFinite(maxH) ? maxH + 1 : 1;
     }
-
     const range = maxH - minL;
-    const pad = Math.max(range * 0.03, maxH * 0.0005); // 3% of klein vast beetje
+    const pad = Math.max(range * 0.03, maxH * 0.0005);
     const yMin = minL - pad;
     const yMax = maxH + pad;
 
@@ -297,7 +375,6 @@ app.get("/chart.png", async (req, res) => {
             {
               label: `${symbol} ${interval}`,
               data,
-              // (optional) kleuren: als jouw build dit negeert, geen probleem
               color: {
                 up: "rgba(34,197,94,0.9)",
                 down: "rgba(239,68,68,0.9)",
@@ -310,17 +387,8 @@ app.get("/chart.png", async (req, res) => {
           animation: false,
           plugins: { legend: { labels: { color: "#e5e7eb" } } },
           scales: {
-            x: {
-              type: "time",
-              ticks: { color: "#9ca3af" },
-              grid: { color: "rgba(255,255,255,0.06)" },
-            },
-            y: {
-              suggestedMin: yMin,
-              suggestedMax: yMax,
-              ticks: { color: "#9ca3af" },
-              grid: { color: "rgba(255,255,255,0.06)" },
-            },
+            x: { type: "time", ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
+            y: { suggestedMin: yMin, suggestedMax: yMax, ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
           },
         },
       },
@@ -335,7 +403,6 @@ app.get("/chart.png", async (req, res) => {
     });
 
     if (!r.ok) {
-      // fallback: stuur laatste chart terug als we die hebben
       const cached = lastChartPng.get(key);
       if (cached?.buf) {
         setNoCachePngHeaders(res, symbol, interval);
@@ -352,16 +419,38 @@ app.get("/chart.png", async (req, res) => {
     res.setHeader("X-Chart-Fallback", "0");
     return res.end(buf);
   } catch (e) {
-    const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
-    const interval = req.query.interval ? String(req.query.interval) : "15m";
-    const key = `${symbol}|${interval}`;
-    const cached = lastChartPng.get(key);
-    if (cached?.buf) {
-      setNoCachePngHeaders(res, symbol, interval);
-      res.setHeader("X-Chart-Fallback", "1");
-      return res.end(cached.buf);
-    }
     return res.status(500).send("error");
+  }
+});
+
+// ✅ NEW: ForexFactory “red news” endpoint
+// Voorbeelden:
+// /ff/red
+// /ff/red?currency=USD&limit=25
+// /ff/red?minutes=120
+app.get("/ff/red", async (req, res) => {
+  try {
+    const currency = req.query.currency ? String(req.query.currency).toUpperCase() : null;
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const minutes = req.query.minutes ? Number(req.query.minutes) : null;
+
+    const all = await getFfEvents();
+
+    let events = all.filter((e) => e.impact === "high"); // "red"
+    if (currency) events = events.filter((e) => e.currency === currency);
+
+    if (Number.isFinite(minutes) && minutes > 0) {
+      const now = Date.now();
+      const until = now + minutes * 60 * 1000;
+      events = events.filter((e) => e.ts == null || (e.ts >= now && e.ts <= until));
+    }
+
+    const hardCap = Math.min(Math.max(Number.isFinite(limit) ? limit : 50, 1), 200);
+    events = events.slice(0, hardCap);
+
+    return res.json({ ok: true, source: "forexfactory_xml", currency, count: events.length, events });
+  } catch (e) {
+    return res.status(502).json({ ok: false, error: "ff_unavailable" });
   }
 });
 
