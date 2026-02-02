@@ -1,5 +1,4 @@
 const express = require("express");
-const { XMLParser } = require("fast-xml-parser");
 
 const app = express();
 app.use(express.text({ type: "*/*" }));
@@ -14,13 +13,8 @@ let last = null;
 // ✅ laatste succesvolle PNG per symbol+interval (fallback als QuickChart faalt)
 const lastChartPng = new Map(); // key -> { buf, tsMs }
 
-// ---- ForexFactory calendar feed ----
-const FF_XML_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"; // :contentReference[oaicite:1]{index=1}
-const ffParser = new XMLParser({
-  ignoreAttributes: false,
-  // CDATA netjes als string
-  processEntities: true,
-});
+// ---- ForexFactory calendar feed (JSON, geen npm nodig) ----
+const FF_JSON_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 let ffCache = { ts: 0, events: [] };
 const FF_CACHE_MS = 60 * 1000; // 60s cache
 
@@ -166,75 +160,71 @@ function setNoCachePngHeaders(res, symbol, interval) {
   res.setHeader("Content-Disposition", `inline; filename="chart-${symbol}-${interval}-${Date.now()}.png"`);
 }
 
-/** ---- ForexFactory fetch/parse ---- */
+/** ---- ForexFactory JSON helpers ---- */
 function normImpact(x) {
   const s = String(x ?? "").toLowerCase();
   if (s.includes("high")) return "high";
   if (s.includes("medium")) return "medium";
   if (s.includes("low")) return "low";
-  // soms komt impact als "3" of iets raars binnen → laat ‘m dan door als string
   return s || "unknown";
 }
 
-function pickEventsFromParsed(parsed) {
-  // XML structuur verschilt soms; we proberen defensief:
-  // Zoek naar iets als ...weeklyevents.event of calendar.event
-  const root = parsed?.weeklyevents || parsed?.calendar || parsed;
-  let events = root?.event || root?.events || [];
+function getEventTsMs(e) {
+  // Vaak heeft de JSON feed "timestamp" (in seconds). Anders proberen date+time.
+  if (e && e.timestamp != null) {
+    const n = Number(e.timestamp);
+    if (Number.isFinite(n)) return n * 1000;
+  }
 
-  if (!events) return [];
-  if (!Array.isArray(events)) events = [events];
+  const date = e?.date ?? "";
+  const time = e?.time ?? "";
+  const p = Date.parse(`${date} ${time}`.trim());
+  return Number.isFinite(p) ? p : null;
+}
 
-  // Normaliseer event fields
-  return events.map((e) => {
-    const title = e.title ?? e.name ?? "";
-    const country = e.country ?? e.currency ?? "";
-    const impact = normImpact(e.impact ?? e.impactTitle ?? e["impact-title"]);
-    const date = e.date ?? "";
-    const time = e.time ?? "";
-    const actual = e.actual ?? null;
-    const forecast = e.forecast ?? null;
-    const previous = e.previous ?? null;
+function normalizeFfEvent(e) {
+  const title = e?.title ?? e?.name ?? "";
+  const currency = (e?.currency ?? e?.country ?? "").toString().toUpperCase();
+  const impact = normImpact(e?.impact);
+  const date = e?.date ?? "";
+  const time = e?.time ?? "";
+  const ts = getEventTsMs(e);
+  const actual = e?.actual ?? null;
+  const forecast = e?.forecast ?? null;
+  const previous = e?.previous ?? null;
+  const url = e?.url ?? null;
 
-    // Sommige feeds geven een url
-    const url = e.url ?? null;
-
-    // Probeer een ISO-ish timestamp te maken (als date/time parseable zijn)
-    const dtStr = `${date} ${time}`.trim();
-    const ts = Number.isFinite(Date.parse(dtStr)) ? Date.parse(dtStr) : null;
-
-    return {
-      title: String(title),
-      currency: String(country),
-      impact,
-      date: String(date),
-      time: String(time),
-      ts,
-      actual,
-      forecast,
-      previous,
-      url,
-    };
-  });
+  return {
+    title: String(title),
+    currency: String(currency),
+    impact,
+    date: String(date),
+    time: String(time),
+    ts,
+    actual,
+    forecast,
+    previous,
+    url,
+  };
 }
 
 async function getFfEvents() {
   const now = Date.now();
   if (now - ffCache.ts < FF_CACHE_MS && ffCache.events.length) return ffCache.events;
 
-  const r = await fetchFn(FF_XML_URL, {
+  const r = await fetchFn(FF_JSON_URL, {
     method: "GET",
     headers: {
       "User-Agent": "flexbot/1.0",
-      "Accept": "application/xml,text/xml,*/*",
+      "Accept": "application/json,*/*",
     },
   });
 
   if (!r.ok) throw new Error(`ff_fetch_failed_${r.status}`);
-  const xml = await r.text();
 
-  const parsed = ffParser.parse(xml);
-  const events = pickEventsFromParsed(parsed);
+  const arr = await r.json();
+  const list = Array.isArray(arr) ? arr : [];
+  const events = list.map(normalizeFfEvent);
 
   ffCache = { ts: now, events };
   return events;
@@ -320,7 +310,7 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, candles });
 });
 
-// Chart image (png) (jouw bestaande versie; laat ik hier even kort)
+// Chart image (png)
 app.get("/chart.png", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
@@ -346,7 +336,6 @@ app.get("/chart.png", async (req, res) => {
       c: c.close,
     }));
 
-    // y-scale: min/max + marge
     let minL = Infinity;
     let maxH = -Infinity;
     for (const c of candles) {
@@ -423,7 +412,7 @@ app.get("/chart.png", async (req, res) => {
   }
 });
 
-// ✅ NEW: ForexFactory “red news” endpoint
+// ✅ ForexFactory “red news” endpoint (High impact)
 // Voorbeelden:
 // /ff/red
 // /ff/red?currency=USD&limit=25
@@ -448,7 +437,7 @@ app.get("/ff/red", async (req, res) => {
     const hardCap = Math.min(Math.max(Number.isFinite(limit) ? limit : 50, 1), 200);
     events = events.slice(0, hardCap);
 
-    return res.json({ ok: true, source: "forexfactory_xml", currency, count: events.length, events });
+    return res.json({ ok: true, source: "forexfactory_json", currency, count: events.length, events });
   } catch (e) {
     return res.status(502).json({ ok: false, error: "ff_unavailable" });
   }
