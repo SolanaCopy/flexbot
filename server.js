@@ -100,7 +100,6 @@ function update15mCandle({ symbol, price, tsMs }) {
   }
 
   const currentStartMs = Date.parse(store.current.start);
-
   if (tsMs < currentStartMs) return;
 
   if (currentStartMs === bucketStart) {
@@ -115,6 +114,7 @@ function update15mCandle({ symbol, price, tsMs }) {
   store.current = null;
   pushHistoryCapped(store, finished);
 
+  // gaps vullen (flat candles)
   const prevClose = finished.close;
   let nextStart = currentStartMs + intervalMs;
   while (nextStart < bucketStart) {
@@ -150,18 +150,11 @@ function update15mCandle({ symbol, price, tsMs }) {
 
 function setNoCachePngHeaders(res, symbol, interval) {
   res.setHeader("Content-Type", "image/png");
-
-  // Super agressief anti-cache (werkt beter met Telegram + proxies)
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.setHeader("Surrogate-Control", "no-store");
-
-  // Unieke “filename” helpt soms ook bij caching/clients
-  res.setHeader(
-    "Content-Disposition",
-    `inline; filename="chart-${symbol}-${interval}-${Date.now()}.png"`
-  );
+  res.setHeader("Content-Disposition", `inline; filename="chart-${symbol}-${interval}-${Date.now()}.png"`);
 }
 
 /** ---- Routes ---- */
@@ -174,16 +167,11 @@ app.post("/price", (req, res) => {
     const parsed = JSON.parse(jsonStr);
     const { symbol, bid, ask, time, ts } = parsed;
 
-    if (!symbol || bid == null || ask == null) {
-      return res.status(400).send("bad");
-    }
+    if (!symbol || bid == null || ask == null) return res.status(400).send("bad");
 
     const bidNum = Number(bid);
     const askNum = Number(ask);
-
-    if (!Number.isFinite(bidNum) || !Number.isFinite(askNum)) {
-      return res.status(400).send("bad");
-    }
+    if (!Number.isFinite(bidNum) || !Number.isFinite(askNum)) return res.status(400).send("bad");
 
     // ✅ vertrouw server tijd, tenzij client-tijd "dichtbij" is
     const now = Date.now();
@@ -195,15 +183,12 @@ app.post("/price", (req, res) => {
       const n = Number(ts);
       if (Number.isFinite(n)) tsCandidate = n;
     }
-
     if (!Number.isFinite(tsCandidate) && time != null) {
       tsCandidate = parseTimeToMs(time);
     }
 
     const tsMs =
-      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS
-        ? tsCandidate
-        : now;
+      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS ? tsCandidate : now;
 
     last = {
       symbol: String(symbol),
@@ -249,13 +234,15 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, candles });
 });
 
-// ✅ Chart image (png) met anti-cache + fallback cache
+// ✅ Chart image (png) met: meer candles + betere y-scale + anti-cache + fallback cache
 app.get("/chart.png", async (req, res) => {
-  // tip: laat je bot altijd &v=Date.now() meegeven (cache bust)
   try {
     const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
     const interval = req.query.interval ? String(req.query.interval) : "15m";
-    const limit = req.query.limit ? Number(req.query.limit) : 80;
+
+    // ✅ default veel candles
+    const reqLimit = req.query.limit ? Number(req.query.limit) : 200;
+    const limit = Number.isFinite(reqLimit) ? reqLimit : 200;
 
     if (!INTERVALS[interval]) return res.status(400).send("unsupported_interval");
 
@@ -263,8 +250,12 @@ app.get("/chart.png", async (req, res) => {
     if (!store) return res.status(404).send("no_data");
 
     const all = store.current ? [...store.history, store.current] : [...store.history];
-    const hardCap = Math.min(Math.max(limit, 10), 500);
+
+    // ✅ min 120, max 500
+    const hardCap = Math.min(Math.max(limit, 120), 500);
     const candles = all.slice(Math.max(0, all.length - hardCap));
+
+    if (candles.length < 10) return res.status(404).send("too_few_candles");
 
     const data = candles.map((c) => ({
       x: new Date(c.start).getTime(),
@@ -274,6 +265,25 @@ app.get("/chart.png", async (req, res) => {
       c: c.close,
     }));
 
+    // ✅ y-axis auto (min/max + marge)
+    let minL = Infinity;
+    let maxH = -Infinity;
+    for (const c of candles) {
+      if (Number.isFinite(c.low)) minL = Math.min(minL, c.low);
+      if (Number.isFinite(c.high)) maxH = Math.max(maxH, c.high);
+    }
+
+    if (!Number.isFinite(minL) || !Number.isFinite(maxH) || minL === maxH) {
+      // fallback als data raar is
+      minL = Number.isFinite(minL) ? minL - 1 : 0;
+      maxH = Number.isFinite(maxH) ? maxH + 1 : 1;
+    }
+
+    const range = maxH - minL;
+    const pad = Math.max(range * 0.03, maxH * 0.0005); // 3% of klein vast beetje
+    const yMin = minL - pad;
+    const yMax = maxH + pad;
+
     const qc = {
       version: "3",
       backgroundColor: "#0b1220",
@@ -282,12 +292,35 @@ app.get("/chart.png", async (req, res) => {
       format: "png",
       chart: {
         type: "candlestick",
-        data: { datasets: [{ label: `${symbol} ${interval}`, data }] },
+        data: {
+          datasets: [
+            {
+              label: `${symbol} ${interval}`,
+              data,
+              // (optional) kleuren: als jouw build dit negeert, geen probleem
+              color: {
+                up: "rgba(34,197,94,0.9)",
+                down: "rgba(239,68,68,0.9)",
+                unchanged: "rgba(148,163,184,0.9)",
+              },
+            },
+          ],
+        },
         options: {
+          animation: false,
           plugins: { legend: { labels: { color: "#e5e7eb" } } },
           scales: {
-            x: { type: "time", ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
-            y: { ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
+            x: {
+              type: "time",
+              ticks: { color: "#9ca3af" },
+              grid: { color: "rgba(255,255,255,0.06)" },
+            },
+            y: {
+              suggestedMin: yMin,
+              suggestedMax: yMax,
+              ticks: { color: "#9ca3af" },
+              grid: { color: "rgba(255,255,255,0.06)" },
+            },
           },
         },
       },
@@ -302,7 +335,7 @@ app.get("/chart.png", async (req, res) => {
     });
 
     if (!r.ok) {
-      // ✅ fallback: stuur laatste chart terug als we die hebben
+      // fallback: stuur laatste chart terug als we die hebben
       const cached = lastChartPng.get(key);
       if (cached?.buf) {
         setNoCachePngHeaders(res, symbol, interval);
@@ -319,7 +352,6 @@ app.get("/chart.png", async (req, res) => {
     res.setHeader("X-Chart-Fallback", "0");
     return res.end(buf);
   } catch (e) {
-    // ✅ fallback bij exception
     const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
     const interval = req.query.interval ? String(req.query.interval) : "15m";
     const key = `${symbol}|${interval}`;
