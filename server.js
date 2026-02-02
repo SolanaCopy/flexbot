@@ -22,7 +22,7 @@ function firstJsonObject(raw) {
   return s.slice(a, b + 1);
 }
 
-/** ---- Time parsing (robust) ---- */
+/** ---- Time parsing (robust fallback) ---- */
 function parseTimeToMs(input) {
   if (input == null) return Date.now();
 
@@ -43,7 +43,7 @@ function parseTimeToMs(input) {
   }
 
   // MetaTrader format: "YYYY.MM.DD HH:MM:SS"
-  // We interpreteren dit als UTC om een consistente bucket te krijgen.
+  // We interpreteren dit als UTC (maar dit is alleen fallback).
   const m = s.match(/^(\d{4})\.(\d{2})\.(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
   if (m) {
     return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
@@ -161,7 +161,7 @@ app.post("/price", (req, res) => {
     if (!jsonStr) return res.status(400).send("bad");
 
     const parsed = JSON.parse(jsonStr);
-    const { symbol, bid, ask, time } = parsed;
+    const { symbol, bid, ask, time, ts } = parsed; // ✅ ts erbij
 
     if (!symbol || bid == null || ask == null) {
       return res.status(400).send("bad");
@@ -174,14 +174,22 @@ app.post("/price", (req, res) => {
       return res.status(400).send("bad");
     }
 
-    // time bewaren zoals binnenkomt, maar ook een ms versie maken voor candles
-    const tsMs = parseTimeToMs(time);
+    // ✅ 1) als ts bestaat -> gebruik die (beste)
+    // ✅ 2) anders fallback naar time parse (oude clients)
+    const tsMs = ts != null ? Number(ts) : parseTimeToMs(time);
 
+    if (!Number.isFinite(tsMs)) {
+      return res.status(400).send("bad_time");
+    }
+
+    // ✅ last.time altijd ISO UTC maken
     last = {
       symbol: String(symbol),
       bid: bidNum,
       ask: askNum,
-      time: time || new Date(tsMs).toISOString(),
+      time: new Date(tsMs).toISOString(),
+      ts: tsMs,
+      raw_time: time ?? null, // handig om te debuggen wat EA stuurde
     };
 
     const mid = (bidNum + askNum) / 2;
@@ -236,8 +244,6 @@ app.get("/chart.png", async (req, res) => {
     const hardCap = Math.min(Math.max(limit, 10), 500);
     const candles = all.slice(Math.max(0, all.length - hardCap));
 
-    // QuickChart + chartjs-chart-financial (candlestick) gebruikt Chart.js v3+ :contentReference[oaicite:2]{index=2}
-    // In Chart.js v3 is de standaard tijd-key "x" (niet "t") :contentReference[oaicite:3]{index=3}
     const data = candles.map((c) => ({
       x: new Date(c.start).getTime(),
       o: c.open,
@@ -254,13 +260,9 @@ app.get("/chart.png", async (req, res) => {
       format: "png",
       chart: {
         type: "candlestick",
-        data: {
-          datasets: [{ label: `${symbol} ${interval}`, data }],
-        },
+        data: { datasets: [{ label: `${symbol} ${interval}`, data }] },
         options: {
-          plugins: {
-            legend: { labels: { color: "#e5e7eb" } },
-          },
+          plugins: { legend: { labels: { color: "#e5e7eb" } } },
           scales: {
             x: {
               type: "time",
