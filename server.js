@@ -10,18 +10,16 @@ const fetchFn =
 
 let last = null;
 
-// ✅ laatste succesvolle chart per symbol+interval+format (fallback als QuickChart faalt)
+// Laatste succesvolle chart per symbol+interval+format (fallback als QuickChart faalt)
 const lastChartBuf = new Map(); // key -> { buf, tsMs, mime }
 
-// ---- ForexFactory calendar feed (JSON, geen npm nodig) ----
+// ForexFactory calendar feed (JSON)
 const FF_JSON_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 let ffCache = { ts: 0, events: [] };
-const FF_CACHE_MS = 60 * 1000; // 60s cache
+const FF_CACHE_MS = 60 * 1000;
 
-/**
- * Probeert de eerste "echte" JSON object string uit een tekst te halen.
- * Neemt alles tussen de eerste '{' en de laatste '}'.
- */
+// Probeert de eerste "echte" JSON object string uit een tekst te halen.
+// Neemt alles tussen de eerste '{' en de laatste '}'.
 function firstJsonObject(raw) {
   const s = String(raw || "");
   const a = s.indexOf("{");
@@ -30,7 +28,7 @@ function firstJsonObject(raw) {
   return s.slice(a, b + 1);
 }
 
-/** ---- Time parsing (fallback) ---- */
+// Time parsing (fallback)
 function parseTimeToMs(input) {
   if (input == null) return NaN;
 
@@ -57,7 +55,7 @@ function parseTimeToMs(input) {
   return Number.isFinite(p) ? p : NaN;
 }
 
-/** ---- Candle aggregation (1m/5m/15m) ---- */
+// Candle aggregation (1m/5m/15m)
 const INTERVALS = {
   "1m": 1 * 60 * 1000,
   "5m": 5 * 60 * 1000,
@@ -165,7 +163,7 @@ function updateCandle({ symbol, interval, price, tsMs }) {
   };
 }
 
-/** ---- Helpers ---- */
+// Helpers
 function setNoCacheImageHeaders(res, mime, symbol, interval, ext) {
   res.setHeader("Content-Type", mime);
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -178,7 +176,7 @@ function setNoCacheImageHeaders(res, mime, symbol, interval, ext) {
   );
 }
 
-/** ---- ForexFactory JSON helpers ---- */
+// ForexFactory JSON helpers
 function normImpact(x) {
   const s = String(x ?? "").toLowerCase();
   if (s.includes("high")) return "high";
@@ -283,9 +281,8 @@ function formatNewsText(events, currency) {
   return lines.join("\n");
 }
 
-/** ---- Routes ---- */
+// Routes
 
-// ✅ Live tick ingest
 app.post("/price", (req, res) => {
   try {
     const jsonStr = firstJsonObject(req.body);
@@ -300,7 +297,6 @@ app.post("/price", (req, res) => {
     const askNum = Number(ask);
     if (!Number.isFinite(bidNum) || !Number.isFinite(askNum)) return res.status(400).send("bad");
 
-    // ✅ vertrouw server tijd, tenzij client-tijd "dichtbij" is
     const now = Date.now();
     const MAX_DRIFT_MS = 5 * 60 * 1000;
 
@@ -346,7 +342,7 @@ app.get("/price", (req, res) => {
   return res.json({ ok: true, ...last });
 });
 
-// ✅ /candles supports: limit, hours, since, until, include_gap
+// /candles supports: limit, hours, since, until, include_gap
 app.get("/candles", (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "";
   const interval = req.query.interval ? String(req.query.interval) : "15m";
@@ -408,15 +404,11 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, count: candles.length, candles });
 });
 
-/**
- * ✅ FIXED /seed: parse JSON even when body came in as text
- * (because of app.use(express.text({type:"*/*"})))
- */
+// ✅ FIXED /seed: parse JSON even if req.body is a string
 app.post("/seed", (req, res) => {
   try {
     let payload = req.body;
 
-    // body is often a string due to express.text middleware
     if (typeof payload === "string") {
       const jsonStr = firstJsonObject(payload) || payload;
       payload = JSON.parse(String(jsonStr).trim());
@@ -473,8 +465,7 @@ app.post("/seed", (req, res) => {
   }
 });
 
-// ------------ Chart rendering (png/jpg) ------------
-
+// Chart rendering
 async function renderChart(req, res, format /* "png" | "jpg" */) {
   const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
   const requestedInterval = req.query.interval ? String(req.query.interval) : "15m";
@@ -561,17 +552,9 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     format,
     chart: {
       type: "candlestick",
-      data: {
-        datasets: [
-          {
-            label: `${symbol} ${chosenInterval}`,
-            data,
-          },
-        ],
-      },
+      data: { datasets: [{ label: `${symbol} ${chosenInterval}`, data }] },
       options: {
         animation: false,
-        plugins: { legend: { labels: { color: "#e5e7eb" } } },
         scales: {
           x: { type: "time" },
           y: { suggestedMin: yMin, suggestedMax: yMax },
@@ -630,7 +613,6 @@ app.get("/chart.jpg", async (req, res) => {
   }
 });
 
-// ✅ ForexFactory “red news” endpoint
 app.get("/ff/red", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
@@ -640,7 +622,6 @@ app.get("/ff/red", async (req, res) => {
   }
 });
 
-// ✅ Alias: /news (JSON)
 app.get("/news", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
@@ -650,7 +631,6 @@ app.get("/news", async (req, res) => {
   }
 });
 
-// ✅ Telegram tekst: /news.txt
 app.get("/news.txt", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
