@@ -227,10 +227,7 @@ async function getFfEvents() {
 
   const r = await fetchFn(FF_JSON_URL, {
     method: "GET",
-    headers: {
-      "User-Agent": "flexbot/1.0",
-      Accept: "application/json,*/*",
-    },
+    headers: { "User-Agent": "flexbot/1.0", Accept: "application/json,*/*" },
   });
 
   if (!r.ok) throw new Error(`ff_fetch_failed_${r.status}`);
@@ -325,13 +322,12 @@ app.post("/price", (req, res) => {
     };
 
     const mid = (bidNum + askNum) / 2;
-
     updateCandle({ symbol: last.symbol, interval: "1m", price: mid, tsMs });
     updateCandle({ symbol: last.symbol, interval: "5m", price: mid, tsMs });
     updateCandle({ symbol: last.symbol, interval: "15m", price: mid, tsMs });
 
     return res.send("ok");
-  } catch (e) {
+  } catch {
     return res.status(400).send("bad_json");
   }
 });
@@ -403,7 +399,7 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, count: candles.length, candles });
 });
 
-// ✅ FIXED /seed: parse JSON even if req.body is a string
+// ✅ FIXED /seed: works even if req.body is a string (because express.text is active)
 app.post("/seed", (req, res) => {
   try {
     let payload = req.body;
@@ -459,12 +455,12 @@ app.post("/seed", (req, res) => {
       got: candles.length,
       stored: store.history.length,
     });
-  } catch (e) {
+  } catch {
     return res.status(400).json({ ok: false, error: "bad_seed_json" });
   }
 });
 
-// TradingView-ish chart rendering
+// TradingView-ish chart rendering (png/jpg) + green/red candles
 async function renderChart(req, res, format /* "png" | "jpg" */) {
   const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
   const requestedInterval = req.query.interval ? String(req.query.interval) : "15m";
@@ -516,6 +512,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   const hardCap = Math.min(Math.max(limit, 120), 500);
   let candles = all.slice(Math.max(0, all.length - hardCap));
 
+  // gap candles eruit = mooier
   candles = candles.filter((c) => !c.gap);
   if (candles.length < MIN_MIN) candles = all.slice(Math.max(0, all.length - hardCap));
   if (candles.length < MIN_MIN) return res.status(404).send("too_few_candles");
@@ -544,7 +541,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     c: c.close,
   }));
 
-  // TradingView-ish theme
+  // TradingView-ish theme + attempt to force green/red candles via backgroundColor/borderColor
   const qc = {
     version: "3",
     backgroundColor: "#131722",
@@ -558,11 +555,18 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           {
             label: `${symbol} ${chosenInterval}`,
             data,
-            color: {
+
+            backgroundColor: {
+              up: "rgba(8,153,129,0.95)",
+              down: "rgba(242,54,69,0.95)",
+              unchanged: "rgba(163,167,177,0.7)",
+            },
+            borderColor: {
               up: "#089981",
               down: "#f23645",
               unchanged: "#a3a7b1",
             },
+            borderWidth: 1,
           },
         ],
       },
@@ -635,7 +639,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 app.get("/chart.png", async (req, res) => {
   try {
     return await renderChart(req, res, "png");
-  } catch (e) {
+  } catch {
     return res.status(500).send("error");
   }
 });
@@ -643,7 +647,7 @@ app.get("/chart.png", async (req, res) => {
 app.get("/chart.jpg", async (req, res) => {
   try {
     return await renderChart(req, res, "jpg");
-  } catch (e) {
+  } catch {
     return res.status(500).send("error");
   }
 });
@@ -652,7 +656,7 @@ app.get("/ff/red", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
     return res.json({ ok: true, source: "forexfactory_json", currency, count: events.length, events });
-  } catch (e) {
+  } catch {
     return res.status(502).json({ ok: false, error: "ff_unavailable" });
   }
 });
@@ -661,7 +665,7 @@ app.get("/news", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
     return res.json({ ok: true, source: "forexfactory_json", currency, count: events.length, events });
-  } catch (e) {
+  } catch {
     return res.status(502).json({ ok: false, error: "ff_unavailable" });
   }
 });
@@ -670,11 +674,10 @@ app.get("/news.txt", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
     const text = formatNewsText(events, currency);
-
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Cache-Control", "no-store");
     return res.send(text);
-  } catch (e) {
+  } catch {
     return res.status(502).send("ff_unavailable");
   }
 });
