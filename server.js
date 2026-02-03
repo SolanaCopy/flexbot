@@ -172,7 +172,10 @@ function setNoCacheImageHeaders(res, mime, symbol, interval, ext) {
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.setHeader("Surrogate-Control", "no-store");
-  res.setHeader("Content-Disposition", `inline; filename="chart-${symbol}-${interval}-${Date.now()}.${ext}"`);
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="chart-${symbol}-${interval}-${Date.now()}.${ext}"`
+  );
 }
 
 /** ---- ForexFactory JSON helpers ---- */
@@ -229,7 +232,7 @@ async function getFfEvents() {
     method: "GET",
     headers: {
       "User-Agent": "flexbot/1.0",
-      "Accept": "application/json,*/*",
+      Accept: "application/json,*/*",
     },
   });
 
@@ -311,7 +314,9 @@ app.post("/price", (req, res) => {
     }
 
     const tsMs =
-      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS ? tsCandidate : now;
+      Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS
+        ? tsCandidate
+        : now;
 
     last = {
       symbol: String(symbol),
@@ -326,7 +331,6 @@ app.post("/price", (req, res) => {
 
     const mid = (bidNum + askNum) / 2;
 
-    // ✅ update alle TF’s per tick
     updateCandle({ symbol: last.symbol, interval: "1m", price: mid, tsMs });
     updateCandle({ symbol: last.symbol, interval: "5m", price: mid, tsMs });
     updateCandle({ symbol: last.symbol, interval: "15m", price: mid, tsMs });
@@ -343,22 +347,18 @@ app.get("/price", (req, res) => {
 });
 
 // ✅ /candles supports: limit, hours, since, until, include_gap
-// Examples:
-// /candles?symbol=XAUUSD&interval=15m&hours=24
-// /candles?symbol=XAUUSD&interval=1m&since=2026-02-02T00:00:00Z
-// /candles?symbol=XAUUSD&interval=5m&since=1770000000000&until=1770080000000&include_gap=0
 app.get("/candles", (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "";
   const interval = req.query.interval ? String(req.query.interval) : "15m";
 
-  const includeGap = req.query.include_gap == null ? true : !["0", "false", "no"].includes(String(req.query.include_gap).toLowerCase());
+  const includeGap =
+    req.query.include_gap == null
+      ? true
+      : !["0", "false", "no"].includes(String(req.query.include_gap).toLowerCase());
 
   const hours = req.query.hours != null ? Number(req.query.hours) : null;
   const sinceRaw = req.query.since != null ? String(req.query.since) : null;
   const untilRaw = req.query.until != null ? String(req.query.until) : null;
-
-  // limit blijft mogelijk, maar als hours/since gebruikt wordt en limit ontbreekt,
-  // dan pakken we automatisch genoeg candles om die range te dekken.
   const limitRaw = req.query.limit != null ? Number(req.query.limit) : null;
 
   if (!symbol) return res.status(400).json({ ok: false, error: "symbol_required" });
@@ -369,7 +369,6 @@ app.get("/candles", (req, res) => {
 
   const all = store.current ? [...store.history, store.current] : [...store.history];
 
-  // bepaal cutoff range (ms)
   let sinceMs = NaN;
   let untilMs = NaN;
 
@@ -385,7 +384,6 @@ app.get("/candles", (req, res) => {
     if (Number.isFinite(ms)) untilMs = ms;
   }
 
-  // automatisch genoeg candles pakken
   const intervalMs = INTERVALS[interval];
   let hardCap;
 
@@ -404,31 +402,33 @@ app.get("/candles", (req, res) => {
   let candles = all.slice(Math.max(0, all.length - hardCap));
 
   if (!includeGap) candles = candles.filter((c) => !c.gap);
-
   if (Number.isFinite(sinceMs)) candles = candles.filter((c) => Date.parse(c.start) >= sinceMs);
   if (Number.isFinite(untilMs)) candles = candles.filter((c) => Date.parse(c.start) <= untilMs);
 
-  return res.json({
-    ok: true,
-    symbol,
-    interval,
-    count: candles.length,
-    candles,
-  });
+  return res.json({ ok: true, symbol, interval, count: candles.length, candles });
 });
 
-// ✅ seed/backfill candles (EA stuurt batches)
-// POST /seed { symbol, interval, candles:[{start,end,open,high,low,close}] }
-app.post("/seed", express.json({ type: "*/*" }), (req, res) => {
+/**
+ * ✅ FIXED /seed: parse JSON even when body came in as text
+ * (because of app.use(express.text({type:"*/*"})))
+ */
+app.post("/seed", (req, res) => {
   try {
-    const { symbol, interval, candles } = req.body || {};
+    let payload = req.body;
+
+    // body is often a string due to express.text middleware
+    if (typeof payload === "string") {
+      const jsonStr = firstJsonObject(payload) || payload;
+      payload = JSON.parse(String(jsonStr).trim());
+    }
+
+    const { symbol, interval, candles } = payload || {};
     if (!symbol || !INTERVALS[interval] || !Array.isArray(candles)) {
       return res.status(400).json({ ok: false, error: "bad_seed" });
     }
 
     const store = getOrCreateStore(symbol, interval);
 
-    // dedupe op start
     const map = new Map();
     for (const c of store.history) map.set(c.start, c);
 
@@ -458,13 +458,18 @@ app.post("/seed", express.json({ type: "*/*" }), (req, res) => {
       });
     }
 
-    // sort op start
     const merged = Array.from(map.values()).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
     store.history = merged.slice(Math.max(0, merged.length - MAX_HISTORY_PER_SYMBOL));
 
-    return res.json({ ok: true, symbol: String(symbol), interval: String(interval), count: store.history.length });
+    return res.json({
+      ok: true,
+      symbol: String(symbol),
+      interval: String(interval),
+      got: candles.length,
+      stored: store.history.length,
+    });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: "seed_error" });
+    return res.status(400).json({ ok: false, error: "bad_seed_json" });
   }
 });
 
@@ -477,8 +482,8 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   const reqLimit = req.query.limit ? Number(req.query.limit) : 200;
   const limit = Number.isFinite(reqLimit) ? reqLimit : 200;
 
-  const MIN_GOOD = 30; // “goede chart”
-  const MIN_MIN = 3;   // minimale chart
+  const MIN_GOOD = 30;
+  const MIN_MIN = 3;
 
   const tryIntervals = [];
   if (INTERVALS[requestedInterval]) tryIntervals.push(requestedInterval);
@@ -486,7 +491,6 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   if (!tryIntervals.includes("5m")) tryIntervals.push("5m");
   if (!tryIntervals.includes("1m")) tryIntervals.push("1m");
 
-  // kies interval met genoeg candles
   let chosenInterval = null;
   let store = null;
   let quality = "low";
@@ -522,17 +526,10 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   const hardCap = Math.min(Math.max(limit, 120), 500);
   let candles = all.slice(Math.max(0, all.length - hardCap));
 
-  // gap candles eruit = mooier
-  candles = candles.filter(c => !c.gap);
-
-  // fallback als alles gap was
-  if (candles.length < MIN_MIN) {
-    candles = all.slice(Math.max(0, all.length - hardCap));
-  }
-
+  candles = candles.filter((c) => !c.gap);
+  if (candles.length < MIN_MIN) candles = all.slice(Math.max(0, all.length - hardCap));
   if (candles.length < MIN_MIN) return res.status(404).send("too_few_candles");
 
-  // y-scale: min/max + marge
   let minL = Infinity;
   let maxH = -Infinity;
   for (const c of candles) {
@@ -569,11 +566,6 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           {
             label: `${symbol} ${chosenInterval}`,
             data,
-            color: {
-              up: "rgba(34,197,94,0.9)",
-              down: "rgba(239,68,68,0.9)",
-              unchanged: "rgba(148,163,184,0.9)",
-            },
           },
         ],
       },
@@ -581,8 +573,8 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         animation: false,
         plugins: { legend: { labels: { color: "#e5e7eb" } } },
         scales: {
-          x: { type: "time", ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
-          y: { suggestedMin: yMin, suggestedMax: yMax, ticks: { color: "#9ca3af" }, grid: { color: "rgba(255,255,255,0.06)" } },
+          x: { type: "time" },
+          y: { suggestedMin: yMin, suggestedMax: yMax },
         },
       },
     },
@@ -623,13 +615,19 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 }
 
 app.get("/chart.png", async (req, res) => {
-  try { return await renderChart(req, res, "png"); }
-  catch (e) { return res.status(500).send("error"); }
+  try {
+    return await renderChart(req, res, "png");
+  } catch (e) {
+    return res.status(500).send("error");
+  }
 });
 
 app.get("/chart.jpg", async (req, res) => {
-  try { return await renderChart(req, res, "jpg"); }
-  catch (e) { return res.status(500).send("error"); }
+  try {
+    return await renderChart(req, res, "jpg");
+  } catch (e) {
+    return res.status(500).send("error");
+  }
 });
 
 // ✅ ForexFactory “red news” endpoint
