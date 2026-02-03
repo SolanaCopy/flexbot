@@ -399,7 +399,7 @@ app.get("/candles", (req, res) => {
   return res.json({ ok: true, symbol, interval, count: candles.length, candles });
 });
 
-// ✅ FIXED /seed: works even if req.body is a string (because express.text is active)
+// ✅ FIXED /seed: parse JSON even if req.body is a string
 app.post("/seed", (req, res) => {
   try {
     let payload = req.body;
@@ -541,7 +541,6 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     c: c.close,
   }));
 
-  // TradingView-ish theme + attempt to force green/red candles via backgroundColor/borderColor
   const qc = {
     version: "3",
     backgroundColor: "#131722",
@@ -556,6 +555,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
             label: `${symbol} ${chosenInterval}`,
             data,
 
+            // Force green/red in QuickChart builds that ignore `color:{up/down}`
             backgroundColor: {
               up: "rgba(8,153,129,0.95)",
               down: "rgba(242,54,69,0.95)",
