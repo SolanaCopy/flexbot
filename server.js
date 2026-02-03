@@ -19,7 +19,6 @@ let ffCache = { ts: 0, events: [] };
 const FF_CACHE_MS = 60 * 1000;
 
 // Probeert de eerste "echte" JSON object string uit een tekst te halen.
-// Neemt alles tussen de eerste '{' en de laatste '}'.
 function firstJsonObject(raw) {
   const s = String(raw || "");
   const a = s.indexOf("{");
@@ -465,7 +464,7 @@ app.post("/seed", (req, res) => {
   }
 });
 
-// Chart rendering
+// TradingView-ish chart rendering
 async function renderChart(req, res, format /* "png" | "jpg" */) {
   const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
   const requestedInterval = req.query.interval ? String(req.query.interval) : "15m";
@@ -521,6 +520,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   if (candles.length < MIN_MIN) candles = all.slice(Math.max(0, all.length - hardCap));
   if (candles.length < MIN_MIN) return res.status(404).send("too_few_candles");
 
+  // y-scale
   let minL = Infinity;
   let maxH = -Infinity;
   for (const c of candles) {
@@ -544,20 +544,55 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     c: c.close,
   }));
 
+  // TradingView-ish theme
   const qc = {
     version: "3",
-    backgroundColor: "#0b1220",
+    backgroundColor: "#131722",
     width: 900,
     height: 500,
     format,
     chart: {
       type: "candlestick",
-      data: { datasets: [{ label: `${symbol} ${chosenInterval}`, data }] },
+      data: {
+        datasets: [
+          {
+            label: `${symbol} ${chosenInterval}`,
+            data,
+            color: {
+              up: "#089981",
+              down: "#f23645",
+              unchanged: "#a3a7b1",
+            },
+          },
+        ],
+      },
       options: {
+        responsive: false,
         animation: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            enabled: true,
+            backgroundColor: "rgba(19,23,34,0.95)",
+            titleColor: "#d1d4dc",
+            bodyColor: "#d1d4dc",
+            borderColor: "rgba(42,46,57,1)",
+            borderWidth: 1,
+            displayColors: false,
+          },
+        },
         scales: {
-          x: { type: "time" },
-          y: { suggestedMin: yMin, suggestedMax: yMax },
+          x: {
+            type: "time",
+            grid: { color: "rgba(42,46,57,0.35)", drawBorder: false },
+            ticks: { color: "#d1d4dc", maxRotation: 0, autoSkip: true, autoSkipPadding: 18 },
+          },
+          y: {
+            suggestedMin: yMin,
+            suggestedMax: yMax,
+            grid: { color: "rgba(42,46,57,0.35)", drawBorder: false },
+            ticks: { color: "#d1d4dc", padding: 6 },
+          },
         },
       },
     },
