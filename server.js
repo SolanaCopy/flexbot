@@ -342,24 +342,79 @@ app.get("/price", (req, res) => {
   return res.json({ ok: true, ...last });
 });
 
-// ✅ /candles?symbol=XAUUSD&interval=1m&limit=200
+// ✅ /candles supports: limit, hours, since, until, include_gap
+// Examples:
+// /candles?symbol=XAUUSD&interval=15m&hours=24
+// /candles?symbol=XAUUSD&interval=1m&since=2026-02-02T00:00:00Z
+// /candles?symbol=XAUUSD&interval=5m&since=1770000000000&until=1770080000000&include_gap=0
 app.get("/candles", (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "";
   const interval = req.query.interval ? String(req.query.interval) : "15m";
-  const limit = req.query.limit ? Number(req.query.limit) : 200;
+
+  const includeGap = req.query.include_gap == null ? true : !["0", "false", "no"].includes(String(req.query.include_gap).toLowerCase());
+
+  const hours = req.query.hours != null ? Number(req.query.hours) : null;
+  const sinceRaw = req.query.since != null ? String(req.query.since) : null;
+  const untilRaw = req.query.until != null ? String(req.query.until) : null;
+
+  // limit blijft mogelijk, maar als hours/since gebruikt wordt en limit ontbreekt,
+  // dan pakken we automatisch genoeg candles om die range te dekken.
+  const limitRaw = req.query.limit != null ? Number(req.query.limit) : null;
 
   if (!symbol) return res.status(400).json({ ok: false, error: "symbol_required" });
   if (!INTERVALS[interval]) return res.status(400).json({ ok: false, error: "unsupported_interval" });
-  if (!Number.isFinite(limit) || limit <= 0) return res.status(400).json({ ok: false, error: "bad_limit" });
 
   const store = getStoreIfExists(symbol, interval);
   if (!store) return res.json({ ok: true, symbol, interval, candles: [] });
 
   const all = store.current ? [...store.history, store.current] : [...store.history];
-  const hardCap = Math.min(Math.max(limit, 10), 5000);
-  const candles = all.slice(Math.max(0, all.length - hardCap));
 
-  return res.json({ ok: true, symbol, interval, candles });
+  // bepaal cutoff range (ms)
+  let sinceMs = NaN;
+  let untilMs = NaN;
+
+  if (Number.isFinite(hours) && hours > 0) {
+    sinceMs = Date.now() - hours * 60 * 60 * 1000;
+  }
+  if (sinceRaw) {
+    const ms = /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : Date.parse(sinceRaw);
+    if (Number.isFinite(ms)) sinceMs = ms;
+  }
+  if (untilRaw) {
+    const ms = /^\d+$/.test(untilRaw) ? Number(untilRaw) : Date.parse(untilRaw);
+    if (Number.isFinite(ms)) untilMs = ms;
+  }
+
+  // automatisch genoeg candles pakken
+  const intervalMs = INTERVALS[interval];
+  let hardCap;
+
+  if (Number.isFinite(limitRaw) && limitRaw > 0) {
+    hardCap = Math.min(Math.max(limitRaw, 10), 5000);
+  } else if (Number.isFinite(sinceMs) || Number.isFinite(untilMs)) {
+    const a = Number.isFinite(sinceMs) ? sinceMs : Date.now() - 24 * 60 * 60 * 1000;
+    const b = Number.isFinite(untilMs) ? untilMs : Date.now();
+    const span = Math.max(0, b - a);
+    const needed = Math.ceil(span / intervalMs) + 5;
+    hardCap = Math.min(Math.max(needed, 200), 5000);
+  } else {
+    hardCap = 200;
+  }
+
+  let candles = all.slice(Math.max(0, all.length - hardCap));
+
+  if (!includeGap) candles = candles.filter((c) => !c.gap);
+
+  if (Number.isFinite(sinceMs)) candles = candles.filter((c) => Date.parse(c.start) >= sinceMs);
+  if (Number.isFinite(untilMs)) candles = candles.filter((c) => Date.parse(c.start) <= untilMs);
+
+  return res.json({
+    ok: true,
+    symbol,
+    interval,
+    count: candles.length,
+    candles,
+  });
 });
 
 // ✅ seed/backfill candles (EA stuurt batches)
@@ -423,7 +478,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   const limit = Number.isFinite(reqLimit) ? reqLimit : 200;
 
   const MIN_GOOD = 30; // “goede chart”
-  const MIN_MIN = 3;   // minimale chart als we echt net gestart zijn
+  const MIN_MIN = 3;   // minimale chart
 
   const tryIntervals = [];
   if (INTERVALS[requestedInterval]) tryIntervals.push(requestedInterval);
@@ -431,7 +486,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   if (!tryIntervals.includes("5m")) tryIntervals.push("5m");
   if (!tryIntervals.includes("1m")) tryIntervals.push("1m");
 
-  // 1) kies interval met genoeg candles voor GOOD
+  // kies interval met genoeg candles
   let chosenInterval = null;
   let store = null;
   let quality = "low";
@@ -447,7 +502,6 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     }
   }
 
-  // 2) anders: pak eerste interval met MIN_MIN candles (low)
   if (!store) {
     for (const iv of tryIntervals) {
       const s = getStoreIfExists(symbol, iv);
@@ -465,9 +519,16 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
   const all = store.current ? [...store.history, store.current] : [...store.history];
 
-  // min 120, max 500 (maar als er minder is: gebruik minder)
   const hardCap = Math.min(Math.max(limit, 120), 500);
-  const candles = all.slice(Math.max(0, all.length - hardCap));
+  let candles = all.slice(Math.max(0, all.length - hardCap));
+
+  // gap candles eruit = mooier
+  candles = candles.filter(c => !c.gap);
+
+  // fallback als alles gap was
+  if (candles.length < MIN_MIN) {
+    candles = all.slice(Math.max(0, all.length - hardCap));
+  }
 
   if (candles.length < MIN_MIN) return res.status(404).send("too_few_candles");
 
@@ -500,7 +561,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     backgroundColor: "#0b1220",
     width: 900,
     height: 500,
-    format, // png of jpg
+    format,
     chart: {
       type: "candlestick",
       data: {
