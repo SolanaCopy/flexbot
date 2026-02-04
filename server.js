@@ -773,7 +773,8 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     return mt5.slice(11, 16);
   });
 
-  const data = candles.map((c) => ({
+  const data = candles.map((c, i) => ({
+    x: labels[i],
     o: c.open,
     h: c.high,
     l: c.low,
