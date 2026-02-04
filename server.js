@@ -448,7 +448,7 @@ app.get("/price", (req, res) => {
 });
 
 // /candles supports: limit, hours, since, until, include_gap
-app.get("/candles", (req, res) => {
+app.get("/candles", async (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "";
   const interval = req.query.interval ? String(req.query.interval) : "15m";
 
@@ -465,8 +465,102 @@ app.get("/candles", (req, res) => {
   if (!symbol) return res.status(400).json({ ok: false, error: "symbol_required" });
   if (!INTERVALS[interval]) return res.status(400).json({ ok: false, error: "unsupported_interval" });
 
+  // If DB is configured, prefer DB for history (survives restarts)
+  const db = await getDb();
+  if (db) {
+    let sinceMsDb = NaN;
+    let untilMsDb = NaN;
+
+    if (Number.isFinite(hours) && hours > 0) {
+      sinceMsDb = Date.now() - hours * 60 * 60 * 1000;
+    }
+    if (sinceRaw) {
+      const ms = /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : Date.parse(sinceRaw);
+      if (Number.isFinite(ms)) sinceMsDb = ms;
+    }
+    if (untilRaw) {
+      const ms = /^\d+$/.test(untilRaw) ? Number(untilRaw) : Date.parse(untilRaw);
+      if (Number.isFinite(ms)) untilMsDb = ms;
+    }
+
+    const intervalMs = INTERVALS[interval];
+    let hardCap;
+
+    if (Number.isFinite(limitRaw) && limitRaw > 0) {
+      hardCap = Math.min(Math.max(limitRaw, 10), 5000);
+    } else if (Number.isFinite(sinceMsDb) || Number.isFinite(untilMsDb)) {
+      const a = Number.isFinite(sinceMsDb) ? sinceMsDb : Date.now() - 24 * 60 * 60 * 1000;
+      const b = Number.isFinite(untilMsDb) ? untilMsDb : Date.now();
+      const span = Math.max(0, b - a);
+      const needed = Math.ceil(span / intervalMs) + 5;
+      hardCap = Math.min(Math.max(needed, 200), 5000);
+    } else {
+      hardCap = 200;
+    }
+
+    const baseSql =
+      "SELECT start_ms,end_ms,start_iso,end_iso,open,high,low,close,last_ts,gap,seeded " +
+      "FROM candles WHERE symbol=? AND interval=?";
+
+    const args = [symbol, interval];
+
+    let where = "";
+    if (Number.isFinite(sinceMsDb)) {
+      where += (where ? " AND " : " AND ") + "start_ms >= ?";
+      args.push(sinceMsDb);
+    }
+    if (Number.isFinite(untilMsDb)) {
+      where += (where ? " AND " : " AND ") + "start_ms <= ?";
+      args.push(untilMsDb);
+    }
+
+    const sql = `${baseSql}${where} ORDER BY start_ms DESC LIMIT ?`;
+    args.push(hardCap);
+
+    const rows = await db.execute({ sql, args });
+    let candles = (rows.rows || [])
+      .map((r) => ({
+        symbol,
+        interval,
+        start: String(r.start_iso),
+        end: String(r.end_iso),
+        open: Number(r.open),
+        high: Number(r.high),
+        low: Number(r.low),
+        close: Number(r.close),
+        lastTs: r.last_ts != null ? Number(r.last_ts) : null,
+        gap: Number(r.gap) === 1,
+        seeded: Number(r.seeded) === 1,
+      }))
+      .filter((c) => [c.open, c.high, c.low, c.close].every(Number.isFinite))
+      .reverse();
+
+    if (!includeGap) candles = candles.filter((c) => !c.gap);
+
+    const candlesOut = candles.map((c) => {
+      const startMs = Date.parse(c.start);
+      const endMs = c.end ? Date.parse(c.end) : NaN;
+      return {
+        ...c,
+        start_mt5: Number.isFinite(startMs) ? formatMt5(startMs) : null,
+        end_mt5: Number.isFinite(endMs) ? formatMt5(endMs) : null,
+      };
+    });
+
+    return res.json({
+      ok: true,
+      symbol,
+      interval,
+      tz: MT5_TZ,
+      server_time: formatMt5(Date.now()),
+      persistence: "turso",
+      count: candlesOut.length,
+      candles: candlesOut,
+    });
+  }
+
   const store = getStoreIfExists(symbol, interval);
-  if (!store) return res.json({ ok: true, symbol, interval, candles: [] });
+  if (!store) return res.json({ ok: true, symbol, interval, persistence: "memory", candles: [] });
 
   const all = store.current ? [...store.history, store.current] : [...store.history];
 
@@ -522,6 +616,7 @@ app.get("/candles", (req, res) => {
     interval,
     tz: MT5_TZ,
     server_time: formatMt5(Date.now()),
+    persistence: "memory",
     count: candlesOut.length,
     candles: candlesOut,
   });
@@ -830,6 +925,31 @@ app.get("/news.txt", async (req, res) => {
 });
 
 app.get("/", (_, res) => res.send("ok"));
+
+app.get("/debug/persistence", async (req, res) => {
+  const url = process.env.TURSO_DATABASE_URL || process.env.DATABASE_URL || null;
+  const authToken = process.env.TURSO_AUTH_TOKEN || process.env.DATABASE_AUTH_TOKEN || null;
+  const enabled = Boolean(url && authToken);
+
+  let urlHost = null;
+  if (url) {
+    try {
+      // libsql://host
+      const m = String(url).match(/^\w+:\/\/([^/]+)/);
+      urlHost = m ? m[1] : null;
+    } catch {
+      urlHost = null;
+    }
+  }
+
+  return res.json({
+    ok: true,
+    persistence_enabled: enabled,
+    url_host: urlHost,
+    tz: MT5_TZ,
+    server_time: formatMt5(Date.now()),
+  });
+});
 
 async function warmLoadFromDb() {
   const db = await getDb();
