@@ -993,22 +993,22 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           title: {
             display: true,
             text: `${symbol} • ${chosenInterval}${spanMs ? ` • ${Math.round(spanMs / 3600000)}h` : ""} • MT5`,
-            color: "rgba(255,255,255,0.9)",
+            color: "rgba(255,255,255,0.92)",
             align: "start",
-            font: { size: 13, weight: "600" },
-            padding: { top: 6, bottom: 6 },
+            font: { size: 18, weight: "700" },
+            padding: { top: 10, bottom: 8 },
           },
           legend: {
             display: true,
             position: "top",
             align: "start",
             labels: {
-              color: "rgba(255,255,255,0.85)",
-              boxWidth: 10,
-              boxHeight: 8,
-              padding: 10,
-              font: { size: 11 },
-              // Hide the main candle dataset label; keep only SL/ENTRY/TP*
+              color: "rgba(255,255,255,0.9)",
+              boxWidth: 14,
+              boxHeight: 10,
+              padding: 14,
+              font: { size: 14, weight: "600" },
+              // Keep legend clean: show only ENTRY/SL/TP*
               filter: (item) => item.datasetIndex !== 0,
             },
           },
@@ -1022,7 +1022,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
             displayColors: false,
           },
         },
-        layout: { padding: { left: 10, right: 14, top: 6, bottom: 6 } },
+        layout: { padding: { left: 10, right: 18, top: 10, bottom: 8 } },
         scales: {
           x: {
             type: "category",
