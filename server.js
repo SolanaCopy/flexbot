@@ -18,6 +18,34 @@ const FF_JSON_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 let ffCache = { ts: 0, events: [] };
 const FF_CACHE_MS = 60 * 1000;
 
+// --- Timezone handling (MT5 server time) ---
+// Many brokers run MT5 server time on EET/EEST (UTC+2 / UTC+3). Default to Europe/Athens.
+const MT5_TZ = process.env.MT5_TZ || "Europe/Athens";
+
+function formatMt5(tsMs) {
+  try {
+    const d = new Date(tsMs);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: MT5_TZ,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(d);
+
+    const get = (t) => parts.find((p) => p.type === t)?.value;
+    // en-CA gives YYYY-MM-DD parts
+    return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get(
+      "minute"
+    )}:${get("second")}`;
+  } catch {
+    return new Date(tsMs).toISOString();
+  }
+}
+
 // Probeert de eerste "echte" JSON object string uit een tekst te halen.
 function firstJsonObject(raw) {
   const s = String(raw || "");
@@ -214,6 +242,7 @@ function normalizeFfEvent(e) {
     date: String(date),
     time: String(time),
     ts,
+    mt5_time: ts ? formatMt5(ts) : null,
     actual,
     forecast,
     previous,
@@ -269,9 +298,7 @@ function formatNewsText(events, currency) {
   const lines = [`🟥 ForexFactory RED news${cur} (top ${events.length})`];
 
   for (const e of events) {
-    const when = e.ts
-      ? new Date(e.ts).toISOString().slice(0, 16).replace("T", " ") + "Z"
-      : `${e.date} ${e.time}`;
+    const when = e?.mt5_time || (e.ts ? formatMt5(e.ts) : `${e.date} ${e.time}`);
     lines.push(`• ${when} — ${e.currency} — ${e.title}`);
   }
   return lines.join("\n");
@@ -314,11 +341,14 @@ app.post("/price", (req, res) => {
       symbol: String(symbol),
       bid: bidNum,
       ask: askNum,
-      time: new Date(tsMs).toISOString(),
+      // Return MT5 server time everywhere by default
+      time: formatMt5(tsMs),
+      time_utc: new Date(tsMs).toISOString(),
       ts: tsMs,
       raw_time: time ?? null,
       raw_ts: ts ?? null,
       used_server_time: tsMs === now,
+      tz: MT5_TZ,
     };
 
     const mid = (bidNum + askNum) / 2;
@@ -396,7 +426,25 @@ app.get("/candles", (req, res) => {
   if (Number.isFinite(sinceMs)) candles = candles.filter((c) => Date.parse(c.start) >= sinceMs);
   if (Number.isFinite(untilMs)) candles = candles.filter((c) => Date.parse(c.start) <= untilMs);
 
-  return res.json({ ok: true, symbol, interval, count: candles.length, candles });
+  const candlesOut = candles.map((c) => {
+    const startMs = Date.parse(c.start);
+    const endMs = c.end ? Date.parse(c.end) : NaN;
+    return {
+      ...c,
+      start_mt5: Number.isFinite(startMs) ? formatMt5(startMs) : null,
+      end_mt5: Number.isFinite(endMs) ? formatMt5(endMs) : null,
+    };
+  });
+
+  return res.json({
+    ok: true,
+    symbol,
+    interval,
+    tz: MT5_TZ,
+    server_time: formatMt5(Date.now()),
+    count: candlesOut.length,
+    candles: candlesOut,
+  });
 });
 
 // ✅ FIXED /seed: parse JSON even if req.body is a string
@@ -655,7 +703,15 @@ app.get("/chart.jpg", async (req, res) => {
 app.get("/ff/red", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
-    return res.json({ ok: true, source: "forexfactory_json", currency, count: events.length, events });
+    return res.json({
+      ok: true,
+      source: "forexfactory_json",
+      currency,
+      tz: MT5_TZ,
+      server_time: formatMt5(Date.now()),
+      count: events.length,
+      events,
+    });
   } catch {
     return res.status(502).json({ ok: false, error: "ff_unavailable" });
   }
@@ -664,7 +720,15 @@ app.get("/ff/red", async (req, res) => {
 app.get("/news", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
-    return res.json({ ok: true, source: "forexfactory_json", currency, count: events.length, events });
+    return res.json({
+      ok: true,
+      source: "forexfactory_json",
+      currency,
+      tz: MT5_TZ,
+      server_time: formatMt5(Date.now()),
+      count: events.length,
+      events,
+    });
   } catch {
     return res.status(502).json({ ok: false, error: "ff_unavailable" });
   }
