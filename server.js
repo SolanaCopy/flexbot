@@ -764,8 +764,16 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   const yMin = minL - pad;
   const yMax = maxH + pad;
 
+  // QuickChart/Chart.js time-scale renders in UTC/local. To force MT5 server-time labels,
+  // we render the X axis as category labels ourselves.
+  const labels = candles.map((c) => {
+    const ms = Date.parse(c.start);
+    const mt5 = Number.isFinite(ms) ? formatMt5(ms) : String(c.start);
+    // keep labels compact: HH:MM
+    return mt5.slice(11, 16);
+  });
+
   const data = candles.map((c) => ({
-    x: new Date(c.start).getTime(),
     o: c.open,
     h: c.high,
     l: c.low,
@@ -781,6 +789,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     chart: {
       type: "candlestick",
       data: {
+        labels,
         datasets: [
           {
             label: `${symbol} ${chosenInterval}`,
@@ -818,7 +827,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         },
         scales: {
           x: {
-            type: "time",
+            type: "category",
             grid: { color: "rgba(42,46,57,0.35)", drawBorder: false },
             ticks: { color: "#d1d4dc", maxRotation: 0, autoSkip: true, autoSkipPadding: 18 },
           },
