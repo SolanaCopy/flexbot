@@ -424,6 +424,52 @@ function formatNewsText(events, currency) {
 // Routes
 
 // --- Signals API (market entries) ---
+
+// GET /signal/create?secret=...&symbol=XAUUSD&direction=BUY&sl=...&tp=...&risk_pct=0.5&comment=...
+// NOTE: This is designed for bot/web_fetch usage (no POST needed). Keep secret in Render env: SIGNAL_SECRET.
+app.get("/signal/create", async (req, res) => {
+  try {
+    const secret = req.query.secret != null ? String(req.query.secret) : "";
+    const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET) : "";
+    if (!expected || secret !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "";
+    const direction = req.query.direction ? String(req.query.direction).toUpperCase() : "";
+    const sl = Number(req.query.sl);
+    const risk_pct = req.query.risk_pct != null ? Number(req.query.risk_pct) : 0.5;
+    const comment = req.query.comment != null ? String(req.query.comment) : null;
+
+    const tp = String(req.query.tp || "")
+      .split(",")
+      .map((x) => Number(String(x).trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    if (!symbol || !["XAUUSD"].includes(symbol)) return res.status(400).json({ ok: false, error: "bad_symbol" });
+    if (!["BUY", "SELL"].includes(direction)) return res.status(400).json({ ok: false, error: "bad_direction" });
+    if (!Number.isFinite(sl) || sl <= 0) return res.status(400).json({ ok: false, error: "bad_sl" });
+    if (!tp.length) return res.status(400).json({ ok: false, error: "bad_tp" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const id = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random()
+      .toString(16)
+      .slice(2)}`;
+
+    const nowMs = Date.now();
+    const created_at_mt5 = formatMt5(nowMs);
+
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      args: [id, symbol, direction, sl, JSON.stringify(tp), Number.isFinite(risk_pct) ? risk_pct : 0.5, comment, "new", nowMs, created_at_mt5],
+    });
+
+    return res.json({ ok: true, id, symbol, direction, sl, tp, risk_pct, created_at: created_at_mt5 });
+  } catch {
+    return res.status(500).json({ ok: false, error: "error" });
+  }
+});
+
 // POST /signal
 // Body (JSON): { symbol:"XAUUSD", direction:"BUY"|"SELL", sl:number, tp:[..] or "tp":"a,b,c", risk_pct?:number, comment?:string }
 app.post("/signal", async (req, res) => {
