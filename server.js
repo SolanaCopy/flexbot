@@ -955,7 +955,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
   const qc = {
     version: "3",
-    backgroundColor: "#0b0f14",
+    backgroundColor: "#000000",
     width,
     height,
     format,
@@ -1026,14 +1026,14 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         scales: {
           x: {
             type: "category",
-            grid: { color: "rgba(255,255,255,0.06)", drawBorder: false },
+            grid: { color: "rgba(255,255,255,0.04)", drawBorder: false },
             ticks: { color: "rgba(255,255,255,0.65)", maxRotation: 0, autoSkip: true, autoSkipPadding: 22 },
           },
           y: {
             // Force tight autoscale (TradingView-like zoom)
             min: yMin,
             max: yMax,
-            grid: { color: "rgba(255,255,255,0.06)", drawBorder: false },
+            grid: { color: "rgba(255,255,255,0.04)", drawBorder: false },
             ticks: { color: "rgba(255,255,255,0.65)", padding: 8 },
           },
         },
