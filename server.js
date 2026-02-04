@@ -38,6 +38,41 @@ async function getDb() {
     ")"
   );
 
+  // Signals schema: minimal market-entry signals + executions (for MT5 EA integration)
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS signals (" +
+      "id TEXT PRIMARY KEY," +
+      "symbol TEXT NOT NULL," +
+      "direction TEXT NOT NULL," +
+      "sl REAL NOT NULL," +
+      "tp_json TEXT NOT NULL," +
+      "risk_pct REAL NOT NULL," +
+      "comment TEXT," +
+      "status TEXT NOT NULL," +
+      "created_at_ms INTEGER NOT NULL," +
+      "created_at_mt5 TEXT NOT NULL" +
+    ")"
+  );
+
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS signal_exec (" +
+      "signal_id TEXT PRIMARY KEY," +
+      "ticket TEXT," +
+      "fill_price REAL," +
+      "filled_at_ms INTEGER," +
+      "filled_at_mt5 TEXT," +
+      "raw_json TEXT," +
+      "FOREIGN KEY(signal_id) REFERENCES signals(id)" +
+    ")"
+  );
+
+  await libsqlClient.execute(
+    "CREATE INDEX IF NOT EXISTS idx_signals_symbol_created ON signals(symbol, created_at_ms DESC)"
+  );
+  await libsqlClient.execute(
+    "CREATE INDEX IF NOT EXISTS idx_signals_symbol_status ON signals(symbol, status)"
+  );
+
   return libsqlClient;
 }
 
@@ -387,6 +422,147 @@ function formatNewsText(events, currency) {
 }
 
 // Routes
+
+// --- Signals API (market entries) ---
+// POST /signal
+// Body (JSON): { symbol:"XAUUSD", direction:"BUY"|"SELL", sl:number, tp:[..] or "tp":"a,b,c", risk_pct?:number, comment?:string }
+app.post("/signal", async (req, res) => {
+  try {
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const symbol = body?.symbol ? String(body.symbol).toUpperCase() : "";
+    const direction = body?.direction ? String(body.direction).toUpperCase() : "";
+    const sl = Number(body?.sl);
+    const risk_pct = body?.risk_pct != null ? Number(body.risk_pct) : 0.5;
+    const comment = body?.comment != null ? String(body.comment) : null;
+
+    let tp = body?.tp;
+    if (typeof tp === "string") {
+      tp = tp
+        .split(",")
+        .map((x) => Number(String(x).trim()))
+        .filter((n) => Number.isFinite(n));
+    }
+
+    if (!symbol || !["XAUUSD"].includes(symbol)) return res.status(400).json({ ok: false, error: "bad_symbol" });
+    if (!["BUY", "SELL"].includes(direction)) return res.status(400).json({ ok: false, error: "bad_direction" });
+    if (!Number.isFinite(sl) || sl <= 0) return res.status(400).json({ ok: false, error: "bad_sl" });
+    if (!Array.isArray(tp) || tp.length < 1 || !tp.every((n) => Number.isFinite(n) && n > 0)) {
+      return res.status(400).json({ ok: false, error: "bad_tp" });
+    }
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // uuid-ish without dep
+    const id =
+      body?.id && String(body.id).length > 8
+        ? String(body.id)
+        : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random()
+            .toString(16)
+            .slice(2)}`;
+
+    const nowMs = Date.now();
+    const created_at_mt5 = formatMt5(nowMs);
+
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      args: [
+        id,
+        symbol,
+        direction,
+        sl,
+        JSON.stringify(tp),
+        Number.isFinite(risk_pct) ? risk_pct : 0.5,
+        comment,
+        "new",
+        nowMs,
+        created_at_mt5,
+      ],
+    });
+
+    return res.json({ ok: true, id, symbol, direction, sl, tp, risk_pct, created_at: created_at_mt5 });
+  } catch {
+    return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
+// GET /signal/next?symbol=XAUUSD
+app.get("/signal/next", async (req, res) => {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const rows = await db.execute({
+      sql: "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5 FROM signals WHERE symbol=? AND status='new' ORDER BY created_at_ms DESC LIMIT 1",
+      args: [symbol],
+    });
+
+    const r = rows.rows?.[0];
+    if (!r) return res.json({ ok: true, signal: null });
+
+    let tp = [];
+    try {
+      tp = JSON.parse(String(r.tp_json || "[]"));
+    } catch {
+      tp = [];
+    }
+
+    return res.json({
+      ok: true,
+      signal: {
+        id: String(r.id),
+        symbol: String(r.symbol),
+        direction: String(r.direction),
+        sl: Number(r.sl),
+        tp,
+        risk_pct: Number(r.risk_pct),
+        created_at: String(r.created_at_mt5),
+        comment: r.comment != null ? String(r.comment) : null,
+      },
+    });
+  } catch {
+    return res.status(500).json({ ok: false, error: "error" });
+  }
+});
+
+// POST /signal/executed
+// Body (JSON): { signal_id, ticket, fill_price, time?:string|ms }
+app.post("/signal/executed", async (req, res) => {
+  try {
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const signal_id = body?.signal_id ? String(body.signal_id) : "";
+    const ticket = body?.ticket != null ? String(body.ticket) : null;
+    const fill_price = body?.fill_price != null ? Number(body.fill_price) : null;
+
+    const tsMs = body?.time != null ? parseTimeToMs(body.time) : Date.now();
+    const filled_at_ms = Number.isFinite(tsMs) ? tsMs : Date.now();
+    const filled_at_mt5 = formatMt5(filled_at_ms);
+
+    if (!signal_id) return res.status(400).json({ ok: false, error: "bad_signal_id" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO signal_exec (signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json) VALUES (?,?,?,?,?,?)",
+      args: [signal_id, ticket, fill_price, filled_at_ms, filled_at_mt5, JSON.stringify(body)],
+    });
+
+    await db.execute({
+      sql: "UPDATE signals SET status='executed' WHERE id=?",
+      args: [signal_id],
+    });
+
+    return res.json({ ok: true, signal_id, ticket, fill_price, filled_at: filled_at_mt5 });
+  } catch {
+    return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
 
 app.post("/price", (req, res) => {
   try {
