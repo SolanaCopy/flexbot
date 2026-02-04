@@ -5,9 +5,14 @@ let libsqlClient = null;
 async function getDb() {
   if (libsqlClient) return libsqlClient;
 
-  const url = process.env.TURSO_DATABASE_URL || process.env.DATABASE_URL;
+  let url = process.env.TURSO_DATABASE_URL || process.env.DATABASE_URL;
   const authToken = process.env.TURSO_AUTH_TOKEN || process.env.DATABASE_AUTH_TOKEN;
   if (!url || !authToken) return null;
+
+  // Render UI sometimes adds whitespace/newlines; also users may paste https://... instead of libsql://...
+  url = String(url).trim();
+  if (url.startsWith("https://")) url = "libsql://" + url.slice("https://".length);
+  if (url.startsWith("http://")) url = "libsql://" + url.slice("http://".length);
 
   const { createClient } = require("@libsql/client");
   libsqlClient = createClient({ url, authToken });
