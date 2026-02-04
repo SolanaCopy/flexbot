@@ -927,20 +927,25 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     .filter((n) => Number.isFinite(n));
 
   const levelDatasets = [];
-  const mkLine = (y, label, color) => ({
+  const mkLine = (y, label, color, dash) => ({
     type: "line",
     label,
     data: labels.map((x) => ({ x, y })),
     borderColor: color,
-    borderWidth: 2,
+    borderWidth: 3,
+    borderDash: Array.isArray(dash) ? dash : undefined,
     pointRadius: 0,
     tension: 0,
     fill: false,
   });
 
-  if (Number.isFinite(entry)) levelDatasets.push(mkLine(entry, "Entry", "#f6c177"));
+  // Standard colors:
+  // - SL = red
+  // - TPs = blue
+  // - Entry = grey
+  if (Number.isFinite(entry)) levelDatasets.push(mkLine(entry, "ENTRY", "#a3a7b1", [6, 6]));
   if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, "SL", "#f23645"));
-  tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1}`, "#089981")));
+  tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1}`, "#2962ff")));
 
   const qc = {
     version: "3",
@@ -977,7 +982,19 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         responsive: false,
         animation: false,
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: true,
+            position: "left",
+            labels: {
+              color: "#d1d4dc",
+              boxWidth: 12,
+              boxHeight: 8,
+              padding: 10,
+              font: { size: 11 },
+              // Hide the main candle dataset label; keep only SL/ENTRY/TP*
+              filter: (item) => item.datasetIndex !== 0,
+            },
+          },
           tooltip: {
             enabled: true,
             backgroundColor: "rgba(19,23,34,0.95)",
