@@ -943,7 +943,8 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   // - SL = red
   // - TPs = blue
   // - Entry = grey
-  if (Number.isFinite(entry)) levelDatasets.push(mkLine(entry, "ENTRY", "#a3a7b1", [6, 6]));
+  // TV-like colors for levels
+  if (Number.isFinite(entry)) levelDatasets.push(mkLine(entry, "ENTRY", "rgba(255,255,255,0.55)", [6, 6]));
   if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, "SL", "#f23645"));
   tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1}`, "#2962ff")));
 
@@ -1029,8 +1030,9 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
             ticks: { color: "rgba(255,255,255,0.65)", maxRotation: 0, autoSkip: true, autoSkipPadding: 22 },
           },
           y: {
-            suggestedMin: yMin,
-            suggestedMax: yMax,
+            // Force tight autoscale (TradingView-like zoom)
+            min: yMin,
+            max: yMax,
             grid: { color: "rgba(255,255,255,0.06)", drawBorder: false },
             ticks: { color: "rgba(255,255,255,0.65)", padding: 8 },
           },
