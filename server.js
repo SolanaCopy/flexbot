@@ -954,7 +954,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
   const qc = {
     version: "3",
-    backgroundColor: "#0b1220",
+    backgroundColor: "#0b0f14",
     width,
     height,
     format,
@@ -970,13 +970,14 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
             // Force green/red in QuickChart builds that ignore `color:{up/down}`
             backgroundColor: {
-              up: "rgba(22,163,74,0.95)",
-              down: "rgba(239,68,68,0.95)",
+              // TradingView-like teal/red
+              up: "rgba(0,188,212,0.95)",
+              down: "rgba(244,67,54,0.95)",
               unchanged: "rgba(163,167,177,0.7)",
             },
             borderColor: {
-              up: "rgba(22,163,74,1)",
-              down: "rgba(239,68,68,1)",
+              up: "rgba(0,188,212,1)",
+              down: "rgba(244,67,54,1)",
               unchanged: "rgba(163,167,177,0.7)",
             },
             borderWidth: 1,
@@ -991,7 +992,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           title: {
             display: true,
             text: `${symbol} • ${chosenInterval}${spanMs ? ` • ${Math.round(spanMs / 3600000)}h` : ""} • MT5`,
-            color: "#d1d4dc",
+            color: "rgba(255,255,255,0.9)",
             align: "start",
             font: { size: 13, weight: "600" },
             padding: { top: 6, bottom: 6 },
@@ -1001,7 +1002,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
             position: "top",
             align: "start",
             labels: {
-              color: "#d1d4dc",
+              color: "rgba(255,255,255,0.85)",
               boxWidth: 10,
               boxHeight: 8,
               padding: 10,
@@ -1024,14 +1025,14 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         scales: {
           x: {
             type: "category",
-            grid: { color: "rgba(42,46,57,0.22)", drawBorder: false },
-            ticks: { color: "#9ca3af", maxRotation: 0, autoSkip: true, autoSkipPadding: 22 },
+            grid: { color: "rgba(255,255,255,0.06)", drawBorder: false },
+            ticks: { color: "rgba(255,255,255,0.65)", maxRotation: 0, autoSkip: true, autoSkipPadding: 22 },
           },
           y: {
             suggestedMin: yMin,
             suggestedMax: yMax,
-            grid: { color: "rgba(42,46,57,0.22)", drawBorder: false },
-            ticks: { color: "#9ca3af", padding: 8 },
+            grid: { color: "rgba(255,255,255,0.06)", drawBorder: false },
+            ticks: { color: "rgba(255,255,255,0.65)", padding: 8 },
           },
         },
       },
