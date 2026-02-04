@@ -1091,6 +1091,41 @@ app.get("/chart.jpg", async (req, res) => {
   }
 });
 
+// Helper: returns a ready-to-send Telegram photo URL + caption (no need to paste the URL in chat)
+app.get("/chartshare", (req, res) => {
+  const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
+  const interval = req.query.interval ? String(req.query.interval) : "15m";
+  const limit = req.query.limit ? Number(req.query.limit) : 80;
+  const hours = req.query.hours != null ? Number(req.query.hours) : null;
+
+  const entry = req.query.entry != null ? String(req.query.entry) : null;
+  const sl = req.query.sl != null ? String(req.query.sl) : null;
+  const tp = req.query.tp != null ? String(req.query.tp) : null;
+
+  const t = Date.now();
+
+  const u = new URL("https://flexbot-qpf2.onrender.com/chart.png");
+  u.searchParams.set("symbol", symbol);
+  if (hours && Number.isFinite(hours) && hours > 0) u.searchParams.set("hours", String(hours));
+  else {
+    u.searchParams.set("interval", interval);
+    u.searchParams.set("limit", String(Number.isFinite(limit) ? limit : 80));
+  }
+
+  // enforced size + cache bust
+  u.searchParams.set("w", "1080");
+  u.searchParams.set("h", "1200");
+  u.searchParams.set("t", String(t));
+
+  if (entry) u.searchParams.set("entry", entry);
+  if (sl) u.searchParams.set("sl", sl);
+  if (tp) u.searchParams.set("tp", tp);
+
+  const caption = hours && Number.isFinite(hours) && hours > 0 ? `${symbol} chart (${hours}h)` : `${symbol} ${interval} chart`;
+
+  return res.json({ ok: true, media: u.toString(), caption });
+});
+
 app.get("/ff/red", async (req, res) => {
   try {
     const { currency, events } = await getRedNews(req);
