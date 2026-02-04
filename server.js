@@ -948,10 +948,10 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, "SL", "#f23645"));
   tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1}`, "#2962ff")));
 
-  // Hard default size for Telegram. We keep it fixed for consistent look in chat.
-  // (If we ever need overrides, add an explicit allow flag.)
-  const width = 1080;
-  const height = 1200;
+  // Hard default size tuned for Telegram chat rendering (largest perceived size).
+  // Landscape fills the message bubble better than tall portrait.
+  const width = 1280;
+  const height = 720;
 
   const qc = {
     version: "3",
