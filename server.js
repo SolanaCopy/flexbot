@@ -337,6 +337,8 @@ app.post("/price", (req, res) => {
         ? tsCandidate
         : now;
 
+    const used_feed_time = Number.isFinite(tsCandidate) && Math.abs(tsCandidate - now) <= MAX_DRIFT_MS;
+
     last = {
       symbol: String(symbol),
       bid: bidNum,
@@ -347,7 +349,8 @@ app.post("/price", (req, res) => {
       ts: tsMs,
       raw_time: time ?? null,
       raw_ts: ts ?? null,
-      used_server_time: tsMs === now,
+      // true when we used the timestamp coming from MT5/EA (or its time string) instead of local server time
+      used_server_time: used_feed_time,
       tz: MT5_TZ,
     };
 
