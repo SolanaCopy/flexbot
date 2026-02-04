@@ -918,6 +918,30 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     c: c.close,
   }));
 
+  // Optional horizontal levels for trade visualization
+  const entry = req.query.entry != null ? Number(req.query.entry) : NaN;
+  const sl = req.query.sl != null ? Number(req.query.sl) : NaN;
+  const tps = String(req.query.tp || "")
+    .split(",")
+    .map((x) => Number(String(x).trim()))
+    .filter((n) => Number.isFinite(n));
+
+  const levelDatasets = [];
+  const mkLine = (y, label, color) => ({
+    type: "line",
+    label,
+    data: labels.map((x) => ({ x, y })),
+    borderColor: color,
+    borderWidth: 2,
+    pointRadius: 0,
+    tension: 0,
+    fill: false,
+  });
+
+  if (Number.isFinite(entry)) levelDatasets.push(mkLine(entry, "Entry", "#f6c177"));
+  if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, "SL", "#f23645"));
+  tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1}`, "#089981")));
+
   const qc = {
     version: "3",
     backgroundColor: "#131722",
@@ -946,6 +970,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
             },
             borderWidth: 1,
           },
+          ...levelDatasets,
         ],
       },
       options: {
