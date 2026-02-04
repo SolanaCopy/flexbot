@@ -948,11 +948,10 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, "SL", "#f23645"));
   tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1}`, "#2962ff")));
 
-  const w = req.query.w != null ? Number(req.query.w) : 1080;
-  // Default tuned for Telegram (less letterboxing than 1350)
-  const h = req.query.h != null ? Number(req.query.h) : 1200;
-  const width = Number.isFinite(w) && w >= 400 && w <= 2000 ? Math.round(w) : 1080;
-  const height = Number.isFinite(h) && h >= 400 && h <= 2500 ? Math.round(h) : 1200;
+  // Hard default size for Telegram. We keep it fixed for consistent look in chat.
+  // (If we ever need overrides, add an explicit allow flag.)
+  const width = 1080;
+  const height = 1200;
 
   const qc = {
     version: "3",
