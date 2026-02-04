@@ -694,54 +694,191 @@ app.post("/seed", (req, res) => {
 // TradingView-ish chart rendering (png/jpg) + green/red candles
 async function renderChart(req, res, format /* "png" | "jpg" */) {
   const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
+
+  // interval can be 1m/5m/15m for direct stores. For longer ranges use ?hours=...
   const requestedInterval = req.query.interval ? String(req.query.interval) : "15m";
 
   const reqLimit = req.query.limit ? Number(req.query.limit) : 200;
   const limit = Number.isFinite(reqLimit) ? reqLimit : 200;
 
+  const hours = req.query.hours != null ? Number(req.query.hours) : null;
+
   const MIN_GOOD = 30;
   const MIN_MIN = 3;
 
-  const tryIntervals = [];
-  if (INTERVALS[requestedInterval]) tryIntervals.push(requestedInterval);
-  if (!tryIntervals.includes("15m")) tryIntervals.push("15m");
-  if (!tryIntervals.includes("5m")) tryIntervals.push("5m");
-  if (!tryIntervals.includes("1m")) tryIntervals.push("1m");
+  // Helper: aggregate base candles (sorted ascending) into larger interval.
+  function aggregateCandles(baseCandles, intervalMs) {
+    const out = [];
+    let cur = null;
+    let curStart = null;
 
-  let chosenInterval = null;
-  let store = null;
-  let quality = "low";
+    for (const c of baseCandles) {
+      const startMs = Date.parse(c.start);
+      if (!Number.isFinite(startMs)) continue;
+      const bucket = floorToBucketStart(startMs, intervalMs);
+      const bucketEnd = bucket + intervalMs;
 
-  for (const iv of tryIntervals) {
-    const s = getStoreIfExists(symbol, iv);
-    const count = s ? (s.current ? s.history.length + 1 : s.history.length) : 0;
-    if (s && count >= MIN_GOOD) {
-      chosenInterval = iv;
-      store = s;
-      quality = "good";
-      break;
+      if (!cur || bucket !== curStart) {
+        if (cur) out.push(cur);
+        curStart = bucket;
+        cur = {
+          symbol: String(symbol),
+          interval: "agg",
+          start: new Date(bucket).toISOString(),
+          end: new Date(bucketEnd).toISOString(),
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          lastTs: c.lastTs ?? startMs,
+        };
+        continue;
+      }
+
+      cur.high = Math.max(cur.high, c.high);
+      cur.low = Math.min(cur.low, c.low);
+      cur.close = c.close;
+      cur.lastTs = c.lastTs ?? startMs;
     }
+
+    if (cur) out.push(cur);
+    return out;
   }
 
-  if (!store) {
-    for (const iv of tryIntervals) {
-      const s = getStoreIfExists(symbol, iv);
-      const count = s ? (s.current ? s.history.length + 1 : s.history.length) : 0;
-      if (s && count >= MIN_MIN) {
-        chosenInterval = iv;
-        store = s;
-        quality = "low";
+  // Load candles either from DB (preferred) or in-memory store.
+  async function loadCandlesForChart(baseInterval, sinceMs) {
+    const db = await getDb();
+    if (db) {
+      const rows = await db.execute({
+        sql:
+          "SELECT start_iso,end_iso,open,high,low,close,last_ts,gap,seeded FROM candles WHERE symbol=? AND interval=? AND start_ms >= ? ORDER BY start_ms ASC LIMIT ?",
+        args: [symbol, baseInterval, sinceMs, 200000],
+      });
+      return (rows.rows || [])
+        .map((r) => ({
+          symbol,
+          interval: baseInterval,
+          start: String(r.start_iso),
+          end: String(r.end_iso),
+          open: Number(r.open),
+          high: Number(r.high),
+          low: Number(r.low),
+          close: Number(r.close),
+          lastTs: r.last_ts != null ? Number(r.last_ts) : null,
+          gap: Number(r.gap) === 1,
+          seeded: Number(r.seeded) === 1,
+        }))
+        .filter((c) => [c.open, c.high, c.low, c.close].every(Number.isFinite) && !c.gap);
+    }
+
+    const s = getStoreIfExists(symbol, baseInterval);
+    if (!s) return [];
+    const all = s.current ? [...s.history, s.current] : [...s.history];
+    return all.filter((c) => !c.gap).filter((c) => {
+      const ms = Date.parse(c.start);
+      return Number.isFinite(ms) && ms >= sinceMs;
+    });
+  }
+
+  // Decide interval and range.
+  const now = Date.now();
+  const spanMs = Number.isFinite(hours) && hours > 0 ? hours * 60 * 60 * 1000 : null;
+  const sinceMs = spanMs ? now - spanMs : null;
+
+  // If hours is provided, auto-pick an interval to keep <= ~480 candles.
+  const candidates = [
+    { k: "1m", ms: 60 * 1000 },
+    { k: "5m", ms: 5 * 60 * 1000 },
+    { k: "15m", ms: 15 * 60 * 1000 },
+    { k: "30m", ms: 30 * 60 * 1000 },
+    { k: "1h", ms: 60 * 60 * 1000 },
+    { k: "4h", ms: 4 * 60 * 60 * 1000 },
+    { k: "1d", ms: 24 * 60 * 60 * 1000 },
+  ];
+
+  let chosenInterval = null;
+  let chosenIntervalMs = null;
+
+  if (spanMs) {
+    const targetMax = 480;
+    for (const c of candidates) {
+      const need = Math.ceil(spanMs / c.ms);
+      if (need <= targetMax) {
+        chosenInterval = c.k;
+        chosenIntervalMs = c.ms;
         break;
       }
     }
+    if (!chosenInterval) {
+      chosenInterval = "1d";
+      chosenIntervalMs = 24 * 60 * 60 * 1000;
+    }
+  } else {
+    chosenInterval = INTERVALS[requestedInterval] ? requestedInterval : "15m";
+    chosenIntervalMs = INTERVALS[chosenInterval];
   }
 
-  if (!store) return res.status(404).send("no_data");
+  // Get base data (always from 1m store) and aggregate when needed.
+  let candles = [];
+  let quality = "good";
 
-  const all = store.current ? [...store.history, store.current] : [...store.history];
+  if (spanMs) {
+    const base = await loadCandlesForChart("1m", sinceMs);
+    if (base.length < MIN_MIN) return res.status(404).send("no_data");
 
-  const hardCap = Math.min(Math.max(limit, 120), 500);
-  let candles = all.slice(Math.max(0, all.length - hardCap));
+    if (chosenInterval === "1m") {
+      candles = base;
+    } else {
+      candles = aggregateCandles(base, chosenIntervalMs);
+      candles.forEach((c) => (c.interval = chosenInterval));
+    }
+  } else {
+    // No hours: use existing store matching requested interval as before.
+    const tryIntervals = [];
+    if (INTERVALS[requestedInterval]) tryIntervals.push(requestedInterval);
+    if (!tryIntervals.includes("15m")) tryIntervals.push("15m");
+    if (!tryIntervals.includes("5m")) tryIntervals.push("5m");
+    if (!tryIntervals.includes("1m")) tryIntervals.push("1m");
+
+    let store = null;
+
+    for (const iv of tryIntervals) {
+      const s = getStoreIfExists(symbol, iv);
+      const count = s ? (s.current ? s.history.length + 1 : s.history.length) : 0;
+      if (s && count >= MIN_GOOD) {
+        chosenInterval = iv;
+        chosenIntervalMs = INTERVALS[iv];
+        store = s;
+        quality = "good";
+        break;
+      }
+    }
+
+    if (!store) {
+      for (const iv of tryIntervals) {
+        const s = getStoreIfExists(symbol, iv);
+        const count = s ? (s.current ? s.history.length + 1 : s.history.length) : 0;
+        if (s && count >= MIN_MIN) {
+          chosenInterval = iv;
+          chosenIntervalMs = INTERVALS[iv];
+          store = s;
+          quality = "low";
+          break;
+        }
+      }
+    }
+
+    if (!store) return res.status(404).send("no_data");
+
+    const all = store.current ? [...store.history, store.current] : [...store.history];
+    const hardCap = Math.min(Math.max(limit, 120), 500);
+    candles = all.slice(Math.max(0, all.length - hardCap)).filter((c) => !c.gap);
+  }
+
+  if (!candles.length) return res.status(404).send("no_data");
+
+  // cap to 500 for QuickChart
+  if (candles.length > 500) candles = candles.slice(candles.length - 500);
 
   // gap candles eruit = mooier
   candles = candles.filter((c) => !c.gap);
