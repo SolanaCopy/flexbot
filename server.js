@@ -947,11 +947,16 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, "SL", "#f23645"));
   tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1}`, "#2962ff")));
 
+  const w = req.query.w != null ? Number(req.query.w) : 1080;
+  const h = req.query.h != null ? Number(req.query.h) : 1350;
+  const width = Number.isFinite(w) && w >= 400 && w <= 2000 ? Math.round(w) : 1080;
+  const height = Number.isFinite(h) && h >= 400 && h <= 2500 ? Math.round(h) : 1350;
+
   const qc = {
     version: "3",
     backgroundColor: "#0b1220",
-    width: 1080,
-    height: 600,
+    width,
+    height,
     format,
     chart: {
       type: "candlestick",
@@ -988,8 +993,8 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
             text: `${symbol} • ${chosenInterval}${spanMs ? ` • ${Math.round(spanMs / 3600000)}h` : ""} • MT5`,
             color: "#d1d4dc",
             align: "start",
-            font: { size: 14, weight: "600" },
-            padding: { top: 8, bottom: 8 },
+            font: { size: 13, weight: "600" },
+            padding: { top: 6, bottom: 6 },
           },
           legend: {
             display: true,
@@ -999,7 +1004,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
               color: "#d1d4dc",
               boxWidth: 10,
               boxHeight: 8,
-              padding: 12,
+              padding: 10,
               font: { size: 11 },
               // Hide the main candle dataset label; keep only SL/ENTRY/TP*
               filter: (item) => item.datasetIndex !== 0,
