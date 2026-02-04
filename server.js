@@ -949,9 +949,9 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
   const qc = {
     version: "3",
-    backgroundColor: "#131722",
-    width: 900,
-    height: 500,
+    backgroundColor: "#0b1220",
+    width: 1080,
+    height: 600,
     format,
     chart: {
       type: "candlestick",
@@ -959,19 +959,20 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         labels,
         datasets: [
           {
-            label: `${symbol} ${chosenInterval}`,
+            // keep label simple for internal tooltip calculations; legend hides this dataset
+            label: "price",
             data,
 
             // Force green/red in QuickChart builds that ignore `color:{up/down}`
             backgroundColor: {
-              up: "rgba(8,153,129,0.95)",
-              down: "rgba(242,54,69,0.95)",
+              up: "rgba(22,163,74,0.95)",
+              down: "rgba(239,68,68,0.95)",
               unchanged: "rgba(163,167,177,0.7)",
             },
             borderColor: {
-              up: "#089981",
-              down: "#f23645",
-              unchanged: "#a3a7b1",
+              up: "rgba(22,163,74,1)",
+              down: "rgba(239,68,68,1)",
+              unchanged: "rgba(163,167,177,0.7)",
             },
             borderWidth: 1,
           },
@@ -982,14 +983,23 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         responsive: false,
         animation: false,
         plugins: {
+          title: {
+            display: true,
+            text: `${symbol} • ${chosenInterval}${spanMs ? ` • ${Math.round(spanMs / 3600000)}h` : ""} • MT5`,
+            color: "#d1d4dc",
+            align: "start",
+            font: { size: 14, weight: "600" },
+            padding: { top: 8, bottom: 8 },
+          },
           legend: {
             display: true,
-            position: "left",
+            position: "top",
+            align: "start",
             labels: {
               color: "#d1d4dc",
-              boxWidth: 12,
+              boxWidth: 10,
               boxHeight: 8,
-              padding: 10,
+              padding: 12,
               font: { size: 11 },
               // Hide the main candle dataset label; keep only SL/ENTRY/TP*
               filter: (item) => item.datasetIndex !== 0,
@@ -997,25 +1007,26 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           },
           tooltip: {
             enabled: true,
-            backgroundColor: "rgba(19,23,34,0.95)",
-            titleColor: "#d1d4dc",
-            bodyColor: "#d1d4dc",
+            backgroundColor: "rgba(11,18,32,0.95)",
+            titleColor: "#e5e7eb",
+            bodyColor: "#e5e7eb",
             borderColor: "rgba(42,46,57,1)",
             borderWidth: 1,
             displayColors: false,
           },
         },
+        layout: { padding: { left: 10, right: 14, top: 6, bottom: 6 } },
         scales: {
           x: {
             type: "category",
-            grid: { color: "rgba(42,46,57,0.35)", drawBorder: false },
-            ticks: { color: "#d1d4dc", maxRotation: 0, autoSkip: true, autoSkipPadding: 18 },
+            grid: { color: "rgba(42,46,57,0.22)", drawBorder: false },
+            ticks: { color: "#9ca3af", maxRotation: 0, autoSkip: true, autoSkipPadding: 22 },
           },
           y: {
             suggestedMin: yMin,
             suggestedMax: yMax,
-            grid: { color: "rgba(42,46,57,0.35)", drawBorder: false },
-            ticks: { color: "#d1d4dc", padding: 6 },
+            grid: { color: "rgba(42,46,57,0.22)", drawBorder: false },
+            ticks: { color: "#9ca3af", padding: 8 },
           },
         },
       },
