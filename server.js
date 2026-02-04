@@ -1033,6 +1033,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
             // Force tight autoscale (TradingView-like zoom)
             min: yMin,
             max: yMax,
+            position: "right",
             grid: { color: "rgba(255,255,255,0.04)", drawBorder: false },
             ticks: { color: "rgba(255,255,255,0.65)", padding: 8 },
           },
