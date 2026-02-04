@@ -927,6 +927,13 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     .filter((n) => Number.isFinite(n));
 
   const levelDatasets = [];
+  const fmt = (n) => {
+    if (!Number.isFinite(n)) return "";
+    // keep 2 decimals max, trim trailing zeros
+    const s = Number(n).toFixed(2);
+    return s.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+  };
+
   const mkLine = (y, label, color, dash) => ({
     type: "line",
     label,
@@ -943,10 +950,10 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   // - SL = red
   // - TPs = blue
   // - Entry = grey
-  // TV-like colors for levels
-  if (Number.isFinite(entry)) levelDatasets.push(mkLine(entry, "ENTRY", "rgba(255,255,255,0.55)", [6, 6]));
-  if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, "SL", "#f23645"));
-  tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1}`, "#2962ff")));
+  // TV-like colors for levels (include price in label for clarity)
+  if (Number.isFinite(entry)) levelDatasets.push(mkLine(entry, `ENTRY ${fmt(entry)}`, "rgba(255,255,255,0.55)", [6, 6]));
+  if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, `SL ${fmt(sl)}`, "#f23645"));
+  tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1} ${fmt(tp)}`, "#2962ff")));
 
   // Hard default size tuned for Telegram chat rendering (largest perceived size).
   // Landscape fills the message bubble better than tall portrait.
@@ -993,21 +1000,21 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           title: {
             display: true,
             text: `${symbol} • ${chosenInterval}${spanMs ? ` • ${Math.round(spanMs / 3600000)}h` : ""} • MT5`,
-            color: "rgba(255,255,255,0.96)",
+            color: "rgba(255,255,255,0.98)",
             align: "center",
-            font: { size: 24, weight: "800" },
-            padding: { top: 14, bottom: 10 },
+            font: { size: 30, weight: "900" },
+            padding: { top: 16, bottom: 12 },
           },
           legend: {
             display: true,
             position: "top",
             align: "center",
             labels: {
-              color: "rgba(255,255,255,0.92)",
-              boxWidth: 16,
-              boxHeight: 12,
-              padding: 16,
-              font: { size: 16, weight: "700" },
+              color: "rgba(255,255,255,0.95)",
+              boxWidth: 18,
+              boxHeight: 14,
+              padding: 18,
+              font: { size: 18, weight: "800" },
               // Keep legend clean: show only ENTRY/SL/TP*
               filter: (item) => item.datasetIndex !== 0,
             },
