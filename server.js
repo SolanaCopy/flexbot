@@ -1,5 +1,76 @@
 const express = require("express");
 
+// Optional persistence (Turso/libSQL). Enable by setting TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in env.
+let libsqlClient = null;
+async function getDb() {
+  if (libsqlClient) return libsqlClient;
+
+  const url = process.env.TURSO_DATABASE_URL || process.env.DATABASE_URL;
+  const authToken = process.env.TURSO_AUTH_TOKEN || process.env.DATABASE_AUTH_TOKEN;
+  if (!url || !authToken) return null;
+
+  const { createClient } = require("@libsql/client");
+  libsqlClient = createClient({ url, authToken });
+
+  // Basic schema: store closed candles for history across restarts.
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS candles (" +
+      "symbol TEXT NOT NULL," +
+      "interval TEXT NOT NULL," +
+      "start_ms INTEGER NOT NULL," +
+      "end_ms INTEGER NOT NULL," +
+      "start_iso TEXT NOT NULL," +
+      "end_iso TEXT NOT NULL," +
+      "open REAL NOT NULL," +
+      "high REAL NOT NULL," +
+      "low REAL NOT NULL," +
+      "close REAL NOT NULL," +
+      "last_ts INTEGER," +
+      "gap INTEGER DEFAULT 0," +
+      "seeded INTEGER DEFAULT 0," +
+      "created_at INTEGER NOT NULL," +
+      "PRIMARY KEY (symbol, interval, start_ms)" +
+    ")"
+  );
+
+  return libsqlClient;
+}
+
+async function persistCandle(c) {
+  try {
+    const db = await getDb();
+    if (!db) return;
+
+    const startMs = Date.parse(c.start);
+    const endMs = Date.parse(c.end);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return;
+
+    await db.execute({
+      sql:
+        "INSERT OR REPLACE INTO candles (symbol,interval,start_ms,end_ms,start_iso,end_iso,open,high,low,close,last_ts,gap,seeded,created_at) " +
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      args: [
+        String(c.symbol),
+        String(c.interval),
+        startMs,
+        endMs,
+        String(c.start),
+        String(c.end),
+        Number(c.open),
+        Number(c.high),
+        Number(c.low),
+        Number(c.close),
+        c.lastTs != null ? Number(c.lastTs) : null,
+        c.gap ? 1 : 0,
+        c.seeded ? 1 : 0,
+        Date.now(),
+      ],
+    });
+  } catch {
+    // best-effort persistence
+  }
+}
+
 const app = express();
 app.use(express.text({ type: "*/*" }));
 
@@ -117,6 +188,12 @@ function pushHistoryCapped(store, candle) {
   }
 }
 
+function pushHistoryCappedAsync(store, candle) {
+  pushHistoryCapped(store, candle);
+  // persist closed candles best-effort
+  persistCandle(candle);
+}
+
 function updateCandle({ symbol, interval, price, tsMs }) {
   const intervalMs = INTERVALS[interval];
   if (!intervalMs) return;
@@ -155,13 +232,13 @@ function updateCandle({ symbol, interval, price, tsMs }) {
   // sluit candle
   const finished = store.current;
   store.current = null;
-  pushHistoryCapped(store, finished);
+  pushHistoryCappedAsync(store, finished);
 
   // gaps vullen (flat candles)
   const prevClose = finished.close;
   let nextStart = currentStartMs + intervalMs;
   while (nextStart < bucketStart) {
-    pushHistoryCapped(store, {
+    pushHistoryCappedAsync(store, {
       symbol: String(symbol),
       interval,
       start: new Date(nextStart).toISOString(),
@@ -499,6 +576,9 @@ app.post("/seed", (req, res) => {
     const merged = Array.from(map.values()).sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
     store.history = merged.slice(Math.max(0, merged.length - MAX_HISTORY_PER_SYMBOL));
 
+    // persist seeded candles best-effort
+    for (const c of store.history) persistCandle(c);
+
     return res.json({
       ok: true,
       symbol: String(symbol),
@@ -751,5 +831,55 @@ app.get("/news.txt", async (req, res) => {
 
 app.get("/", (_, res) => res.send("ok"));
 
-const port = process.env.PORT || 3000;
-app.listen(port, "0.0.0.0", () => console.log("listening", port));
+async function warmLoadFromDb() {
+  const db = await getDb();
+  if (!db) return;
+
+  // Load last candles for any known symbols/intervals.
+  const symRows = await db.execute("SELECT DISTINCT symbol FROM candles");
+  const symbols = (symRows.rows || []).map((r) => String(r.symbol)).filter(Boolean);
+  if (!symbols.length) return;
+
+  const intervals = Object.keys(INTERVALS);
+
+  for (const symbol of symbols) {
+    for (const interval of intervals) {
+      const rows = await db.execute({
+        sql:
+          "SELECT start_iso,end_iso,open,high,low,close,last_ts,gap,seeded FROM candles WHERE symbol=? AND interval=? ORDER BY start_ms DESC LIMIT ?",
+        args: [symbol, interval, MAX_HISTORY_PER_SYMBOL],
+      });
+
+      const list = (rows.rows || [])
+        .map((r) => ({
+          symbol,
+          interval,
+          start: String(r.start_iso),
+          end: String(r.end_iso),
+          open: Number(r.open),
+          high: Number(r.high),
+          low: Number(r.low),
+          close: Number(r.close),
+          lastTs: r.last_ts != null ? Number(r.last_ts) : null,
+          gap: Number(r.gap) === 1,
+          seeded: Number(r.seeded) === 1,
+        }))
+        .filter((c) => [c.open, c.high, c.low, c.close].every(Number.isFinite))
+        .reverse();
+
+      if (!list.length) continue;
+
+      const store = getOrCreateStore(symbol, interval);
+      store.current = null;
+      store.history = list.slice(Math.max(0, list.length - MAX_HISTORY_PER_SYMBOL));
+    }
+  }
+}
+
+async function main() {
+  await warmLoadFromDb();
+  const port = process.env.PORT || 3000;
+  app.listen(port, "0.0.0.0", () => console.log("listening", port));
+}
+
+main();
