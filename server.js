@@ -84,6 +84,16 @@ async function getDb() {
     ")"
   );
 
+  // Track last EA execution per symbol for cooldown-aware automations
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS ea_state (" +
+      "symbol TEXT NOT NULL PRIMARY KEY," +
+      "last_executed_ms INTEGER NOT NULL," +
+      "last_signal_id TEXT," +
+      "last_ticket TEXT" +
+    ")"
+  );
+
   return libsqlClient;
 }
 
@@ -138,7 +148,9 @@ const lastChartBuf = new Map(); // key -> { buf, tsMs, mime }
 // ForexFactory calendar feed (JSON)
 const FF_JSON_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 let ffCache = { ts: 0, events: [] };
-const FF_CACHE_MS = 60 * 1000;
+// Calendar changes slowly; cache more aggressively to avoid 429s.
+const FF_CACHE_MS = 60 * 60 * 1000; // 1 hour
+const NEWS_BLACKOUT_MIN_DEFAULT = 15;
 
 // --- Timezone handling (MT5 server time) ---
 // Many brokers run MT5 server time on EET/EEST (UTC+2 / UTC+3). Default to Europe/Athens.
@@ -419,6 +431,23 @@ async function getRedNews(req) {
   return { currency, events };
 }
 
+function computeBlackout(events, nowMs, windowMin) {
+  const w = (Number.isFinite(windowMin) && windowMin > 0 ? windowMin : NEWS_BLACKOUT_MIN_DEFAULT) * 60 * 1000;
+  // consider only events with ts
+  const withTs = events.filter((e) => Number.isFinite(e.ts));
+  let blackout = false;
+  let next = null;
+
+  for (const e of withTs) {
+    const start = e.ts - w;
+    const end = e.ts + w;
+    if (nowMs >= start && nowMs <= end) blackout = true;
+    if (e.ts >= nowMs && (!next || e.ts < next.ts)) next = e;
+  }
+
+  return { blackout, next_event: next };
+}
+
 function formatNewsText(events, currency) {
   if (!events.length) return "Geen red news gevonden.";
 
@@ -627,9 +656,82 @@ app.post("/signal/executed", async (req, res) => {
       args: [signal_id],
     });
 
+    // Update EA cooldown state
+    // Prefer symbol from signals table (authoritative)
+    const symRow = await db.execute({
+      sql: "SELECT symbol FROM signals WHERE id=? LIMIT 1",
+      args: [signal_id],
+    });
+    const sym = symRow.rows?.[0]?.symbol != null ? String(symRow.rows[0].symbol).toUpperCase() : null;
+    if (sym) {
+      await db.execute({
+        sql: "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket) VALUES (?,?,?,?)",
+        args: [sym, filled_at_ms, signal_id, ticket],
+      });
+    }
+
     return res.json({ ok: true, signal_id, ticket, fill_price, filled_at: filled_at_mt5 });
   } catch {
     return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
+// GET /ea/cooldown/status?symbol=XAUUSD&cooldown_min=30
+// Returns remaining time based on last executed trade.
+app.get("/ea/cooldown/status", async (req, res) => {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const cooldownMinRaw = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
+    const cooldownMin = Number.isFinite(cooldownMinRaw) && cooldownMinRaw > 0 ? cooldownMinRaw : 30;
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // Prefer ea_state (fast), fall back to signal_exec join
+    let refMs = NaN;
+    const st = await db.execute({
+      sql: "SELECT last_executed_ms FROM ea_state WHERE symbol=? LIMIT 1",
+      args: [symbol],
+    });
+    if (st.rows?.[0]?.last_executed_ms != null) refMs = Number(st.rows[0].last_executed_ms);
+
+    if (!Number.isFinite(refMs)) {
+      const latest = await db.execute({
+        sql:
+          "SELECT se.filled_at_ms AS filled_at_ms " +
+          "FROM signal_exec se JOIN signals s ON s.id = se.signal_id " +
+          "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL " +
+          "ORDER BY se.filled_at_ms DESC LIMIT 1",
+        args: [symbol],
+      });
+      refMs = latest.rows?.[0]?.filled_at_ms != null ? Number(latest.rows[0].filled_at_ms) : NaN;
+    }
+
+    if (!Number.isFinite(refMs)) {
+      return res.json({ ok: true, symbol, cooldown_min: cooldownMin, has_last_trade: false });
+    }
+
+    const now = Date.now();
+    const cooldownMs = cooldownMin * 60 * 1000;
+    const remainingMs = cooldownMs - (now - refMs);
+
+    return res.json({
+      ok: true,
+      symbol,
+      cooldown_min: cooldownMin,
+      has_last_trade: true,
+      last_executed_ms: refMs,
+      last_executed: formatMt5(refMs),
+      now_ms: now,
+      now: formatMt5(now),
+      cooldown_until_ms: refMs + cooldownMs,
+      cooldown_until: formatMt5(refMs + cooldownMs),
+      remaining_ms: remainingMs,
+      remaining_min: Math.max(0, Math.round(remainingMs / 60000)),
+      cooldown_active: remainingMs > 0,
+    });
+  } catch {
+    return res.status(500).json({ ok: false, error: "error" });
   }
 });
 
@@ -1488,6 +1590,38 @@ app.get("/news", async (req, res) => {
       events,
     });
   } catch {
+    return res.status(502).json({ ok: false, error: "ff_unavailable" });
+  }
+});
+
+// News blackout helper for automations
+// GET /news/blackout?currency=USD&impact=high&window_min=15
+app.get("/news/blackout", async (req, res) => {
+  try {
+    const currency = req.query.currency ? String(req.query.currency).toUpperCase() : "USD";
+    const impact = req.query.impact ? String(req.query.impact).toLowerCase() : "high";
+    const windowMinRaw = req.query.window_min != null ? Number(req.query.window_min) : NEWS_BLACKOUT_MIN_DEFAULT;
+    const windowMin = Number.isFinite(windowMinRaw) && windowMinRaw > 0 ? windowMinRaw : NEWS_BLACKOUT_MIN_DEFAULT;
+
+    const all = await getFfEvents();
+    let events = all;
+    if (impact) events = events.filter((e) => String(e.impact) === impact);
+    if (currency) events = events.filter((e) => String(e.currency) === currency);
+
+    const now = Date.now();
+    const { blackout, next_event } = computeBlackout(events, now, windowMin);
+
+    return res.json({
+      ok: true,
+      blackout,
+      window_min: windowMin,
+      currency,
+      impact,
+      server_time: formatMt5(now),
+      now_ms: now,
+      next_event,
+    });
+  } catch (e) {
     return res.status(502).json({ ok: false, error: "ff_unavailable" });
   }
 });
