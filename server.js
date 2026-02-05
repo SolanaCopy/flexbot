@@ -73,6 +73,17 @@ async function getDb() {
     "CREATE INDEX IF NOT EXISTS idx_signals_symbol_status ON signals(symbol, status)"
   );
 
+  // EA notification de-dupe (so we only post once per cooldown window)
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS ea_notifs (" +
+      "symbol TEXT NOT NULL," +
+      "kind TEXT NOT NULL," +
+      "ref_ms INTEGER NOT NULL," +
+      "created_at_ms INTEGER NOT NULL," +
+      "PRIMARY KEY (symbol, kind, ref_ms)" +
+    ")"
+  );
+
   return libsqlClient;
 }
 
@@ -534,16 +545,27 @@ app.post("/signal", async (req, res) => {
   }
 });
 
-// GET /signal/next?symbol=XAUUSD
+// GET /signal/next?symbol=XAUUSD&since_ms=<unix_ms>
+// - since_ms is optional; when present, only returns signals created at/after since_ms.
+// - This lets MT5 EAs avoid executing old pending signals when first attached.
 app.get("/signal/next", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+
+    const sinceRaw = req.query.since_ms != null ? String(req.query.since_ms) : null;
+    const sinceMs = sinceRaw && /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : 0;
+    const sinceMsSafe = Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : 0;
+
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
     const rows = await db.execute({
-      sql: "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5 FROM signals WHERE symbol=? AND status='new' ORDER BY created_at_ms DESC LIMIT 1",
-      args: [symbol],
+      sql:
+        "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5 " +
+        "FROM signals " +
+        "WHERE symbol=? AND status='new' AND created_at_ms >= ? " +
+        "ORDER BY created_at_ms ASC LIMIT 1",
+      args: [symbol, sinceMsSafe],
     });
 
     const r = rows.rows?.[0];
@@ -565,6 +587,7 @@ app.get("/signal/next", async (req, res) => {
         sl: Number(r.sl),
         tp,
         risk_pct: Number(r.risk_pct),
+        created_at_ms: Number(r.created_at_ms),
         created_at: String(r.created_at_mt5),
         comment: r.comment != null ? String(r.comment) : null,
       },
@@ -607,6 +630,84 @@ app.post("/signal/executed", async (req, res) => {
     return res.json({ ok: true, signal_id, ticket, fill_price, filled_at: filled_at_mt5 });
   } catch {
     return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
+// GET /ea/cooldown/claim5m?symbol=XAUUSD&cooldown_min=30
+// Returns notify=true once per cooldown when ~5 minutes remain.
+app.get("/ea/cooldown/claim5m", async (req, res) => {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const cooldownMinRaw = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
+    const cooldownMin = Number.isFinite(cooldownMinRaw) && cooldownMinRaw > 0 ? cooldownMinRaw : 30;
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const latest = await db.execute({
+      sql:
+        "SELECT se.filled_at_ms AS filled_at_ms " +
+        "FROM signal_exec se JOIN signals s ON s.id = se.signal_id " +
+        "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL " +
+        "ORDER BY se.filled_at_ms DESC LIMIT 1",
+      args: [symbol],
+    });
+
+    const refMs = latest.rows?.[0]?.filled_at_ms != null ? Number(latest.rows[0].filled_at_ms) : NaN;
+    if (!Number.isFinite(refMs)) {
+      return res.json({ ok: true, notify: false, reason: "no_last_trade" });
+    }
+
+    const now = Date.now();
+    const cooldownMs = cooldownMin * 60 * 1000;
+    const remainingMs = cooldownMs - (now - refMs);
+
+    // Only fire in a ~70s window around exactly 5 minutes remaining.
+    const target = 5 * 60 * 1000;
+    const windowMs = 70 * 1000;
+    const inWindow = remainingMs <= target && remainingMs >= target - windowMs;
+    if (!inWindow) {
+      return res.json({
+        ok: true,
+        notify: false,
+        remaining_ms: remainingMs,
+        remaining_min: Math.max(0, Math.round(remainingMs / 60000)),
+      });
+    }
+
+    // De-dupe: only one notify per (symbol, kind, refMs)
+    const kind = "cooldown_5m";
+    const insertedAt = now;
+
+    await db.execute({
+      sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
+      args: [symbol, kind, refMs, insertedAt],
+    });
+
+    const chk = await db.execute({
+      sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
+      args: [symbol, kind, refMs],
+    });
+
+    const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
+    const notify = Number.isFinite(createdAt) && createdAt === insertedAt;
+
+    if (!notify) {
+      return res.json({ ok: true, notify: false, reason: "already_notified" });
+    }
+
+    const variants = [
+      "⏳ Nog 5 min… daarna kan de EA weer een nieuwe trade pakken ✅",
+      "👀 5 minuten nog — EA is zo weer ready ✅",
+      "Even chill… nog 5 min cooldown en dan zijn we back 🔥",
+      "⏱️ Cooldown bijna klaar: nog 5 min, dan mag de EA weer handelen ✅",
+    ];
+    const idx = Math.abs(Math.floor(refMs / 1000)) % variants.length;
+    const message = variants[idx];
+
+    return res.json({ ok: true, notify: true, message, symbol, remaining_ms: remainingMs });
+  } catch {
+    return res.status(500).json({ ok: false, error: "error" });
   }
 });
 
@@ -1322,9 +1423,10 @@ app.get("/chart.jpg", async (req, res) => {
 });
 
 // Helper: returns a ready-to-send Telegram photo URL + caption (no need to paste the URL in chat)
+// Default interval is 1m for signal visibility on Telegram screenshots.
 app.get("/chartshare", (req, res) => {
   const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
-  const interval = req.query.interval ? String(req.query.interval) : "15m";
+  const interval = req.query.interval ? String(req.query.interval) : "1m";
   const limit = req.query.limit ? Number(req.query.limit) : 80;
   const hours = req.query.hours != null ? Number(req.query.hours) : null;
 
