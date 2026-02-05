@@ -737,6 +737,42 @@ app.get("/ea/cooldown/status", async (req, res) => {
 
 // GET /ea/cooldown/claim5m?symbol=XAUUSD&cooldown_min=30
 // Returns notify=true once per cooldown when ~5 minutes remain.
+// GET /ea/auto/claim?symbol=XAUUSD&kind=auto_trade&ref_ms=<number>
+// Generic de-dupe claim helper for automations (returns notify=true only once per (symbol,kind,ref_ms)).
+app.get("/ea/auto/claim", async (req, res) => {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const kind = req.query.kind ? String(req.query.kind) : "auto";
+    const refRaw = req.query.ref_ms != null ? Number(req.query.ref_ms) : NaN;
+    const refMs = Number.isFinite(refRaw) ? Math.floor(refRaw) : NaN;
+
+    if (!Number.isFinite(refMs) || refMs <= 0) return res.status(400).json({ ok: false, error: "bad_ref_ms" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const now = Date.now();
+    await db.execute({
+      sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
+      args: [symbol, kind, refMs, now],
+    });
+
+    const chk = await db.execute({
+      sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
+      args: [symbol, kind, refMs],
+    });
+
+    const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
+    const notify = Number.isFinite(createdAt) && createdAt === now;
+
+    return res.json({ ok: true, notify, symbol, kind, ref_ms: refMs });
+  } catch {
+    return res.status(500).json({ ok: false, error: "error" });
+  }
+});
+
+// GET /ea/cooldown/claim5m?symbol=XAUUSD&cooldown_min=30
+// Returns notify=true once per cooldown when ~5 minutes remain.
 app.get("/ea/cooldown/claim5m", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
