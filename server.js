@@ -1719,6 +1719,138 @@ app.get("/news.txt", async (req, res) => {
   }
 });
 
+// ---- Telegram helpers (to remove OpenClaw/LLM from posting) ----
+async function tgSendPhoto({ chatId, photo, caption }) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
+  if (!chatId) throw new Error("missing_chatId");
+
+  const url = `https://api.telegram.org/bot${token}/sendPhoto`;
+  const r = await fetchFn(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, photo, caption }),
+  });
+
+  const text = await r.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = { ok: false, raw: text };
+  }
+
+  if (!r.ok || !json?.ok) {
+    const err = json?.description || json?.error || `telegram_http_${r.status}`;
+    const e = new Error(err);
+    e.details = json;
+    throw e;
+  }
+
+  return json;
+}
+
+async function fetchJson(url) {
+  const r = await fetchFn(url);
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error(`http_${r.status}: ${text}`);
+  }
+  return r.json();
+}
+
+function formatSignalCaption({ symbol, direction, sl, tp, riskPct, comment }) {
+  const slStr = String(sl);
+  const tpStr = String(tp);
+  const riskStr = String(riskPct);
+  const c = comment ? String(comment) : "";
+
+  const line1 = `✅ Signal queued for EA: ${symbol} ${direction} | SL ${slStr} | TP ${tpStr} | Risk ${riskStr}%`;
+  const line2 = c
+    ? `#SIGNAL ${symbol} ${direction} SL ${slStr} TP ${tpStr} Risk ${riskStr}% Comment ${c} NFA`
+    : `#SIGNAL ${symbol} ${direction} SL ${slStr} TP ${tpStr} Risk ${riskStr}% NFA`;
+  return line1 + "\n" + line2;
+}
+
+// POST /auto/scalp/run?symbol=XAUUSD
+// Fully server-side: blackout + cooldown + claim + create signal + post ONE telegram photo.
+app.post("/auto/scalp/run", async (req, res) => {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
+
+    // 1) blackout
+    const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=15`);
+    if (!blackoutR?.ok) return res.status(502).json({ ok: false, error: "blackout_check_failed" });
+    if (blackoutR.blackout) return res.json({ ok: true, acted: false, reason: "blackout" });
+
+    // 2) cooldown
+    const cd = await fetchJson(`${BASE_URL}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`);
+    if (!cd?.ok) return res.status(502).json({ ok: false, error: "cooldown_status_failed" });
+    if (!cd.has_last_trade) return res.json({ ok: true, acted: false, reason: "no_last_trade" });
+    if (cd.remaining_ms > 0) return res.json({ ok: true, acted: false, reason: "cooldown" });
+
+    const refMs = cd.cooldown_until_ms;
+
+    // 3) claim lock
+    const claim = await fetchJson(`${BASE_URL}/ea/auto/claim?symbol=${encodeURIComponent(symbol)}&kind=auto_scalp_v1&ref_ms=${encodeURIComponent(String(refMs))}`);
+    if (!claim?.ok) return res.status(502).json({ ok: false, error: "claim_failed" });
+    if (!claim.notify) return res.json({ ok: true, acted: false, reason: "claimed" });
+
+    // 4) candles (5m)
+    const candles = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`);
+    if (!candles?.ok || !Array.isArray(candles?.candles)) return res.status(502).json({ ok: false, error: "candles_failed" });
+    const arr = candles.candles;
+    if (arr.length < 12) return res.status(502).json({ ok: false, error: "candles_insufficient" });
+
+    const last12 = arr.slice(-12);
+    const rangeHigh = Math.max(...last12.map((c) => Number(c.high)));
+    const rangeLow = Math.min(...last12.map((c) => Number(c.low)));
+    const entry = Number(last12[last12.length - 1].close);
+
+    const mid = (rangeHigh + rangeLow) / 2;
+    const direction = entry >= mid ? "SELL" : "BUY";
+    const sl = direction === "SELL" ? rangeHigh + 0.4 : rangeLow - 0.4;
+
+    const risk = Math.abs(entry - sl);
+    const tp = direction === "SELL" ? entry - risk * 1.5 : entry + risk * 1.5;
+
+    // 5) create signal
+    const token = process.env.AUTO_SIGNAL_TOKEN;
+    if (!token) return res.status(500).json({ ok: false, error: "missing_AUTO_SIGNAL_TOKEN" });
+
+    const createUrl = new URL(`${BASE_URL}/signal/auto/create`);
+    createUrl.searchParams.set("token", token);
+    createUrl.searchParams.set("symbol", symbol);
+    createUrl.searchParams.set("direction", direction);
+    createUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
+    createUrl.searchParams.set("tp", String(Number(tp.toFixed(3))));
+    createUrl.searchParams.set("risk_pct", "0.5");
+    createUrl.searchParams.set("comment", "auto_scalp");
+
+    const created = await fetchJson(createUrl.toString());
+    if (!created?.ok) return res.status(502).json({ ok: false, error: "signal_create_failed", details: created });
+
+    // 6) telegram post
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    const photoUrl = new URL(`${BASE_URL}/chart.png`);
+    photoUrl.searchParams.set("symbol", symbol);
+    photoUrl.searchParams.set("interval", "1m");
+    photoUrl.searchParams.set("hours", "3");
+    photoUrl.searchParams.set("entry", String(Number(entry.toFixed(3))));
+    photoUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
+    photoUrl.searchParams.set("tp", String(Number(tp.toFixed(3))));
+
+    const caption = formatSignalCaption({ symbol, direction, sl: Number(sl.toFixed(3)), tp: Number(tp.toFixed(3)), riskPct: 0.5, comment: "auto_scalp" });
+
+    await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+
+    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_scalp_failed", message: String(e?.message || e) });
+  }
+});
+
 app.get("/", (_, res) => res.send("ok"));
 
 app.get("/debug/persistence", async (req, res) => {
