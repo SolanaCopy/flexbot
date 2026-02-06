@@ -1,5 +1,9 @@
 const express = require("express");
 
+// Public base URL for self-calls inside automation endpoints.
+// On Render you can set PUBLIC_BASE_URL=https://flexbot-qpf2.onrender.com
+const BASE_URL = (process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").trim();
+
 // Optional persistence (Turso/libSQL). Enable by setting TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in env.
 let libsqlClient = null;
 async function getDb() {
