@@ -1774,7 +1774,7 @@ function formatSignalCaption({ symbol, direction, sl, tp, riskPct, comment }) {
 
 // POST /auto/scalp/run?symbol=XAUUSD
 // Fully server-side: blackout + cooldown + claim + create signal + post ONE telegram photo.
-app.post("/auto/scalp/run", async (req, res) => {
+async function autoScalpRunHandler(req, res) {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
     const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
@@ -1849,7 +1849,11 @@ app.post("/auto/scalp/run", async (req, res) => {
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_scalp_failed", message: String(e?.message || e) });
   }
-});
+}
+
+// Support BOTH POST (Render/secure webhooks) and GET (cron-job.org free tier)
+app.post("/auto/scalp/run", autoScalpRunHandler);
+app.get("/auto/scalp/run", autoScalpRunHandler);
 
 app.get("/", (_, res) => res.send("ok"));
 
