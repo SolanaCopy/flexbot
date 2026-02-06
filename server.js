@@ -1724,6 +1724,25 @@ app.get("/news.txt", async (req, res) => {
 });
 
 // ---- Telegram helpers (to remove OpenClaw/LLM from posting) ----
+async function tgSendMessage({ chatId, text }) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
+  if (!chatId) throw new Error("missing_chatId");
+
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  const r = await fetchFn(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
+
+  const bodyText = await r.text();
+  let json = null;
+  try { json = JSON.parse(bodyText); } catch { json = { ok:false, raw: bodyText }; }
+  if (!r.ok || !json?.ok) throw new Error(json?.description || `telegram_http_${r.status}`);
+  return json;
+}
+
 async function tgSendPhoto({ chatId, photo, caption }) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
@@ -1858,6 +1877,219 @@ async function autoScalpRunHandler(req, res) {
 // Support BOTH POST (Render/secure webhooks) and GET (cron-job.org free tier)
 app.post("/auto/scalp/run", autoScalpRunHandler);
 app.get("/auto/scalp/run", autoScalpRunHandler);
+
+// GET/POST /auto/cooldown/5m/run?symbol=XAUUSD&cooldown_min=30
+async function autoCooldown5mHandler(req, res) {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
+    const r = await fetchJson(
+      `${BASE_URL}/ea/cooldown/claim5m?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`
+    );
+    if (!r?.ok) return res.status(502).json({ ok: false, error: "claim5m_failed" });
+    if (!r.notify || !r.message) return res.json({ ok: true, acted: false, reason: r.reason || "no_notify" });
+
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    await tgSendMessage({ chatId, text: String(r.message) });
+    return res.json({ ok: true, acted: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_cooldown_5m_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/cooldown/5m/run", autoCooldown5mHandler);
+app.get("/auto/cooldown/5m/run", autoCooldown5mHandler);
+
+// GET/POST /auto/news/pause/run
+async function autoNewsPauseHandler(req, res) {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const all = await getFfEvents();
+    const events = all
+      .filter((e) => (String(e.currency || e.country || "").toUpperCase() === "USD"))
+      .filter((e) => String(e.impact) === "High");
+
+    const now = Date.now();
+    const upcoming = events
+      .map((e) => ({ e, ts: Number(e.timestamp) * 1000 }))
+      .filter((x) => Number.isFinite(x.ts) && x.ts > now && x.ts <= now + 30 * 60 * 1000)
+      .sort((a, b) => a.ts - b.ts)[0];
+
+    if (!upcoming) return res.json({ ok: true, acted: false, reason: "no_upcoming" });
+
+    const minutes = Math.max(0, Math.round((upcoming.ts - now) / 60000));
+    const title = String(upcoming.e.title || upcoming.e.event || "USD High");
+
+    // de-dupe: once per event within 60m
+    const refMs = upcoming.ts;
+    const kind = "news_pause";
+    const insertedAt = now;
+    await db.execute({
+      sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
+      args: ["USD", kind, refMs, insertedAt],
+    });
+    const chk = await db.execute({
+      sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
+      args: ["USD", kind, refMs],
+    });
+    const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
+    const notify = Number.isFinite(createdAt) && createdAt === insertedAt;
+    if (!notify) return res.json({ ok: true, acted: false, reason: "dedup" });
+
+    const warn = minutes < 10 ? " ⚠️" : "";
+    const msg = `🚨 #UPDATE NEWS PAUSE — 🇺🇸 USD High in ${minutes}m: ${title} ⏳${warn}`;
+
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    await tgSendMessage({ chatId, text: msg });
+    return res.json({ ok: true, acted: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_news_pause_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/news/pause/run", autoNewsPauseHandler);
+app.get("/auto/news/pause/run", autoNewsPauseHandler);
+
+// GET/POST /auto/news/actuals/run
+async function autoNewsActualsHandler(req, res) {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const all = await getFfEvents();
+    const now = Date.now();
+
+    const candidates = all
+      .filter((e) => (String(e.currency || e.country || "").toUpperCase() === "USD"))
+      .filter((e) => String(e.impact) === "High")
+      .map((e) => ({ e, ts: Number(e.timestamp) * 1000 }))
+      .filter((x) => Number.isFinite(x.ts) && x.ts <= now && now - x.ts <= 20 * 60 * 1000)
+      .filter((x) => x.e.actual != null && x.e.forecast != null)
+      .sort((a, b) => b.ts - a.ts);
+
+    const pick = candidates[0];
+    if (!pick) return res.json({ ok: true, acted: false, reason: "no_actuals" });
+
+    const title = String(pick.e.title || pick.e.event || "USD High");
+    const actual = String(pick.e.actual);
+    const forecast = String(pick.e.forecast);
+    const prev = pick.e.previous != null ? String(pick.e.previous) : null;
+
+    const refMs = pick.ts;
+    const kind = "news_actuals";
+    const insertedAt = now;
+    await db.execute({
+      sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
+      args: ["USD", kind, refMs, insertedAt],
+    });
+    const chk = await db.execute({
+      sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
+      args: ["USD", kind, refMs],
+    });
+    const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
+    const notify = Number.isFinite(createdAt) && createdAt === insertedAt;
+    if (!notify) return res.json({ ok: true, acted: false, reason: "dedup" });
+
+    const msg = prev
+      ? `🟦 #NEWS USD High: ${title} | Actual ${actual} vs Forecast ${forecast} (Prev ${prev})`
+      : `🟦 #NEWS USD High: ${title} | Actual ${actual} vs Forecast ${forecast}`;
+
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    await tgSendMessage({ chatId, text: msg });
+    return res.json({ ok: true, acted: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_news_actuals_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/news/actuals/run", autoNewsActualsHandler);
+app.get("/auto/news/actuals/run", autoNewsActualsHandler);
+
+// GET/POST /auto/daily/plan/run (simple no-LLM plan)
+async function autoDailyPlanHandler(req, res) {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+
+    // if USD high-impact within 30m => NEWS PAUSE
+    const all = await getFfEvents();
+    const now = Date.now();
+    const soon = all
+      .filter((e) => (String(e.currency || e.country || "").toUpperCase() === "USD"))
+      .filter((e) => String(e.impact) === "High")
+      .map((e) => Number(e.timestamp) * 1000)
+      .filter((ts) => Number.isFinite(ts) && ts > now && ts <= now + 30 * 60 * 1000)[0];
+    if (soon) {
+      const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+      await tgSendMessage({ chatId, text: "#UPDATE: NEWS PAUSE" });
+      return res.json({ ok: true, acted: true, reason: "news_pause" });
+    }
+
+    const p = await fetchJson(`${BASE_URL}/price?symbol=${encodeURIComponent(symbol)}`);
+    const c15 = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=15m&limit=192`);
+    if (!p?.ok || !c15?.ok || !Array.isArray(c15?.candles) || c15.candles.length < 32)
+      return res.status(502).json({ ok: false, error: "data_failed" });
+
+    const price = Number(p.bid != null ? p.bid : p.price);
+    const candles = c15.candles;
+
+    const recent = candles.slice(-32);
+    const hi = Math.max(...recent.map((x) => Number(x.high)));
+    const lo = Math.min(...recent.map((x) => Number(x.low)));
+    const mid = (hi + lo) / 2;
+
+    const lvl1 = Number(hi.toFixed(2));
+    const lvl2 = Number(mid.toFixed(2));
+    const lvl3 = Number(lo.toFixed(2));
+
+    const riskPct = 0.5;
+
+    const msg =
+      `#PLAN XAUUSD\n` +
+      `Levels: ${lvl1} / ${lvl2} / ${lvl3}\n` +
+      `BUY | Entry ${lvl2} | SL ${lvl3} | TP1–TP3 RR | Invalidation < ${lvl3} | Risk ${riskPct}% | Bounce / reclaim\n` +
+      `SELL | Entry ${lvl2} | SL ${lvl1} | TP1–TP3 RR | Invalidation > ${lvl1} | Risk ${riskPct}% | Reject / breakdown`;
+
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    await tgSendMessage({ chatId, text: msg });
+    return res.json({ ok: true, acted: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_daily_plan_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/daily/plan/run", autoDailyPlanHandler);
+app.get("/auto/daily/plan/run", autoDailyPlanHandler);
+
+// GET/POST /auto/daily/recap/run (simple no-LLM recap)
+async function autoDailyRecapHandler(req, res) {
+  try {
+    const db = await getDb();
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+
+    if (!db) {
+      await tgSendMessage({ chatId, text: "#RECAP XAUUSD\nNo data." });
+      return res.json({ ok: true, acted: true, reason: "no_db" });
+    }
+
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+
+    const q = await db.execute({
+      sql: "SELECT id,direction,created_at_ms FROM signals WHERE symbol=? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 5",
+      args: [symbol, start.getTime()],
+    });
+
+    const n = q.rows?.length || 0;
+    const lastDir = n > 0 ? String(q.rows[0].direction) : null;
+
+    const msg = n === 0 ? "#RECAP XAUUSD\nNo signals today." : `#RECAP XAUUSD\nSignals today: ${n}. Last: ${lastDir}.`;
+    await tgSendMessage({ chatId, text: msg });
+    return res.json({ ok: true, acted: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_daily_recap_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/daily/recap/run", autoDailyRecapHandler);
+app.get("/auto/daily/recap/run", autoDailyRecapHandler);
 
 app.get("/", (_, res) => res.send("ok"));
 
