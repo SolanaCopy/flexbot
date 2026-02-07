@@ -1788,7 +1788,29 @@ async function tgSendMessage({ chatId, text }) {
   return json;
 }
 
-async function tgSendPhoto({ chatId, photo, caption }) {
+// Cache voor supportvragen
+const supportCache = new Map();
+
+async function supportAnswerSupportQuestion(question) {
+  if(supportCache.has(question)) {
+    return supportCache.get(question);
+  }
+  // Vraag GPT indien niet in cache.
+  const answer = await fetchFn(`https://api.openai.com/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "openai/gpt-4.1", 
+      messages: [{ role: "user", content: question }],
+      max_tokens: 60,
+    }),
+  });
+  const text = answer?.choices?.[0]?.message?.content || "(Geen antwoord)";
+  supportCache.set(question, text);
+  return text;
+}
+
+// Gebruik supportAnswerSupportQuestion(question) in je support handler
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
   if (!chatId) throw new Error("missing_chatId");
