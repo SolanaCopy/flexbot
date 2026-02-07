@@ -1800,7 +1800,7 @@ async function supportAnswerSupportQuestion(question) {
     method: "POST",
     headers: { "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "openai/gpt-4.1", 
+      model: "openai/gpt-5.2",
       messages: [{ role: "user", content: question }],
       max_tokens: 60,
     }),
