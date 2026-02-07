@@ -1811,6 +1811,8 @@ async function supportAnswerSupportQuestion(question) {
 }
 
 // Gebruik supportAnswerSupportQuestion(question) in je support handler
+
+async function tgSendPhoto({ chatId, photo, caption }) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
   if (!chatId) throw new Error("missing_chatId");
