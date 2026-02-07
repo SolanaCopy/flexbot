@@ -4,6 +4,51 @@ const express = require("express");
 // On Render you can set PUBLIC_BASE_URL=https://flexbot-qpf2.onrender.com
 const BASE_URL = (process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").trim();
 
+// Market close guard (NL time). Goal: avoid opening new trades near 23:00 NL close,
+// especially on Friday to prevent weekend-hanging positions.
+// Defaults:
+// - Block new signals Friday from 22:30 Europe/Amsterdam until Sunday 23:05.
+// - Also block every day from 22:55–23:05 as a safety window.
+function inAmsterdamParts(tsMs = Date.now()) {
+  const fmt = new Intl.DateTimeFormat("nl-NL", {
+    timeZone: "Europe/Amsterdam",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(new Date(tsMs));
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  const weekday = (get("weekday") || "").toLowerCase(); // e.g., "vr", "za", "zo"
+  const hour = Number(get("hour"));
+  const minute = Number(get("minute"));
+  return { weekday, hour, minute, minutesOfDay: hour * 60 + minute };
+}
+
+function marketBlockedNow(tsMs = Date.now()) {
+  const { weekday, minutesOfDay } = inAmsterdamParts(tsMs);
+
+  // Always block on Saturday.
+  if (weekday.startsWith("za")) return { blocked: true, reason: "market_closed_weekend" };
+
+  // Friday: stop early to avoid weekend carry.
+  if (weekday.startsWith("vr") && minutesOfDay >= (22 * 60 + 30)) {
+    return { blocked: true, reason: "market_close_soon_friday" };
+  }
+
+  // Sunday: block until reopen window.
+  if (weekday.startsWith("zo") && minutesOfDay < (23 * 60 + 5)) {
+    return { blocked: true, reason: "market_closed_weekend" };
+  }
+
+  // Daily safety window around 23:00 NL.
+  if (minutesOfDay >= (22 * 60 + 55) && minutesOfDay < (23 * 60 + 5)) {
+    return { blocked: true, reason: "market_close_window" };
+  }
+
+  return { blocked: false, reason: null };
+}
+
 // Optional persistence (Turso/libSQL). Enable by setting TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in env.
 let libsqlClient = null;
 async function getDb() {
@@ -1801,6 +1846,10 @@ async function autoScalpRunHandler(req, res) {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
     const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
+
+    // 0) market close guard
+    const m = marketBlockedNow();
+    if (m.blocked) return res.json({ ok: true, acted: false, reason: m.reason });
 
     // 1) blackout
     const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=15`);
