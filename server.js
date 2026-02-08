@@ -2104,19 +2104,39 @@ async function autoDailyPlanHandler(req, res) {
     const price = Number(p.bid != null ? p.bid : p.price);
     const candles = c15.candles;
 
-    const recent = candles.slice(-32);
-    const hi = Math.max(...recent.map((x) => Number(x.high)));
-    const lo = Math.min(...recent.map((x) => Number(x.low)));
-    const mid = (hi + lo) / 2;
+    // Compute levels from recent range; if feed is flat/buggy, expand window.
+    function rangeFromLast(n) {
+      const slice = candles.slice(-n);
+      const highs = slice.map((x) => Number(x.high)).filter((v) => Number.isFinite(v));
+      const lows = slice.map((x) => Number(x.low)).filter((v) => Number.isFinite(v));
+      if (highs.length === 0 || lows.length === 0) return null;
+      const hi = Math.max(...highs);
+      const lo = Math.min(...lows);
+      if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
+      return { hi, lo, mid: (hi + lo) / 2 };
+    }
 
-    const lvl1 = Number(hi.toFixed(2));
-    const lvl2 = Number(mid.toFixed(2));
-    const lvl3 = Number(lo.toFixed(2));
+    let r = rangeFromLast(32) || rangeFromLast(64) || rangeFromLast(192);
+    if (!r) return res.status(502).json({ ok: false, error: "range_failed" });
+
+    // If the range is too tight (or identical), expand window; if still flat, fallback around current price.
+    if (Math.abs(r.hi - r.lo) < 0.5) {
+      r = rangeFromLast(192) || r;
+    }
+    if (Math.abs(r.hi - r.lo) < 0.5) {
+      // fallback: simple bands around current price
+      const p0 = Number.isFinite(price) ? price : r.mid;
+      r = { hi: p0 + 5, mid: p0, lo: p0 - 5 };
+    }
+
+    const lvl1 = Number(r.hi.toFixed(2));
+    const lvl2 = Number(r.mid.toFixed(2));
+    const lvl3 = Number(r.lo.toFixed(2));
 
     const riskPct = 0.5;
 
     const msg =
-      `#PLAN XAUUSD\n` +
+      `#PLAN ${symbol}\n` +
       `Levels: ${lvl1} / ${lvl2} / ${lvl3}\n` +
       `BUY | Entry ${lvl2} | SL ${lvl3} | TP1–TP3 RR | Invalidation < ${lvl3} | Risk ${riskPct}% | Bounce / reclaim\n` +
       `SELL | Entry ${lvl2} | SL ${lvl1} | TP1–TP3 RR | Invalidation > ${lvl1} | Risk ${riskPct}% | Reject / breakdown`;
