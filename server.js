@@ -2096,6 +2096,38 @@ async function autoDailyPlanHandler(req, res) {
       return res.json({ ok: true, acted: true, reason: "news_pause" });
     }
 
+    // De-dupe: only post once per 2h window per symbol (prevents spam if cron hits too often).
+    const planWindowMs = 2 * 60 * 60 * 1000;
+    const planBucketMs = Math.floor(Date.now() / planWindowMs) * planWindowMs;
+
+    // Prefer persistent de-dupe when DB is available; otherwise best-effort in-memory.
+    const db = await getDb();
+    if (db) {
+      const kind = "daily_plan";
+      const insertedAt = Date.now();
+      await db.execute({
+        sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
+        args: [symbol, kind, planBucketMs, insertedAt],
+      });
+      const chk = await db.execute({
+        sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
+        args: [symbol, kind, planBucketMs],
+      });
+      const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
+      const notify = Number.isFinite(createdAt) && createdAt === insertedAt;
+      if (!notify) {
+        return res.json({ ok: true, acted: false, reason: "dedup_2h" });
+      }
+    } else {
+      // In-memory fallback
+      if (!globalThis.__flexbotPlanLast) globalThis.__flexbotPlanLast = new Map();
+      const last = globalThis.__flexbotPlanLast.get(symbol) || 0;
+      if (Date.now() - last < planWindowMs) {
+        return res.json({ ok: true, acted: false, reason: "dedup_2h_mem" });
+      }
+      globalThis.__flexbotPlanLast.set(symbol, Date.now());
+    }
+
     const p = await fetchJson(`${BASE_URL}/price?symbol=${encodeURIComponent(symbol)}`);
     const c15 = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=15m&limit=192`);
     if (!p?.ok || !c15?.ok || !Array.isArray(c15?.candles) || c15.candles.length < 32)
