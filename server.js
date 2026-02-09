@@ -8,7 +8,7 @@ const BASE_URL = (process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.
 // especially on Friday to prevent weekend-hanging positions.
 // Defaults:
 // - Block new signals Friday from 22:30 Europe/Amsterdam until Sunday 23:05.
-// - Also block every day from 22:55–23:05 as a safety window.
+// - Also block every day from 23:00–00:05 (NL) as a safety window.
 function inAmsterdamParts(tsMs = Date.now()) {
   const fmt = new Intl.DateTimeFormat("nl-NL", {
     timeZone: "Europe/Amsterdam",
@@ -41,8 +41,9 @@ function marketBlockedNow(tsMs = Date.now()) {
     return { blocked: true, reason: "market_closed_weekend" };
   }
 
-  // Daily safety window around 23:00 NL.
-  if (minutesOfDay >= (22 * 60 + 55) && minutesOfDay < (23 * 60 + 5)) {
+  // Daily safety window around the NY close rollover / spread widening.
+  // Block 23:00–00:05 NL.
+  if (minutesOfDay >= (23 * 60) || minutesOfDay < 5) {
     return { blocked: true, reason: "market_close_window" };
   }
 
