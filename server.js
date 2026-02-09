@@ -1865,11 +1865,12 @@ function formatSignalCaption({ symbol, direction, sl, tp, riskPct, comment }) {
   const kind = String(comment || '').toLowerCase().includes('scalp') ? 'SCALP' : 'SETUP';
 
   return (
-    `🚨 ${kind} SETUP LIVE — ${sym} ${dir} ` +
-    `🟢 Entry locked ` +
-    `🛑 SL: ${slStr} ` +
-    `🎯 TP: ${tpStr} ` +
-    `💰 Risk: ${riskStr}% ` +
+    `🚨 ${kind} SETUP LIVE — ${sym} ${dir} 🟢\n` +
+    `Entry locked\n` +
+    `\n` +
+    `🛑 SL: ${slStr}\n` +
+    `🎯 TP: ${tpStr}\n` +
+    `💰 Risk: ${riskStr}%\n` +
     `❗ Not Financial Advice.`
   );
 }
