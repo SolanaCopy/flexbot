@@ -1858,26 +1858,26 @@ async function fetchJson(url) {
   return r.json();
 }
 
-function formatSignalCaption({ symbol, direction, sl, tp, riskPct, comment }) {
+function formatSignalCaption({ symbol, direction, sl, tp, rr, riskPct, comment }) {
   const slStr = String(sl);
-  const tpStr = String(tp);
+  const tpStr = tp != null ? String(tp) : null;
   const riskStr = String(riskPct);
 
-  const sym = String(symbol || '').toUpperCase();
-  const dir = String(direction || '').toUpperCase();
+  const sym = String(symbol || "").toUpperCase();
+  const dir = String(direction || "").toUpperCase();
+  const c = comment != null ? String(comment) : "";
 
-  // Clean single-message caption (Telegram-friendly)
-  // Example:
-  // 🚨 SCALP SETUP LIVE — XAUUSD BUY 🟢 Entry locked 🛑 SL: 4969.625 🎯 TP: 4987.550 💰 Risk: 0.5% ❗ Not Financial Advice.
-  const kind = String(comment || '').toLowerCase().includes('scalp') ? 'SCALP' : 'SETUP';
+  // Telegram-friendly caption: clear SL/TP + mention MT5 sizing cap.
+  const kind = c.toLowerCase().includes("scalp") ? "SCALP" : "SETUP";
+  const tpLine = tpStr ? `🎯 TP: ${tpStr}` : (rr != null ? `🎯 TP: RR ${String(rr)}` : "🎯 TP: n/a");
 
   return (
-    `🚨 ${kind} SETUP LIVE — ${sym} ${dir} 🟢\n` +
-    `Entry locked\n` +
-    `\n` +
+    `🚨 ${kind} LIVE — ${sym} ${dir} 🟢\n` +
+    `Entry locked\n\n` +
     `🛑 SL: ${slStr}\n` +
-    `🎯 TP: ${tpStr}\n` +
-    `💰 Risk: ${riskStr}%\n` +
+    `${tpLine}\n` +
+    `💰 Risk: ~${riskStr}% (MT5 sizing, cap 1.00 lot)\n` +
+    (c ? `📝 ${c}\n` : "") +
     `❗ Not Financial Advice.`
   );
 }
