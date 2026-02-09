@@ -770,13 +770,13 @@ app.post("/signal/executed", async (req, res) => {
   }
 });
 
-// GET /ea/cooldown/status?symbol=XAUUSD&cooldown_min=30
+// GET /ea/cooldown/status?symbol=XAUUSD&cooldown_min=15
 // Returns remaining time based on last executed trade.
 app.get("/ea/cooldown/status", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
-    const cooldownMinRaw = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
-    const cooldownMin = Number.isFinite(cooldownMinRaw) && cooldownMinRaw > 0 ? cooldownMinRaw : 30;
+    const cooldownMinRaw = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 15;
+    const cooldownMin = Number.isFinite(cooldownMinRaw) && cooldownMinRaw > 0 ? cooldownMinRaw : 15;
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
@@ -870,8 +870,8 @@ app.get("/ea/auto/claim", async (req, res) => {
 app.get("/ea/cooldown/claim5m", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
-    const cooldownMinRaw = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
-    const cooldownMin = Number.isFinite(cooldownMinRaw) && cooldownMinRaw > 0 ? cooldownMinRaw : 30;
+    const cooldownMinRaw = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 15;
+    const cooldownMin = Number.isFinite(cooldownMinRaw) && cooldownMinRaw > 0 ? cooldownMinRaw : 15;
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
@@ -1869,7 +1869,7 @@ function formatSignalCaption({ symbol, direction, sl, tp, riskPct, comment }) {
 async function autoScalpRunHandler(req, res) {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
-    const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
+    const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 15;
 
     // 0) market close guard
     const m = marketBlockedNow();
@@ -1958,7 +1958,7 @@ app.get("/auto/scalp/run", autoScalpRunHandler);
 async function autoCooldown5mHandler(req, res) {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
-    const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 30;
+    const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 15;
     const r = await fetchJson(
       `${BASE_URL}/ea/cooldown/claim5m?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`
     );
