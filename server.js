@@ -1886,9 +1886,12 @@ async function autoScalpRunHandler(req, res) {
     if (!cd.has_last_trade) return res.json({ ok: true, acted: false, reason: "no_last_trade" });
     if (cd.remaining_ms > 0) return res.json({ ok: true, acted: false, reason: "cooldown" });
 
-    const refMs = cd.cooldown_until_ms;
+    // Use a rolling time bucket as claim key so we can retry periodically even if a prior attempt failed.
+    // Cooldown gate above still prevents rapid re-entries.
+    const scalpBucketMs = 5 * 60 * 1000;
+    const refMs = Math.floor(Date.now() / scalpBucketMs) * scalpBucketMs;
 
-    // 3) claim lock
+    // 3) claim lock (once per bucket)
     const claim = await fetchJson(`${BASE_URL}/ea/auto/claim?symbol=${encodeURIComponent(symbol)}&kind=auto_scalp_v1&ref_ms=${encodeURIComponent(String(refMs))}`);
     if (!claim?.ok) return res.status(502).json({ ok: false, error: "claim_failed" });
     if (!claim.notify) return res.json({ ok: true, acted: false, reason: "claimed" });
