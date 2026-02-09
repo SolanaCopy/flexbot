@@ -1899,6 +1899,30 @@ async function autoScalpRunHandler(req, res) {
     if (blackoutR.blackout) return res.json({ ok: true, acted: false, reason: "blackout" });
 
     // 2) cooldown
+    // Primary: EA-based cooldown (based on last executed trade time).
+    // Secondary safety: if EA callbacks are missing, enforce a local cooldown based on last auto_scalp signal creation
+    // to prevent community spam (EA would ignore anyway).
+    try {
+      const db = await getDb();
+      if (db) {
+        const now = Date.now();
+        const localCutoff = now - cooldownMin * 60 * 1000;
+        const lastSig = await db.execute({
+          sql:
+            "SELECT created_at_ms FROM signals " +
+            "WHERE symbol=? AND comment='auto_scalp' AND created_at_ms IS NOT NULL " +
+            "ORDER BY created_at_ms DESC LIMIT 1",
+          args: [symbol],
+        });
+        const lastCreated = lastSig.rows?.[0]?.created_at_ms != null ? Number(lastSig.rows[0].created_at_ms) : NaN;
+        if (Number.isFinite(lastCreated) && lastCreated >= localCutoff) {
+          return res.json({ ok: true, acted: false, reason: "cooldown_local", last_signal_ms: lastCreated });
+        }
+      }
+    } catch {
+      // best-effort only
+    }
+
     const cd = await fetchJson(`${BASE_URL}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`);
     if (!cd?.ok) return res.status(502).json({ ok: false, error: "cooldown_status_failed" });
     if (!cd.has_last_trade) return res.json({ ok: true, acted: false, reason: "no_last_trade" });
