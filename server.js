@@ -873,7 +873,8 @@ app.get("/ea/auto/claim", async (req, res) => {
 });
 
 // GET /ea/cooldown/claim5m?symbol=XAUUSD&cooldown_min=30
-// Returns notify=true once per cooldown when ~5 minutes remain.
+// Returns notify=true once per cooldown when <= 10 minutes remain.
+// (kept path name for compatibility with existing cron jobs)
 app.get("/ea/cooldown/claim5m", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
@@ -901,21 +902,23 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
     const cooldownMs = cooldownMin * 60 * 1000;
     const remainingMs = cooldownMs - (now - refMs);
 
-    // Only fire in a ~70s window around exactly 5 minutes remaining.
-    const target = 5 * 60 * 1000;
-    const windowMs = 70 * 1000;
-    const inWindow = remainingMs <= target && remainingMs >= target - windowMs;
+    const remainingMin = Math.max(0, Math.ceil(remainingMs / 60000));
+
+    // Fire in a broader window: when 1–10 minutes remain.
+    // (If remaining <= 0, cooldown is already over.)
+    const inWindow = remainingMs > 0 && remainingMs <= 10 * 60 * 1000;
     if (!inWindow) {
       return res.json({
         ok: true,
         notify: false,
+        reason: "no_notify",
         remaining_ms: remainingMs,
-        remaining_min: Math.max(0, Math.round(remainingMs / 60000)),
+        remaining_min: remainingMin,
       });
     }
 
-    // De-dupe: only one notify per (symbol, kind, refMs)
-    const kind = "cooldown_5m";
+    // De-dupe: only one notify per cooldown cycle (refMs=last trade fill time)
+    const kind = "cooldown_10m";
     const insertedAt = now;
 
     await db.execute({
@@ -932,19 +935,19 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
     const notify = Number.isFinite(createdAt) && createdAt === insertedAt;
 
     if (!notify) {
-      return res.json({ ok: true, notify: false, reason: "already_notified" });
+      return res.json({ ok: true, notify: false, reason: "already_notified", remaining_ms: remainingMs, remaining_min: remainingMin });
     }
 
     const variants = [
-      "⏳ Nog 5 min… daarna kan de EA weer een nieuwe trade pakken ✅",
-      "👀 5 minuten nog — EA is zo weer ready ✅",
-      "Even chill… nog 5 min cooldown en dan zijn we back 🔥",
-      "⏱️ Cooldown bijna klaar: nog 5 min, dan mag de EA weer handelen ✅",
+      "⏳ Nog max 10 min… daarna kan de EA weer een nieuwe trade pakken ✅",
+      "👀 Nog even… EA is binnen 10 min weer ready ✅",
+      "Even chill… cooldown bijna klaar (≤10 min) en dan zijn we back 🔥",
+      "⏱️ Cooldown bijna klaar: nog max 10 min, dan mag de EA weer handelen ✅",
     ];
     const idx = Math.abs(Math.floor(refMs / 1000)) % variants.length;
     const message = variants[idx];
 
-    return res.json({ ok: true, notify: true, message, symbol, remaining_ms: remainingMs });
+    return res.json({ ok: true, notify: true, message, symbol, remaining_ms: remainingMs, remaining_min: remainingMin });
   } catch {
     return res.status(500).json({ ok: false, error: "error" });
   }
