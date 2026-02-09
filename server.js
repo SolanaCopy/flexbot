@@ -884,16 +884,26 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
-    const latest = await db.execute({
-      sql:
-        "SELECT se.filled_at_ms AS filled_at_ms " +
-        "FROM signal_exec se JOIN signals s ON s.id = se.signal_id " +
-        "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL " +
-        "ORDER BY se.filled_at_ms DESC LIMIT 1",
+    // Prefer EA state (fast + authoritative), fall back to signal_exec join
+    let refMs = NaN;
+
+    const st = await db.execute({
+      sql: "SELECT last_executed_ms FROM ea_state WHERE symbol=? LIMIT 1",
       args: [symbol],
     });
+    if (st.rows?.[0]?.last_executed_ms != null) refMs = Number(st.rows[0].last_executed_ms);
 
-    const refMs = latest.rows?.[0]?.filled_at_ms != null ? Number(latest.rows[0].filled_at_ms) : NaN;
+    if (!Number.isFinite(refMs)) {
+      const latest = await db.execute({
+        sql:
+          "SELECT se.filled_at_ms AS filled_at_ms " +
+          "FROM signal_exec se JOIN signals s ON s.id = se.signal_id " +
+          "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL " +
+          "ORDER BY se.filled_at_ms DESC LIMIT 1",
+        args: [symbol],
+      });
+      refMs = latest.rows?.[0]?.filled_at_ms != null ? Number(latest.rows[0].filled_at_ms) : NaN;
+    }
     if (!Number.isFinite(refMs)) {
       return res.json({ ok: true, notify: false, reason: "no_last_trade" });
     }
