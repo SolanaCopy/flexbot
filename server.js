@@ -1855,13 +1855,23 @@ function formatSignalCaption({ symbol, direction, sl, tp, riskPct, comment }) {
   const slStr = String(sl);
   const tpStr = String(tp);
   const riskStr = String(riskPct);
-  const c = comment ? String(comment) : "";
 
-  const line1 = `✅ Signal queued for EA: ${symbol} ${direction} | SL ${slStr} | TP ${tpStr} | Risk ${riskStr}%`;
-  const line2 = c
-    ? `#SIGNAL ${symbol} ${direction} SL ${slStr} TP ${tpStr} Risk ${riskStr}% Comment ${c} NFA`
-    : `#SIGNAL ${symbol} ${direction} SL ${slStr} TP ${tpStr} Risk ${riskStr}% NFA`;
-  return line1 + "\n" + line2;
+  const sym = String(symbol || '').toUpperCase();
+  const dir = String(direction || '').toUpperCase();
+
+  // Clean single-message caption (Telegram-friendly)
+  // Example:
+  // 🚨 SCALP SETUP LIVE — XAUUSD BUY 🟢 Entry locked 🛑 SL: 4969.625 🎯 TP: 4987.550 💰 Risk: 0.5% ❗ Not Financial Advice.
+  const kind = String(comment || '').toLowerCase().includes('scalp') ? 'SCALP' : 'SETUP';
+
+  return (
+    `🚨 ${kind} SETUP LIVE — ${sym} ${dir} ` +
+    `🟢 Entry locked ` +
+    `🛑 SL: ${slStr} ` +
+    `🎯 TP: ${tpStr} ` +
+    `💰 Risk: ${riskStr}% ` +
+    `❗ Not Financial Advice.`
+  );
 }
 
 // POST /auto/scalp/run?symbol=XAUUSD
