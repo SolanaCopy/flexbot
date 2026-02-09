@@ -2205,6 +2205,10 @@ app.post("/auto/daily/plan/run", autoDailyPlanHandler);
 app.get("/auto/daily/plan/run", autoDailyPlanHandler);
 
 // GET/POST /auto/daily/recap/run (simple no-LLM recap)
+// Notes:
+// - DEDUP: protect against external cron misconfig (posting too often)
+// - COUNT: use COUNT(*) so we don't undercount when >5 signals
+// - TZ: day boundary uses Europe/Amsterdam (matches trading context)
 async function autoDailyRecapHandler(req, res) {
   try {
     const db = await getDb();
@@ -2216,20 +2220,54 @@ async function autoDailyRecapHandler(req, res) {
     }
 
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
 
-    const q = await db.execute({
-      sql: "SELECT id,direction,created_at_ms FROM signals WHERE symbol=? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 5",
-      args: [symbol, start.getTime()],
+    // Compute start-of-day for Europe/Amsterdam.
+    // We derive YYYY-MM-DD in Amsterdam, then convert that midnight to UTC ms.
+    const fmt = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Amsterdam",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
     });
+    const todayAms = fmt.format(new Date()); // e.g. 2026-02-09
+    const startMs = Date.parse(`${todayAms}T00:00:00.000Z`);
 
-    const n = q.rows?.length || 0;
-    const lastDir = n > 0 ? String(q.rows[0].direction) : null;
+    // DEDUP: only post once per Amsterdam day.
+    // Use ea_notifs with kind=daily_recap and ref_ms=startMs as stable key.
+    const now = Date.now();
+    await db.execute({
+      sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
+      args: [symbol, "daily_recap", startMs, now],
+    });
+    const chk = await db.execute({
+      sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
+      args: [symbol, "daily_recap", startMs],
+    });
+    const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
+    const notify = Number.isFinite(createdAt) && createdAt === now;
+    if (!notify) return res.json({ ok: true, acted: false, reason: "dedup" });
 
-    const msg = n === 0 ? "#RECAP XAUUSD\nNo signals today." : `#RECAP XAUUSD\nSignals today: ${n}. Last: ${lastDir}.`;
+    // COUNT all signals today (not limited)
+    const cnt = await db.execute({
+      sql: "SELECT COUNT(1) AS n FROM signals WHERE symbol=? AND created_at_ms >= ?",
+      args: [symbol, startMs],
+    });
+    const n = cnt.rows?.[0]?.n != null ? Number(cnt.rows[0].n) : 0;
+
+    // Fetch last signal direction for context
+    const last = await db.execute({
+      sql: "SELECT direction,created_at_ms FROM signals WHERE symbol=? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 1",
+      args: [symbol, startMs],
+    });
+    const lastDir = last.rows?.[0]?.direction != null ? String(last.rows[0].direction) : null;
+
+    const msg =
+      n === 0
+        ? `#RECAP ${symbol}\nNo signals today.`
+        : `#RECAP ${symbol}\nSignals today: ${n}. Last: ${lastDir}.`;
+
     await tgSendMessage({ chatId, text: msg });
-    return res.json({ ok: true, acted: true });
+    return res.json({ ok: true, acted: true, symbol, n });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_daily_recap_failed", message: String(e?.message || e) });
   }
