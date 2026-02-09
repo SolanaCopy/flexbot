@@ -1927,9 +1927,23 @@ async function autoScalpRunHandler(req, res) {
 
     const mid = (rangeHigh + rangeLow) / 2;
     const direction = entry >= mid ? "SELL" : "BUY";
-    const sl = direction === "SELL" ? rangeHigh + 0.4 : rangeLow - 0.4;
+    let sl = direction === "SELL" ? rangeHigh + 0.4 : rangeLow - 0.4;
 
-    const risk = Math.abs(entry - sl);
+    // Enforce practical risk distance so the 1.00 lot cap can still roughly match 1% risk on a 100k account.
+    // For XAUUSD, 1.00 lot is typically 100 oz; ~ $100 P/L per $1.00 price move.
+    // => 1% of $100k ($1000) needs ~10.0 price units of SL distance at 1.00 lot.
+    // You can override the $/price-unit-per-lot via env if your broker differs.
+    const usdPer1PricePerLot = Number(process.env.XAUUSD_USD_PER_1PRICE_PER_LOT || 100);
+    const targetRiskUsd = 1000; // 1% of 100k
+    const minRiskDist = usdPer1PricePerLot > 0 ? targetRiskUsd / usdPer1PricePerLot : 10;
+
+    let risk = Math.abs(entry - sl);
+    if (risk < minRiskDist) {
+      if (direction === "SELL") sl = entry + minRiskDist;
+      else sl = entry - minRiskDist;
+      risk = minRiskDist;
+    }
+
     const tp = direction === "SELL" ? entry - risk * 1.5 : entry + risk * 1.5;
 
     // 5) create signal
