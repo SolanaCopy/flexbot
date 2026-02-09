@@ -721,7 +721,8 @@ app.get("/signal/next", async (req, res) => {
 });
 
 // POST /signal/executed
-// Body (JSON): { signal_id, ticket, fill_price, time?:string|ms }
+// Body (JSON): { signal_id, ticket, fill_price, time?:string|ms, ok_mod?:boolean|0|1 }
+// NOTE: We only start server-side cooldown + Telegram posting when ok_mod is true (EA confirms it actually placed/modified).
 app.post("/signal/executed", async (req, res) => {
   try {
     let body = req.body;
@@ -731,18 +732,22 @@ app.post("/signal/executed", async (req, res) => {
     const ticket = body?.ticket != null ? String(body.ticket) : null;
     const fill_price = body?.fill_price != null ? Number(body.fill_price) : null;
 
+    const okModRaw = body?.ok_mod ?? body?.okMod ?? body?.okmod;
+    const ok_mod = okModRaw === true || okModRaw === 1 || okModRaw === "1" || okModRaw === "true";
+
     const tsMs = body?.time != null ? parseTimeToMs(body.time) : Date.now();
-    const filled_at_ms = Number.isFinite(tsMs) ? tsMs : Date.now();
-    const filled_at_mt5 = formatMt5(filled_at_ms);
+    const executed_at_ms = Number.isFinite(tsMs) ? tsMs : Date.now();
+    const executed_at_mt5 = formatMt5(executed_at_ms);
 
     if (!signal_id) return res.status(400).json({ ok: false, error: "bad_signal_id" });
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
+    // Always record execution callback so the same signal isn't re-processed.
     await db.execute({
       sql: "INSERT OR REPLACE INTO signal_exec (signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json) VALUES (?,?,?,?,?,?)",
-      args: [signal_id, ticket, fill_price, filled_at_ms, filled_at_mt5, JSON.stringify(body)],
+      args: [signal_id, ticket, fill_price, executed_at_ms, executed_at_mt5, JSON.stringify(body)],
     });
 
     await db.execute({
@@ -750,21 +755,44 @@ app.post("/signal/executed", async (req, res) => {
       args: [signal_id],
     });
 
-    // Update EA cooldown state
+    // Update EA cooldown state ONLY when EA confirms success.
     // Prefer symbol from signals table (authoritative)
-    const symRow = await db.execute({
-      sql: "SELECT symbol FROM signals WHERE id=? LIMIT 1",
+    const sigRow = await db.execute({
+      sql: "SELECT symbol,direction,sl,tp_csv,risk_pct,comment FROM signals WHERE id=? LIMIT 1",
       args: [signal_id],
     });
-    const sym = symRow.rows?.[0]?.symbol != null ? String(symRow.rows[0].symbol).toUpperCase() : null;
-    if (sym) {
+    const sig = sigRow.rows?.[0] || null;
+    const sym = sig?.symbol != null ? String(sig.symbol).toUpperCase() : null;
+
+    if (sym && ok_mod) {
       await db.execute({
         sql: "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket) VALUES (?,?,?,?)",
-        args: [sym, filled_at_ms, signal_id, ticket],
+        args: [sym, executed_at_ms, signal_id, ticket],
       });
+
+      // Telegram post happens only on success (prevents group spam when EA ignores/fails)
+      try {
+        const direction = sig?.direction != null ? String(sig.direction) : "";
+        const sl = sig?.sl != null ? Number(sig.sl) : NaN;
+        const tp1 = sig?.tp_csv ? Number(String(sig.tp_csv).split(",")[0]) : NaN;
+
+        const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+        const photoUrl = new URL(`${BASE_URL}/chart.png`);
+        photoUrl.searchParams.set("symbol", sym);
+        photoUrl.searchParams.set("interval", "1m");
+        photoUrl.searchParams.set("hours", "3");
+        if (Number.isFinite(fill_price)) photoUrl.searchParams.set("entry", String(Number(fill_price.toFixed(3))));
+        if (Number.isFinite(sl)) photoUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
+        if (Number.isFinite(tp1)) photoUrl.searchParams.set("tp", String(Number(tp1.toFixed(3))));
+
+        const caption = formatSignalCaption({ symbol: sym, direction, sl: Number.isFinite(sl) ? Number(sl.toFixed(3)) : sl, tp: Number.isFinite(tp1) ? Number(tp1.toFixed(3)) : tp1, riskPct: sig?.risk_pct != null ? Number(sig.risk_pct) : 0.5, comment: sig?.comment || "" });
+        await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+      } catch {
+        // best-effort
+      }
     }
 
-    return res.json({ ok: true, signal_id, ticket, fill_price, filled_at: filled_at_mt5 });
+    return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod });
   } catch {
     return res.status(400).json({ ok: false, error: "bad_json" });
   }
@@ -1941,21 +1969,10 @@ async function autoScalpRunHandler(req, res) {
     const created = await fetchJson(createUrl.toString());
     if (!created?.ok) return res.status(502).json({ ok: false, error: "signal_create_failed", details: created });
 
-    // 6) telegram post
-    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
-    const photoUrl = new URL(`${BASE_URL}/chart.png`);
-    photoUrl.searchParams.set("symbol", symbol);
-    photoUrl.searchParams.set("interval", "1m");
-    photoUrl.searchParams.set("hours", "3");
-    photoUrl.searchParams.set("entry", String(Number(entry.toFixed(3))));
-    photoUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
-    photoUrl.searchParams.set("tp", String(Number(tp.toFixed(3))));
+    // 6) no Telegram post here.
+    // We only post to Telegram when the EA confirms success via POST /signal/executed with ok_mod=true.
 
-    const caption = formatSignalCaption({ symbol, direction, sl: Number(sl.toFixed(3)), tp: Number(tp.toFixed(3)), riskPct: 0.5, comment: "auto_scalp" });
-
-    await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
-
-    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs });
+    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: false });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_scalp_failed", message: String(e?.message || e) });
   }
