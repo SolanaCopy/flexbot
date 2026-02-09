@@ -1970,7 +1970,7 @@ async function autoScalpRunHandler(req, res) {
     createUrl.searchParams.set("direction", direction);
     createUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
     createUrl.searchParams.set("tp", String(Number(tp.toFixed(3))));
-    createUrl.searchParams.set("risk_pct", "0.5");
+    createUrl.searchParams.set("risk_pct", "1.0");
     createUrl.searchParams.set("comment", "auto_scalp");
 
     const created = await fetchJson(createUrl.toString());
