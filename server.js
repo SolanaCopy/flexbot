@@ -769,34 +769,6 @@ app.post("/signal/executed", async (req, res) => {
         sql: "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket) VALUES (?,?,?,?)",
         args: [sym, executed_at_ms, signal_id, ticket],
       });
-
-      // Telegram post happens only on success (prevents group spam when EA ignores/fails)
-      try {
-        const direction = sig?.direction != null ? String(sig.direction) : "";
-        const sl = sig?.sl != null ? Number(sig.sl) : NaN;
-
-        let tp1 = NaN;
-        try {
-          const arr = sig?.tp_json != null ? JSON.parse(String(sig.tp_json)) : [];
-          if (Array.isArray(arr) && arr.length > 0) tp1 = Number(arr[0]);
-        } catch {
-          tp1 = NaN;
-        }
-
-        const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
-        const photoUrl = new URL(`${BASE_URL}/chart.png`);
-        photoUrl.searchParams.set("symbol", sym);
-        photoUrl.searchParams.set("interval", "1m");
-        photoUrl.searchParams.set("hours", "3");
-        if (Number.isFinite(fill_price)) photoUrl.searchParams.set("entry", String(Number(fill_price.toFixed(3))));
-        if (Number.isFinite(sl)) photoUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
-        if (Number.isFinite(tp1)) photoUrl.searchParams.set("tp", String(Number(tp1.toFixed(3))));
-
-        const caption = formatSignalCaption({ symbol: sym, direction, sl: Number.isFinite(sl) ? Number(sl.toFixed(3)) : sl, tp: Number.isFinite(tp1) ? Number(tp1.toFixed(3)) : tp1, riskPct: sig?.risk_pct != null ? Number(sig.risk_pct) : 0.5, comment: sig?.comment || "" });
-        await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
-      } catch {
-        // best-effort
-      }
     }
 
     return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod });
@@ -1976,10 +1948,21 @@ async function autoScalpRunHandler(req, res) {
     const created = await fetchJson(createUrl.toString());
     if (!created?.ok) return res.status(502).json({ ok: false, error: "signal_create_failed", details: created });
 
-    // 6) no Telegram post here.
-    // We only post to Telegram when the EA confirms success via POST /signal/executed with ok_mod=true.
+    // 6) telegram post (legacy behavior: post immediately on create)
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    const photoUrl = new URL(`${BASE_URL}/chart.png`);
+    photoUrl.searchParams.set("symbol", symbol);
+    photoUrl.searchParams.set("interval", "1m");
+    photoUrl.searchParams.set("hours", "3");
+    photoUrl.searchParams.set("entry", String(Number(entry.toFixed(3))));
+    photoUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
+    photoUrl.searchParams.set("tp", String(Number(tp.toFixed(3))));
 
-    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: false });
+    const caption = formatSignalCaption({ symbol, direction, sl: Number(sl.toFixed(3)), tp: Number(tp.toFixed(3)), riskPct: 1.0, comment: "auto_scalp" });
+
+    await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+
+    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: true });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_scalp_failed", message: String(e?.message || e) });
   }
