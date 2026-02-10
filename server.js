@@ -8,7 +8,7 @@ const BASE_URL = (process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.
 // especially on Friday to prevent weekend-hanging positions.
 // Defaults:
 // - Block new signals Friday from 22:30 Europe/Amsterdam until Sunday 23:05.
-// - Also block every day from 23:00–00:05 (NL) as a safety window.
+// - Also block every day from 22:55–23:05 as a safety window.
 function inAmsterdamParts(tsMs = Date.now()) {
   const fmt = new Intl.DateTimeFormat("nl-NL", {
     timeZone: "Europe/Amsterdam",
@@ -41,9 +41,8 @@ function marketBlockedNow(tsMs = Date.now()) {
     return { blocked: true, reason: "market_closed_weekend" };
   }
 
-  // Daily safety window around the NY close rollover / spread widening.
-  // Block 23:00–00:05 NL.
-  if (minutesOfDay >= (23 * 60) || minutesOfDay < 5) {
+  // Daily safety window around 23:00 NL.
+  if (minutesOfDay >= (22 * 60 + 55) && minutesOfDay < (23 * 60 + 5)) {
     return { blocked: true, reason: "market_close_window" };
   }
 
@@ -134,23 +133,31 @@ async function getDb() {
     ")"
   );
 
-  // Track last EA execution + open-position status per symbol for cooldown-aware automations
+  // Track last EA execution per symbol for cooldown-aware automations
   await libsqlClient.execute(
     "CREATE TABLE IF NOT EXISTS ea_state (" +
       "symbol TEXT NOT NULL PRIMARY KEY," +
       "last_executed_ms INTEGER NOT NULL," +
       "last_signal_id TEXT," +
-      "last_ticket TEXT," +
-      "has_position INTEGER DEFAULT 0," +
-      "position_ticket TEXT," +
-      "position_updated_ms INTEGER" +
+      "last_ticket TEXT" +
     ")"
   );
 
-  // Best-effort migrations (older DBs)
-  try { await libsqlClient.execute("ALTER TABLE ea_state ADD COLUMN has_position INTEGER DEFAULT 0"); } catch {}
-  try { await libsqlClient.execute("ALTER TABLE ea_state ADD COLUMN position_ticket TEXT"); } catch {}
-  try { await libsqlClient.execute("ALTER TABLE ea_state ADD COLUMN position_updated_ms INTEGER"); } catch {}
+  // EA live status (open position flag) per account/server/magic/symbol
+  // Used by backend/bot to know if EA already has a trade open.
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS ea_positions (" +
+      "account_login TEXT NOT NULL," +
+      "server TEXT NOT NULL," +
+      "magic INTEGER NOT NULL," +
+      "symbol TEXT NOT NULL," +
+      "has_position INTEGER NOT NULL," +
+      "tickets_json TEXT," +
+      "equity REAL," +
+      "updated_at_ms INTEGER NOT NULL," +
+      "PRIMARY KEY (account_login, server, magic, symbol)" +
+    ")"
+  );
 
   return libsqlClient;
 }
@@ -774,12 +781,9 @@ app.post("/signal/executed", async (req, res) => {
     const sym = sig?.symbol != null ? String(sig.symbol).toUpperCase() : null;
 
     if (sym && ok_mod) {
-      // Record last executed trade AND mark that we now have an open position (until EA reports it closed).
       await db.execute({
-        sql:
-          "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket,has_position,position_ticket,position_updated_ms) " +
-          "VALUES (?,?,?,?,?,?,?)",
-        args: [sym, executed_at_ms, signal_id, ticket, 1, ticket != null ? String(ticket) : null, Date.now()],
+        sql: "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket) VALUES (?,?,?,?)",
+        args: [sym, executed_at_ms, signal_id, ticket],
       });
     }
 
@@ -885,46 +889,7 @@ app.get("/ea/auto/claim", async (req, res) => {
 });
 
 // GET /ea/cooldown/claim5m?symbol=XAUUSD&cooldown_min=30
-// Returns notify=true once per cooldown when <= 10 minutes remain.
-// (kept path name for compatibility with existing cron jobs)
-// POST /ea/position/update
-// EA can call this periodically to report whether a position is currently open.
-// Body: { symbol:"XAUUSD", has_position:true|false, ticket?:string, ts_ms?:number }
-app.post("/ea/position/update", async (req, res) => {
-  try {
-    const jsonStr = firstJsonObject(req.body);
-    if (!jsonStr) return res.status(400).json({ ok: false, error: "bad_json" });
-    const body = JSON.parse(jsonStr);
-
-    const symbol = body?.symbol ? String(body.symbol).toUpperCase() : "XAUUSD";
-    const hasPosition = body?.has_position === true || body?.has_position === 1 || body?.has_position === "1";
-    const ticket = body?.ticket != null ? String(body.ticket) : null;
-    const tsRaw = body?.ts_ms != null ? Number(body.ts_ms) : NaN;
-    const tsMs = Number.isFinite(tsRaw) ? Math.floor(tsRaw) : Date.now();
-
-    const db = await getDb();
-    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
-
-    // Ensure row exists; keep last_executed_ms non-null.
-    const st = await db.execute({
-      sql: "SELECT last_executed_ms FROM ea_state WHERE symbol=? LIMIT 1",
-      args: [symbol],
-    });
-    const lastExec = st.rows?.[0]?.last_executed_ms != null ? Number(st.rows[0].last_executed_ms) : 0;
-
-    await db.execute({
-      sql:
-        "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket,has_position,position_ticket,position_updated_ms) " +
-        "VALUES (?,?,?,?,?,?,?)",
-      args: [symbol, Math.max(0, lastExec), null, null, hasPosition ? 1 : 0, ticket, tsMs],
-    });
-
-    return res.json({ ok: true, symbol, has_position: hasPosition, ticket, ts_ms: tsMs });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: "error", message: String(e?.message || e) });
-  }
-});
-
+// Returns notify=true once per cooldown when ~5 minutes remain.
 app.get("/ea/cooldown/claim5m", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
@@ -934,26 +899,16 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
-    // Prefer EA state (fast + authoritative), fall back to signal_exec join
-    let refMs = NaN;
-
-    const st = await db.execute({
-      sql: "SELECT last_executed_ms FROM ea_state WHERE symbol=? LIMIT 1",
+    const latest = await db.execute({
+      sql:
+        "SELECT se.filled_at_ms AS filled_at_ms " +
+        "FROM signal_exec se JOIN signals s ON s.id = se.signal_id " +
+        "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL " +
+        "ORDER BY se.filled_at_ms DESC LIMIT 1",
       args: [symbol],
     });
-    if (st.rows?.[0]?.last_executed_ms != null) refMs = Number(st.rows[0].last_executed_ms);
 
-    if (!Number.isFinite(refMs)) {
-      const latest = await db.execute({
-        sql:
-          "SELECT se.filled_at_ms AS filled_at_ms " +
-          "FROM signal_exec se JOIN signals s ON s.id = se.signal_id " +
-          "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL " +
-          "ORDER BY se.filled_at_ms DESC LIMIT 1",
-        args: [symbol],
-      });
-      refMs = latest.rows?.[0]?.filled_at_ms != null ? Number(latest.rows[0].filled_at_ms) : NaN;
-    }
+    const refMs = latest.rows?.[0]?.filled_at_ms != null ? Number(latest.rows[0].filled_at_ms) : NaN;
     if (!Number.isFinite(refMs)) {
       return res.json({ ok: true, notify: false, reason: "no_last_trade" });
     }
@@ -962,23 +917,21 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
     const cooldownMs = cooldownMin * 60 * 1000;
     const remainingMs = cooldownMs - (now - refMs);
 
-    const remainingMin = Math.max(0, Math.ceil(remainingMs / 60000));
-
-    // Fire in a broader window: when 1–10 minutes remain.
-    // (If remaining <= 0, cooldown is already over.)
-    const inWindow = remainingMs > 0 && remainingMs <= 10 * 60 * 1000;
+    // Only fire in a ~70s window around exactly 5 minutes remaining.
+    const target = 5 * 60 * 1000;
+    const windowMs = 70 * 1000;
+    const inWindow = remainingMs <= target && remainingMs >= target - windowMs;
     if (!inWindow) {
       return res.json({
         ok: true,
         notify: false,
-        reason: "no_notify",
         remaining_ms: remainingMs,
-        remaining_min: remainingMin,
+        remaining_min: Math.max(0, Math.round(remainingMs / 60000)),
       });
     }
 
-    // De-dupe: only one notify per cooldown cycle (refMs=last trade fill time)
-    const kind = "cooldown_10m";
+    // De-dupe: only one notify per (symbol, kind, refMs)
+    const kind = "cooldown_5m";
     const insertedAt = now;
 
     await db.execute({
@@ -995,19 +948,146 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
     const notify = Number.isFinite(createdAt) && createdAt === insertedAt;
 
     if (!notify) {
-      return res.json({ ok: true, notify: false, reason: "already_notified", remaining_ms: remainingMs, remaining_min: remainingMin });
+      return res.json({ ok: true, notify: false, reason: "already_notified" });
     }
 
     const variants = [
-      "⏳ Nog max 10 min… daarna kan de EA weer een nieuwe trade pakken ✅",
-      "👀 Nog even… EA is binnen 10 min weer ready ✅",
-      "Even chill… cooldown bijna klaar (≤10 min) en dan zijn we back 🔥",
-      "⏱️ Cooldown bijna klaar: nog max 10 min, dan mag de EA weer handelen ✅",
+      "⏳ Nog 5 min… daarna kan de EA weer een nieuwe trade pakken ✅",
+      "👀 5 minuten nog — EA is zo weer ready ✅",
+      "Even chill… nog 5 min cooldown en dan zijn we back 🔥",
+      "⏱️ Cooldown bijna klaar: nog 5 min, dan mag de EA weer handelen ✅",
     ];
     const idx = Math.abs(Math.floor(refMs / 1000)) % variants.length;
     const message = variants[idx];
 
-    return res.json({ ok: true, notify: true, message, symbol, remaining_ms: remainingMs, remaining_min: remainingMin });
+    return res.json({ ok: true, notify: true, message, symbol, remaining_ms: remainingMs });
+  } catch {
+    return res.status(500).json({ ok: false, error: "error" });
+  }
+});
+
+// --- EA live status (has open trade) ---
+// POST /ea/status
+// Header: X-API-Key: <EA_API_KEY>
+// Body JSON: { account_login, server, magic, symbol, has_position, tickets?:[], equity?:number, time?:ms|string }
+app.post("/ea/status", async (req, res) => {
+  try {
+    const apiKey = req.header("x-api-key");
+    const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
+    if (!expected || !apiKey || String(apiKey) !== expected) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const account_login = body?.account_login != null ? String(body.account_login) : "";
+    const server = body?.server != null ? String(body.server) : "";
+    const magicRaw = body?.magic != null ? Number(body.magic) : 0;
+    const magic = Number.isFinite(magicRaw) ? Math.floor(magicRaw) : 0;
+    const symbol = body?.symbol != null ? String(body.symbol).toUpperCase() : "";
+
+    const has_position = body?.has_position === true || body?.has_position === 1 || body?.has_position === "1";
+    const tickets = Array.isArray(body?.tickets) ? body.tickets.map((x) => String(x)) : [];
+    const equity = body?.equity != null ? Number(body.equity) : null;
+
+    const tsMs = body?.time != null ? parseTimeToMs(body.time) : Date.now();
+    const updated_at_ms = Number.isFinite(tsMs) ? tsMs : Date.now();
+
+    if (!account_login || !server || !symbol) {
+      return res.status(400).json({ ok: false, error: "missing_fields" });
+    }
+
+    const db = await getDb();
+    if (db) {
+      await db.execute({
+        sql:
+          "INSERT OR REPLACE INTO ea_positions (account_login,server,magic,symbol,has_position,tickets_json,equity,updated_at_ms) VALUES (?,?,?,?,?,?,?,?)",
+        args: [
+          account_login,
+          server,
+          magic,
+          symbol,
+          has_position ? 1 : 0,
+          JSON.stringify(tickets),
+          Number.isFinite(equity) ? equity : null,
+          updated_at_ms,
+        ],
+      });
+    } else {
+      // fallback: memory only
+      globalThis.eaPositions = globalThis.eaPositions || new Map();
+      const key = `${account_login}@${server}:${magic}:${symbol}`;
+      globalThis.eaPositions.set(key, {
+        account_login,
+        server,
+        magic,
+        symbol,
+        has_position,
+        tickets,
+        equity: Number.isFinite(equity) ? equity : null,
+        updated_at_ms,
+        updated_at: formatMt5(updated_at_ms),
+      });
+    }
+
+    return res.json({ ok: true, stored_at: formatMt5(Date.now()) });
+  } catch {
+    return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
+// GET /ea/status?account_login=...&server=...&magic=0&symbol=XAUUSD
+app.get("/ea/status", async (req, res) => {
+  try {
+    const account_login = req.query.account_login != null ? String(req.query.account_login) : "";
+    const server = req.query.server != null ? String(req.query.server) : "";
+    const magicRaw = req.query.magic != null ? Number(req.query.magic) : 0;
+    const magic = Number.isFinite(magicRaw) ? Math.floor(magicRaw) : 0;
+    const symbol = req.query.symbol != null ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+
+    if (!account_login || !server) {
+      return res.status(400).json({ ok: false, error: "missing_fields" });
+    }
+
+    const db = await getDb();
+    if (db) {
+      const rows = await db.execute({
+        sql:
+          "SELECT has_position,tickets_json,equity,updated_at_ms FROM ea_positions WHERE account_login=? AND server=? AND magic=? AND symbol=? LIMIT 1",
+        args: [account_login, server, magic, symbol],
+      });
+      const r = rows.rows?.[0];
+      if (!r) return res.json({ ok: true, status: null });
+
+      let tickets = [];
+      try {
+        tickets = JSON.parse(String(r.tickets_json || "[]"));
+      } catch {
+        tickets = [];
+      }
+
+      const updatedAtMs = r.updated_at_ms != null ? Number(r.updated_at_ms) : null;
+
+      return res.json({
+        ok: true,
+        status: {
+          account_login,
+          server,
+          magic,
+          symbol,
+          has_position: Number(r.has_position) === 1,
+          tickets,
+          equity: r.equity != null ? Number(r.equity) : null,
+          updated_at_ms: updatedAtMs,
+          updated_at: updatedAtMs != null ? formatMt5(updatedAtMs) : null,
+        },
+      });
+    }
+
+    const key = `${account_login}@${server}:${magic}:${symbol}`;
+    const s = globalThis.eaPositions?.get(key) || null;
+    return res.json({ ok: true, status: s });
   } catch {
     return res.status(500).json({ ok: false, error: "error" });
   }
@@ -1921,26 +2001,26 @@ async function fetchJson(url) {
   return r.json();
 }
 
-function formatSignalCaption({ symbol, direction, sl, tp, rr, riskPct, comment }) {
+function formatSignalCaption({ symbol, direction, sl, tp, riskPct, comment }) {
   const slStr = String(sl);
-  const tpStr = tp != null ? String(tp) : null;
+  const tpStr = String(tp);
   const riskStr = String(riskPct);
 
-  const sym = String(symbol || "").toUpperCase();
-  const dir = String(direction || "").toUpperCase();
-  const c = comment != null ? String(comment) : "";
+  const sym = String(symbol || '').toUpperCase();
+  const dir = String(direction || '').toUpperCase();
 
-  // Telegram-friendly caption: clear SL/TP + mention MT5 sizing cap.
-  const kind = c.toLowerCase().includes("scalp") ? "SCALP" : "SETUP";
-  const tpLine = tpStr ? `🎯 TP: ${tpStr}` : (rr != null ? `🎯 TP: RR ${String(rr)}` : "🎯 TP: n/a");
+  // Clean single-message caption (Telegram-friendly)
+  // Example:
+  // 🚨 SCALP SETUP LIVE — XAUUSD BUY 🟢 Entry locked 🛑 SL: 4969.625 🎯 TP: 4987.550 💰 Risk: 0.5% ❗ Not Financial Advice.
+  const kind = String(comment || '').toLowerCase().includes('scalp') ? 'SCALP' : 'SETUP';
 
   return (
-    `🚨 ${kind} LIVE — ${sym} ${dir} 🟢\n` +
-    `Entry locked\n\n` +
+    `🚨 ${kind} SETUP LIVE — ${sym} ${dir} 🟢\n` +
+    `Entry locked\n` +
+    `\n` +
     `🛑 SL: ${slStr}\n` +
-    `${tpLine}\n` +
-    `💰 Risk: ~${riskStr}% (MT5 sizing, cap 1.00 lot)\n` +
-    (c ? `📝 ${c}\n` : "") +
+    `🎯 TP: ${tpStr}\n` +
+    `💰 Risk: ${riskStr}%\n` +
     `❗ Not Financial Advice.`
   );
 }
@@ -1956,60 +2036,12 @@ async function autoScalpRunHandler(req, res) {
     const m = marketBlockedNow();
     if (m.blocked) return res.json({ ok: true, acted: false, reason: m.reason });
 
-    // 0b) max 1 open position rule (server-side soft block)
-    // If EA has reported an open position, do not create/post new signals.
-    try {
-      const db = await getDb();
-      if (db) {
-        const st = await db.execute({
-          sql: "SELECT has_position,position_ticket,position_updated_ms FROM ea_state WHERE symbol=? LIMIT 1",
-          args: [symbol],
-        });
-        const hasPos = Number(st.rows?.[0]?.has_position) === 1;
-        if (hasPos) {
-          return res.json({
-            ok: true,
-            acted: false,
-            reason: "position_open",
-            position_ticket: st.rows?.[0]?.position_ticket ?? null,
-            position_updated_ms: st.rows?.[0]?.position_updated_ms ?? null,
-          });
-        }
-      }
-    } catch {
-      // best-effort
-    }
-
     // 1) blackout
     const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=15`);
     if (!blackoutR?.ok) return res.status(502).json({ ok: false, error: "blackout_check_failed" });
     if (blackoutR.blackout) return res.json({ ok: true, acted: false, reason: "blackout" });
 
     // 2) cooldown
-    // Primary: EA-based cooldown (based on last executed trade time).
-    // Secondary safety: if EA callbacks are missing, enforce a local cooldown based on last auto_scalp signal creation
-    // to prevent community spam (EA would ignore anyway).
-    try {
-      const db = await getDb();
-      if (db) {
-        const now = Date.now();
-        const localCutoff = now - cooldownMin * 60 * 1000;
-        const lastSig = await db.execute({
-          sql:
-            "SELECT created_at_ms FROM signals " +
-            "WHERE symbol=? AND comment='auto_scalp' AND created_at_ms IS NOT NULL " +
-            "ORDER BY created_at_ms DESC LIMIT 1",
-          args: [symbol],
-        });
-        const lastCreated = lastSig.rows?.[0]?.created_at_ms != null ? Number(lastSig.rows[0].created_at_ms) : NaN;
-        if (Number.isFinite(lastCreated) && lastCreated >= localCutoff) {
-          return res.json({ ok: true, acted: false, reason: "cooldown_local", last_signal_ms: lastCreated });
-        }
-      }
-    } catch {
-      // best-effort only
-    }
-
     const cd = await fetchJson(`${BASE_URL}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`);
     if (!cd?.ok) return res.status(502).json({ ok: false, error: "cooldown_status_failed" });
     if (!cd.has_last_trade) return res.json({ ok: true, acted: false, reason: "no_last_trade" });
@@ -2038,23 +2070,9 @@ async function autoScalpRunHandler(req, res) {
 
     const mid = (rangeHigh + rangeLow) / 2;
     const direction = entry >= mid ? "SELL" : "BUY";
-    let sl = direction === "SELL" ? rangeHigh + 0.4 : rangeLow - 0.4;
+    const sl = direction === "SELL" ? rangeHigh + 0.4 : rangeLow - 0.4;
 
-    // Enforce practical risk distance so the 1.00 lot cap can still roughly match 1% risk on a 100k account.
-    // For XAUUSD, 1.00 lot is typically 100 oz; ~ $100 P/L per $1.00 price move.
-    // => 1% of $100k ($1000) needs ~10.0 price units of SL distance at 1.00 lot.
-    // You can override the $/price-unit-per-lot via env if your broker differs.
-    const usdPer1PricePerLot = Number(process.env.XAUUSD_USD_PER_1PRICE_PER_LOT || 100);
-    const targetRiskUsd = 1000; // 1% of 100k
-    const minRiskDist = usdPer1PricePerLot > 0 ? targetRiskUsd / usdPer1PricePerLot : 10;
-
-    let risk = Math.abs(entry - sl);
-    if (risk < minRiskDist) {
-      if (direction === "SELL") sl = entry + minRiskDist;
-      else sl = entry - minRiskDist;
-      risk = minRiskDist;
-    }
-
+    const risk = Math.abs(entry - sl);
     const tp = direction === "SELL" ? entry - risk * 1.5 : entry + risk * 1.5;
 
     // 5) create signal
@@ -2330,10 +2348,6 @@ app.post("/auto/daily/plan/run", autoDailyPlanHandler);
 app.get("/auto/daily/plan/run", autoDailyPlanHandler);
 
 // GET/POST /auto/daily/recap/run (simple no-LLM recap)
-// Notes:
-// - DEDUP: protect against external cron misconfig (posting too often)
-// - COUNT: use COUNT(*) so we don't undercount when >5 signals
-// - TZ: day boundary uses Europe/Amsterdam (matches trading context)
 async function autoDailyRecapHandler(req, res) {
   try {
     const db = await getDb();
@@ -2345,54 +2359,20 @@ async function autoDailyRecapHandler(req, res) {
     }
 
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
 
-    // Compute start-of-day for Europe/Amsterdam.
-    // We derive YYYY-MM-DD in Amsterdam, then convert that midnight to UTC ms.
-    const fmt = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/Amsterdam",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
+    const q = await db.execute({
+      sql: "SELECT id,direction,created_at_ms FROM signals WHERE symbol=? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 5",
+      args: [symbol, start.getTime()],
     });
-    const todayAms = fmt.format(new Date()); // e.g. 2026-02-09
-    const startMs = Date.parse(`${todayAms}T00:00:00.000Z`);
 
-    // DEDUP: only post once per Amsterdam day.
-    // Use ea_notifs with kind=daily_recap and ref_ms=startMs as stable key.
-    const now = Date.now();
-    await db.execute({
-      sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
-      args: [symbol, "daily_recap", startMs, now],
-    });
-    const chk = await db.execute({
-      sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
-      args: [symbol, "daily_recap", startMs],
-    });
-    const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
-    const notify = Number.isFinite(createdAt) && createdAt === now;
-    if (!notify) return res.json({ ok: true, acted: false, reason: "dedup" });
+    const n = q.rows?.length || 0;
+    const lastDir = n > 0 ? String(q.rows[0].direction) : null;
 
-    // COUNT all signals today (not limited)
-    const cnt = await db.execute({
-      sql: "SELECT COUNT(1) AS n FROM signals WHERE symbol=? AND created_at_ms >= ?",
-      args: [symbol, startMs],
-    });
-    const n = cnt.rows?.[0]?.n != null ? Number(cnt.rows[0].n) : 0;
-
-    // Fetch last signal direction for context
-    const last = await db.execute({
-      sql: "SELECT direction,created_at_ms FROM signals WHERE symbol=? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 1",
-      args: [symbol, startMs],
-    });
-    const lastDir = last.rows?.[0]?.direction != null ? String(last.rows[0].direction) : null;
-
-    const msg =
-      n === 0
-        ? `#RECAP ${symbol}\nNo signals today.`
-        : `#RECAP ${symbol}\nSignals today: ${n}. Last: ${lastDir}.`;
-
+    const msg = n === 0 ? "#RECAP XAUUSD\nNo signals today." : `#RECAP XAUUSD\nSignals today: ${n}. Last: ${lastDir}.`;
     await tgSendMessage({ chatId, text: msg });
-    return res.json({ ok: true, acted: true, symbol, n });
+    return res.json({ ok: true, acted: true });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_daily_recap_failed", message: String(e?.message || e) });
   }
