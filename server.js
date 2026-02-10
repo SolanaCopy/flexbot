@@ -162,6 +162,17 @@ async function getDb() {
     ")"
   );
 
+  // Explicit EA cooldown state (written by EA, read by Flexbot cron/bot)
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS ea_cooldown (" +
+      "symbol TEXT NOT NULL PRIMARY KEY," +
+      "active INTEGER NOT NULL," +
+      "until_ms INTEGER NOT NULL," +
+      "updated_at_ms INTEGER NOT NULL," +
+      "reason TEXT" +
+    ")"
+  );
+
   return libsqlClient;
 }
 
@@ -661,11 +672,44 @@ app.get("/signal/auto/create", async (req, res) => {
     }
 
     // --- Cooldown gate (optional) ---
-    // Prevent creating new signals if the EA is still in cooldown according to backend state.
+    // Prevent creating new signals if the EA is still in cooldown.
     // Enable by setting EA_COOLDOWN_GATE_ENABLED=1.
-    // Duration via EA_COOLDOWN_MIN (default 30).
+    // Priority:
+    //  1) Explicit EA cooldown state written to /ea/cooldown (table ea_cooldown)
+    //  2) Fallback: last_executed_ms in ea_state + fixed EA_COOLDOWN_MIN duration
     const cdGateEnabled = ["1", "true", "yes", "on"].includes(String(process.env.EA_COOLDOWN_GATE_ENABLED || "").toLowerCase());
     if (cdGateEnabled) {
+      // 1) explicit cooldown
+      try {
+        const rows = await db.execute({
+          sql: "SELECT active,until_ms,updated_at_ms,reason FROM ea_cooldown WHERE symbol=? LIMIT 1",
+          args: [symbol],
+        });
+        const r = rows.rows?.[0] || null;
+        if (r) {
+          const active = Number(r.active) === 1;
+          const untilMs = r.until_ms != null ? Number(r.until_ms) : 0;
+          if (active && Number.isFinite(untilMs) && untilMs > Date.now()) {
+            const remainingMs = untilMs - Date.now();
+            return res.status(409).json({
+              ok: false,
+              error: "ea_cooldown_active",
+              symbol,
+              remaining_ms: remainingMs,
+              remaining_min: Math.max(0, Math.ceil(remainingMs / 60000)),
+              until_ms: untilMs,
+              until: formatMt5(untilMs),
+              updated_at_ms: r.updated_at_ms != null ? Number(r.updated_at_ms) : null,
+              reason: r.reason != null ? String(r.reason) : null,
+              source: "ea_cooldown",
+            });
+          }
+        }
+      } catch {
+        // ignore, fall back
+      }
+
+      // 2) fallback cooldown duration based on last execution
       const cdMinRaw = Number(process.env.EA_COOLDOWN_MIN || 0);
       const cdMin = Number.isFinite(cdMinRaw) && cdMinRaw > 0 ? cdMinRaw : 30;
       const cooldownMs = cdMin * 60 * 1000;
@@ -688,6 +732,7 @@ app.get("/signal/auto/create", async (req, res) => {
             remaining_min: Math.max(0, Math.ceil(remainingMs / 60000)),
             last_executed_ms: refMs,
             last_executed: formatMt5(refMs),
+            source: "ea_state",
           });
         }
       }
@@ -1183,6 +1228,91 @@ app.get("/ea/status", async (req, res) => {
     const key = `${account_login}@${server}:${magic}:${symbol}`;
     const s = globalThis.eaPositions?.get(key) || null;
     return res.json({ ok: true, status: s });
+  } catch {
+    return res.status(500).json({ ok: false, error: "error" });
+  }
+});
+
+// --- EA explicit cooldown state ---
+// POST /ea/cooldown
+// Header: X-API-Key: <EA_API_KEY>
+// Body JSON: { symbol:"XAUUSD", active:true|false, until?:ms|sec|string, reason?:string }
+app.post("/ea/cooldown", async (req, res) => {
+  try {
+    const apiKey = req.header("x-api-key");
+    const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
+    if (!expected || !apiKey || String(apiKey) !== expected) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const symbol = body?.symbol != null ? String(body.symbol).toUpperCase() : "";
+    const active = body?.active === true || body?.active === 1 || body?.active === "1";
+
+    // until can be: unix seconds, unix ms, ISO string
+    let untilMs = 0;
+    if (body?.until != null) {
+      const parsed = parseTimeToMs(body.until);
+      if (Number.isFinite(parsed)) untilMs = parsed;
+    }
+
+    const reason = body?.reason != null ? String(body.reason) : null;
+    const updated_at_ms = Date.now();
+
+    if (!symbol) return res.status(400).json({ ok: false, error: "missing_symbol" });
+
+    const db = await getDb();
+    if (db) {
+      await db.execute({
+        sql: "INSERT OR REPLACE INTO ea_cooldown (symbol,active,until_ms,updated_at_ms,reason) VALUES (?,?,?,?,?)",
+        args: [symbol, active ? 1 : 0, Number(untilMs) || 0, updated_at_ms, reason],
+      });
+    } else {
+      globalThis.eaCooldown = globalThis.eaCooldown || new Map();
+      globalThis.eaCooldown.set(symbol, { symbol, active, until_ms: Number(untilMs) || 0, updated_at_ms, reason });
+    }
+
+    return res.json({ ok: true, symbol, active, until_ms: Number(untilMs) || 0, updated_at_ms });
+  } catch {
+    return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
+// GET /ea/cooldown?symbol=XAUUSD
+app.get("/ea/cooldown", async (req, res) => {
+  try {
+    const symbol = req.query.symbol != null ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+
+    const db = await getDb();
+    let cd = null;
+
+    if (db) {
+      const rows = await db.execute({
+        sql: "SELECT active,until_ms,updated_at_ms,reason FROM ea_cooldown WHERE symbol=? LIMIT 1",
+        args: [symbol],
+      });
+      cd = rows.rows?.[0] || null;
+    } else {
+      cd = globalThis.eaCooldown?.get(symbol) || null;
+    }
+
+    const nowMs = Date.now();
+    const active = cd ? Number(cd.active) === 1 || cd.active === true : false;
+    const untilMs = cd && cd.until_ms != null ? Number(cd.until_ms) : 0;
+    const remainingSec = active && untilMs > nowMs ? Math.ceil((untilMs - nowMs) / 1000) : 0;
+
+    return res.json({
+      ok: true,
+      symbol,
+      active: !!(active && untilMs > nowMs),
+      until_ms: untilMs,
+      until: untilMs ? formatMt5(untilMs) : null,
+      remaining_sec: remainingSec,
+      updated_at_ms: cd && cd.updated_at_ms != null ? Number(cd.updated_at_ms) : null,
+      reason: cd && cd.reason != null ? String(cd.reason) : null,
+    });
   } catch {
     return res.status(500).json({ ok: false, error: "error" });
   }
