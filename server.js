@@ -134,15 +134,23 @@ async function getDb() {
     ")"
   );
 
-  // Track last EA execution per symbol for cooldown-aware automations
+  // Track last EA execution + open-position status per symbol for cooldown-aware automations
   await libsqlClient.execute(
     "CREATE TABLE IF NOT EXISTS ea_state (" +
       "symbol TEXT NOT NULL PRIMARY KEY," +
       "last_executed_ms INTEGER NOT NULL," +
       "last_signal_id TEXT," +
-      "last_ticket TEXT" +
+      "last_ticket TEXT," +
+      "has_position INTEGER DEFAULT 0," +
+      "position_ticket TEXT," +
+      "position_updated_ms INTEGER" +
     ")"
   );
+
+  // Best-effort migrations (older DBs)
+  try { await libsqlClient.execute("ALTER TABLE ea_state ADD COLUMN has_position INTEGER DEFAULT 0"); } catch {}
+  try { await libsqlClient.execute("ALTER TABLE ea_state ADD COLUMN position_ticket TEXT"); } catch {}
+  try { await libsqlClient.execute("ALTER TABLE ea_state ADD COLUMN position_updated_ms INTEGER"); } catch {}
 
   return libsqlClient;
 }
@@ -766,9 +774,12 @@ app.post("/signal/executed", async (req, res) => {
     const sym = sig?.symbol != null ? String(sig.symbol).toUpperCase() : null;
 
     if (sym && ok_mod) {
+      // Record last executed trade AND mark that we now have an open position (until EA reports it closed).
       await db.execute({
-        sql: "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket) VALUES (?,?,?,?)",
-        args: [sym, executed_at_ms, signal_id, ticket],
+        sql:
+          "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket,has_position,position_ticket,position_updated_ms) " +
+          "VALUES (?,?,?,?,?,?,?)",
+        args: [sym, executed_at_ms, signal_id, ticket, 1, ticket != null ? String(ticket) : null, Date.now()],
       });
     }
 
@@ -876,6 +887,44 @@ app.get("/ea/auto/claim", async (req, res) => {
 // GET /ea/cooldown/claim5m?symbol=XAUUSD&cooldown_min=30
 // Returns notify=true once per cooldown when <= 10 minutes remain.
 // (kept path name for compatibility with existing cron jobs)
+// POST /ea/position/update
+// EA can call this periodically to report whether a position is currently open.
+// Body: { symbol:"XAUUSD", has_position:true|false, ticket?:string, ts_ms?:number }
+app.post("/ea/position/update", async (req, res) => {
+  try {
+    const jsonStr = firstJsonObject(req.body);
+    if (!jsonStr) return res.status(400).json({ ok: false, error: "bad_json" });
+    const body = JSON.parse(jsonStr);
+
+    const symbol = body?.symbol ? String(body.symbol).toUpperCase() : "XAUUSD";
+    const hasPosition = body?.has_position === true || body?.has_position === 1 || body?.has_position === "1";
+    const ticket = body?.ticket != null ? String(body.ticket) : null;
+    const tsRaw = body?.ts_ms != null ? Number(body.ts_ms) : NaN;
+    const tsMs = Number.isFinite(tsRaw) ? Math.floor(tsRaw) : Date.now();
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // Ensure row exists; keep last_executed_ms non-null.
+    const st = await db.execute({
+      sql: "SELECT last_executed_ms FROM ea_state WHERE symbol=? LIMIT 1",
+      args: [symbol],
+    });
+    const lastExec = st.rows?.[0]?.last_executed_ms != null ? Number(st.rows[0].last_executed_ms) : 0;
+
+    await db.execute({
+      sql:
+        "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket,has_position,position_ticket,position_updated_ms) " +
+        "VALUES (?,?,?,?,?,?,?)",
+      args: [symbol, Math.max(0, lastExec), null, null, hasPosition ? 1 : 0, ticket, tsMs],
+    });
+
+    return res.json({ ok: true, symbol, has_position: hasPosition, ticket, ts_ms: tsMs });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "error", message: String(e?.message || e) });
+  }
+});
+
 app.get("/ea/cooldown/claim5m", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
@@ -1906,6 +1955,30 @@ async function autoScalpRunHandler(req, res) {
     // 0) market close guard
     const m = marketBlockedNow();
     if (m.blocked) return res.json({ ok: true, acted: false, reason: m.reason });
+
+    // 0b) max 1 open position rule (server-side soft block)
+    // If EA has reported an open position, do not create/post new signals.
+    try {
+      const db = await getDb();
+      if (db) {
+        const st = await db.execute({
+          sql: "SELECT has_position,position_ticket,position_updated_ms FROM ea_state WHERE symbol=? LIMIT 1",
+          args: [symbol],
+        });
+        const hasPos = Number(st.rows?.[0]?.has_position) === 1;
+        if (hasPos) {
+          return res.json({
+            ok: true,
+            acted: false,
+            reason: "position_open",
+            position_ticket: st.rows?.[0]?.position_ticket ?? null,
+            position_updated_ms: st.rows?.[0]?.position_updated_ms ?? null,
+          });
+        }
+      }
+    } catch {
+      // best-effort
+    }
 
     // 1) blackout
     const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=15`);
