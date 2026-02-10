@@ -2126,12 +2126,12 @@ async function autoNewsPauseHandler(req, res) {
 
     const all = await getFfEvents();
     const events = all
-      .filter((e) => (String(e.currency || e.country || "").toUpperCase() === "USD"))
-      .filter((e) => String(e.impact) === "High");
+      .filter((e) => String(e.currency || "").toUpperCase() === "USD")
+      .filter((e) => String(e.impact) === "high");
 
     const now = Date.now();
     const upcoming = events
-      .map((e) => ({ e, ts: Number(e.timestamp) * 1000 }))
+      .map((e) => ({ e, ts: e.ts }))
       .filter((x) => Number.isFinite(x.ts) && x.ts > now && x.ts <= now + 30 * 60 * 1000)
       .sort((a, b) => a.ts - b.ts)[0];
 
@@ -2179,9 +2179,9 @@ async function autoNewsActualsHandler(req, res) {
     const now = Date.now();
 
     const candidates = all
-      .filter((e) => (String(e.currency || e.country || "").toUpperCase() === "USD"))
-      .filter((e) => String(e.impact) === "High")
-      .map((e) => ({ e, ts: Number(e.timestamp) * 1000 }))
+      .filter((e) => String(e.currency || "").toUpperCase() === "USD")
+      .filter((e) => String(e.impact) === "high")
+      .map((e) => ({ e, ts: e.ts }))
       .filter((x) => Number.isFinite(x.ts) && x.ts <= now && now - x.ts <= 20 * 60 * 1000)
       .filter((x) => x.e.actual != null && x.e.forecast != null)
       .sort((a, b) => b.ts - a.ts);
@@ -2232,9 +2232,9 @@ async function autoDailyPlanHandler(req, res) {
     const all = await getFfEvents();
     const now = Date.now();
     const soon = all
-      .filter((e) => (String(e.currency || e.country || "").toUpperCase() === "USD"))
-      .filter((e) => String(e.impact) === "High")
-      .map((e) => Number(e.timestamp) * 1000)
+      .filter((e) => String(e.currency || "").toUpperCase() === "USD")
+      .filter((e) => String(e.impact) === "high")
+      .map((e) => e.ts)
       .filter((ts) => Number.isFinite(ts) && ts > now && ts <= now + 30 * 60 * 1000)[0];
     if (soon) {
       const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
