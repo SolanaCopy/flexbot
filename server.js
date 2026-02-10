@@ -28,21 +28,24 @@ function inAmsterdamParts(tsMs = Date.now()) {
 function marketBlockedNow(tsMs = Date.now()) {
   const { weekday, minutesOfDay } = inAmsterdamParts(tsMs);
 
-  // Always block on Saturday.
-  if (weekday.startsWith("za")) return { blocked: true, reason: "market_closed_weekend" };
-
-  // Friday: stop early to avoid weekend carry.
-  if (weekday.startsWith("vr") && minutesOfDay >= (22 * 60 + 30)) {
-    return { blocked: true, reason: "market_close_soon_friday" };
-  }
-
-  // Sunday: block until reopen window.
-  if (weekday.startsWith("zo") && minutesOfDay < (23 * 60 + 5)) {
+  // Weekend: no trading/signals.
+  // Block from Friday 23:00 until Monday 00:10 (NL time).
+  if (weekday.startsWith("vr") && minutesOfDay >= (23 * 60 + 0)) {
     return { blocked: true, reason: "market_closed_weekend" };
   }
+  if (weekday.startsWith("za")) {
+    return { blocked: true, reason: "market_closed_weekend" };
+  }
+  if (weekday.startsWith("zo")) {
+    return { blocked: true, reason: "market_closed_weekend" };
+  }
+  if (weekday.startsWith("ma") && minutesOfDay < 10) {
+    return { blocked: true, reason: "market_close_window" };
+  }
 
-  // Daily safety window around 23:00 NL.
-  if (minutesOfDay >= (22 * 60 + 55) && minutesOfDay < (23 * 60 + 5)) {
+  // Daily block window: 23:00 → 00:10 (NL time)
+  // This spans midnight, so we block when >= 23:00 OR < 00:10.
+  if (minutesOfDay >= (23 * 60 + 0) || minutesOfDay < 10) {
     return { blocked: true, reason: "market_close_window" };
   }
 
@@ -538,6 +541,10 @@ app.get("/signal/create", async (req, res) => {
     const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET) : "";
     if (!expected || secret !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
 
+    // Market pause guard (NL time): block creating signals during 23:00–00:10 and weekends.
+    const m = marketBlockedNow();
+    if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
+
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "";
     const direction = req.query.direction ? String(req.query.direction).toUpperCase() : "";
     const sl = Number(req.query.sl);
@@ -589,6 +596,10 @@ app.get("/signal/auto/create", async (req, res) => {
     const token = req.query.token != null ? String(req.query.token) : "";
     const expected = process.env.AUTO_SIGNAL_TOKEN ? String(process.env.AUTO_SIGNAL_TOKEN) : "";
     if (!expected || token !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    // Market pause guard (NL time): block creating signals during 23:00–00:10 and weekends.
+    const m = marketBlockedNow();
+    if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
 
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "";
     const direction = req.query.direction ? String(req.query.direction).toUpperCase() : "";
@@ -671,6 +682,10 @@ app.get("/signal/auto/create", async (req, res) => {
 // Body (JSON): { symbol:"XAUUSD", direction:"BUY"|"SELL", sl:number, tp:[..] or "tp":"a,b,c", risk_pct?:number, comment?:string }
 app.post("/signal", async (req, res) => {
   try {
+    // Market pause guard (NL time): block creating signals during 23:00–00:10 and weekends.
+    const m = marketBlockedNow();
+    if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
+
     let body = req.body;
     if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
 
