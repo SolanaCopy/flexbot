@@ -660,6 +660,39 @@ app.get("/signal/auto/create", async (req, res) => {
       // If no account/server configured, we don't block (safe default)
     }
 
+    // --- Cooldown gate (optional) ---
+    // Prevent creating new signals if the EA is still in cooldown according to backend state.
+    // Enable by setting EA_COOLDOWN_GATE_ENABLED=1.
+    // Duration via EA_COOLDOWN_MIN (default 30).
+    const cdGateEnabled = ["1", "true", "yes", "on"].includes(String(process.env.EA_COOLDOWN_GATE_ENABLED || "").toLowerCase());
+    if (cdGateEnabled) {
+      const cdMinRaw = Number(process.env.EA_COOLDOWN_MIN || 0);
+      const cdMin = Number.isFinite(cdMinRaw) && cdMinRaw > 0 ? cdMinRaw : 30;
+      const cooldownMs = cdMin * 60 * 1000;
+
+      const st = await db.execute({
+        sql: "SELECT last_executed_ms FROM ea_state WHERE symbol=? LIMIT 1",
+        args: [symbol],
+      });
+
+      const refMs = st.rows?.[0]?.last_executed_ms != null ? Number(st.rows[0].last_executed_ms) : NaN;
+      if (Number.isFinite(refMs)) {
+        const remainingMs = cooldownMs - (Date.now() - refMs);
+        if (remainingMs > 0) {
+          return res.status(409).json({
+            ok: false,
+            error: "ea_cooldown_active",
+            symbol,
+            cooldown_min: cdMin,
+            remaining_ms: remainingMs,
+            remaining_min: Math.max(0, Math.ceil(remainingMs / 60000)),
+            last_executed_ms: refMs,
+            last_executed: formatMt5(refMs),
+          });
+        }
+      }
+    }
+
     const id = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random()
       .toString(16)
       .slice(2)}`;
