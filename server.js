@@ -577,6 +577,13 @@ app.get("/signal/create", async (req, res) => {
 
 // GET /signal/auto/create?token=...&symbol=XAUUSD&direction=BUY&sl=...&tp=...&risk_pct=0.5&comment=...
 // For OpenClaw cron automations: token is stored in Render env AUTO_SIGNAL_TOKEN.
+// Optional gate: block creating new signals when EA already has an open position.
+// Enable by setting EA_GATE_ENABLED=1.
+// Gate lookup keys can be provided via query params or env defaults:
+// - account_login (or env EA_GATE_ACCOUNT_LOGIN)
+// - server        (or env EA_GATE_SERVER)
+// - magic         (or env EA_GATE_MAGIC, default 0)
+// Staleness: env EA_STATUS_MAX_AGE_MS (default 5 minutes). If status is older, gate won't block.
 app.get("/signal/auto/create", async (req, res) => {
   try {
     const token = req.query.token != null ? String(req.query.token) : "";
@@ -601,6 +608,46 @@ app.get("/signal/auto/create", async (req, res) => {
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // --- EA position gate ---
+    const gateEnabled = ["1", "true", "yes", "on"].includes(String(process.env.EA_GATE_ENABLED || "").toLowerCase());
+    if (gateEnabled) {
+      const account_login = (req.query.account_login != null ? String(req.query.account_login) : String(process.env.EA_GATE_ACCOUNT_LOGIN || "")).trim();
+      const server = (req.query.server != null ? String(req.query.server) : String(process.env.EA_GATE_SERVER || "")).trim();
+      const magicRaw = req.query.magic != null ? Number(req.query.magic) : Number(process.env.EA_GATE_MAGIC || 0);
+      const magic = Number.isFinite(magicRaw) ? Math.floor(magicRaw) : 0;
+
+      const maxAgeRaw = Number(process.env.EA_STATUS_MAX_AGE_MS || 0);
+      const maxAgeMs = Number.isFinite(maxAgeRaw) && maxAgeRaw > 0 ? maxAgeRaw : 5 * 60 * 1000;
+
+      if (account_login && server) {
+        const rows = await db.execute({
+          sql:
+            "SELECT has_position,updated_at_ms FROM ea_positions WHERE account_login=? AND server=? AND magic=? AND symbol=? LIMIT 1",
+          args: [account_login, server, magic, symbol],
+        });
+        const r = rows.rows?.[0] || null;
+        if (r) {
+          const hasPos = Number(r.has_position) === 1;
+          const updatedAt = r.updated_at_ms != null ? Number(r.updated_at_ms) : NaN;
+          const fresh = Number.isFinite(updatedAt) ? Date.now() - updatedAt <= maxAgeMs : false;
+
+          if (fresh && hasPos) {
+            return res.status(409).json({
+              ok: false,
+              error: "ea_has_open_position",
+              symbol,
+              account_login,
+              server,
+              magic,
+              updated_at_ms: updatedAt,
+              updated_at: Number.isFinite(updatedAt) ? formatMt5(updatedAt) : null,
+            });
+          }
+        }
+      }
+      // If no account/server configured, we don't block (safe default)
+    }
 
     const id = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random()
       .toString(16)
