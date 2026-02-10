@@ -593,8 +593,8 @@ app.get("/signal/create", async (req, res) => {
 // Staleness: env EA_STATUS_MAX_AGE_MS (default 5 minutes). If status is older, gate won't block.
 app.get("/signal/auto/create", async (req, res) => {
   try {
-    const token = req.query.token != null ? String(req.query.token) : "";
-    const expected = process.env.AUTO_SIGNAL_TOKEN ? String(process.env.AUTO_SIGNAL_TOKEN) : "";
+    const token = req.query.token != null ? String(req.query.token).trim() : "";
+    const expected = process.env.AUTO_SIGNAL_TOKEN ? String(process.env.AUTO_SIGNAL_TOKEN).trim() : "";
     if (!expected || token !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
 
     // Market pause guard (NL time): block creating signals during 23:00–00:10 and weekends.
