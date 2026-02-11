@@ -2295,10 +2295,55 @@ async function autoScalpRunHandler(req, res) {
 
     const mid = (rangeHigh + rangeLow) / 2;
     const direction = entry >= mid ? "SELL" : "BUY";
-    const sl = direction === "SELL" ? rangeHigh + 0.4 : rangeLow - 0.4;
 
-    const risk = Math.abs(entry - sl);
-    const tp = direction === "SELL" ? entry - risk * 1.5 : entry + risk * 1.5;
+    // Risk model: generate SL/TP for an assumed lotsize (default 1.00) so that
+    // the trade risks ~1% of equity (FTMO-style), using a simple XAUUSD value model.
+    // Defaults:
+    // - assumed lots: 1.00
+    // - USD per $1.00 move per 1.00 lot: 100 (override env XAUUSD_USD_PER_1PRICE_PER_LOT)
+    // - equity source: latest EA /ea/status equity if configured and fresh; else env AUTO_SCALP_EQUITY_USD (default 100000)
+    const assumedLots = 1.0;
+    const usdPer1PricePerLotRaw = Number(process.env.XAUUSD_USD_PER_1PRICE_PER_LOT || 100);
+    const usdPer1PricePerLot = Number.isFinite(usdPer1PricePerLotRaw) && usdPer1PricePerLotRaw > 0 ? usdPer1PricePerLotRaw : 100;
+
+    let equityUsd = NaN;
+    try {
+      const db = await getDb();
+      if (db) {
+        const account_login = String(process.env.EA_GATE_ACCOUNT_LOGIN || "").trim();
+        const server = String(process.env.EA_GATE_SERVER || "").trim();
+        const magic = Number.isFinite(Number(process.env.EA_GATE_MAGIC)) ? Math.floor(Number(process.env.EA_GATE_MAGIC)) : 0;
+        const maxAgeRaw = Number(process.env.EA_STATUS_MAX_AGE_MS || 0);
+        const maxAgeMs = Number.isFinite(maxAgeRaw) && maxAgeRaw > 0 ? maxAgeRaw : 5 * 60 * 1000;
+
+        if (account_login && server) {
+          const rows = await db.execute({
+            sql: "SELECT equity,updated_at_ms FROM ea_positions WHERE account_login=? AND server=? AND magic=? AND symbol=? LIMIT 1",
+            args: [account_login, server, magic, symbol],
+          });
+          const r = rows.rows?.[0] || null;
+          if (r && r.updated_at_ms != null) {
+            const updatedAt = Number(r.updated_at_ms);
+            const fresh = Number.isFinite(updatedAt) ? Date.now() - updatedAt <= maxAgeMs : false;
+            const eq = r.equity != null ? Number(r.equity) : NaN;
+            if (fresh && Number.isFinite(eq) && eq > 0) equityUsd = eq;
+          }
+        }
+      }
+    } catch {
+      // best effort
+    }
+
+    if (!Number.isFinite(equityUsd)) {
+      const eqEnv = Number(process.env.AUTO_SCALP_EQUITY_USD || 100000);
+      equityUsd = Number.isFinite(eqEnv) && eqEnv > 0 ? eqEnv : 100000;
+    }
+
+    const targetRiskUsd = equityUsd * 0.01;
+    const slDist = targetRiskUsd / (usdPer1PricePerLot * assumedLots);
+
+    const sl = direction === "SELL" ? entry + slDist : entry - slDist;
+    const tp = direction === "SELL" ? entry - slDist * 1.5 : entry + slDist * 1.5;
 
     // 5) validate: only post setups that match risk/guard rules
     // Defaults for XAUUSD: point=0.01 (2 digits). Override via env XAUUSD_POINT.
@@ -2314,11 +2359,11 @@ async function autoScalpRunHandler(req, res) {
     const minTpPts = Number.isFinite(minTpPtsRaw) && minTpPtsRaw > 0 ? minTpPtsRaw : 800;
     const maxRr = Number.isFinite(maxRrRaw) && maxRrRaw > 0 ? maxRrRaw : 2.0;
 
-    const slDist = Math.abs(entry - sl);
+    const slDist2 = Math.abs(entry - sl);
     const tpDist = Math.abs(entry - tp);
-    const slDistPts = slDist / point;
+    const slDistPts = slDist2 / point;
     const tpDistPts = tpDist / point;
-    const rr = slDist > 0 ? tpDist / slDist : Infinity;
+    const rr = slDist2 > 0 ? tpDist / slDist2 : Infinity;
 
     if (slDistPts < minSlPts) {
       return res.json({ ok: true, acted: false, reason: "sl_too_close", slDistPts, minSlPts });
