@@ -2300,7 +2300,37 @@ async function autoScalpRunHandler(req, res) {
     const risk = Math.abs(entry - sl);
     const tp = direction === "SELL" ? entry - risk * 1.5 : entry + risk * 1.5;
 
-    // 5) create signal
+    // 5) validate: only post setups that match risk/guard rules
+    // Defaults for XAUUSD: point=0.01 (2 digits). Override via env XAUUSD_POINT.
+    // You can also override via query params: min_sl_points, min_tp_points, max_rr.
+    const pointRaw = Number(process.env.XAUUSD_POINT || 0.01);
+    const point = Number.isFinite(pointRaw) && pointRaw > 0 ? pointRaw : 0.01;
+
+    const minSlPtsRaw = req.query.min_sl_points != null ? Number(req.query.min_sl_points) : Number(process.env.AUTO_SCALP_MIN_SL_POINTS || 800);
+    const minTpPtsRaw = req.query.min_tp_points != null ? Number(req.query.min_tp_points) : Number(process.env.AUTO_SCALP_MIN_TP_POINTS || 800);
+    const maxRrRaw = req.query.max_rr != null ? Number(req.query.max_rr) : Number(process.env.AUTO_SCALP_MAX_RR || 2.0);
+
+    const minSlPts = Number.isFinite(minSlPtsRaw) && minSlPtsRaw > 0 ? minSlPtsRaw : 800;
+    const minTpPts = Number.isFinite(minTpPtsRaw) && minTpPtsRaw > 0 ? minTpPtsRaw : 800;
+    const maxRr = Number.isFinite(maxRrRaw) && maxRrRaw > 0 ? maxRrRaw : 2.0;
+
+    const slDist = Math.abs(entry - sl);
+    const tpDist = Math.abs(entry - tp);
+    const slDistPts = slDist / point;
+    const tpDistPts = tpDist / point;
+    const rr = slDist > 0 ? tpDist / slDist : Infinity;
+
+    if (slDistPts < minSlPts) {
+      return res.json({ ok: true, acted: false, reason: "sl_too_close", slDistPts, minSlPts });
+    }
+    if (tpDistPts < minTpPts) {
+      return res.json({ ok: true, acted: false, reason: "tp_too_close", tpDistPts, minTpPts });
+    }
+    if (rr > maxRr) {
+      return res.json({ ok: true, acted: false, reason: "rr_too_high", rr, maxRr });
+    }
+
+    // 6) create signal
     const token = process.env.AUTO_SIGNAL_TOKEN;
     if (!token) return res.status(500).json({ ok: false, error: "missing_AUTO_SIGNAL_TOKEN" });
 
@@ -2316,7 +2346,7 @@ async function autoScalpRunHandler(req, res) {
     const created = await fetchJson(createUrl.toString());
     if (!created?.ok) return res.status(502).json({ ok: false, error: "signal_create_failed", details: created });
 
-    // 6) telegram post (legacy behavior: post immediately on create)
+    // 7) telegram post (only after passing validations + creating signal)
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
     const photoUrl = new URL(`${BASE_URL}/chart.png`);
     photoUrl.searchParams.set("symbol", symbol);
