@@ -2262,7 +2262,7 @@ async function autoScalpRunHandler(req, res) {
     if (m.blocked) return res.json({ ok: true, acted: false, reason: m.reason });
 
     // 1) blackout
-    const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=15`);
+    const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=30`);
     if (!blackoutR?.ok) return res.status(502).json({ ok: false, error: "blackout_check_failed" });
     if (blackoutR.blackout) return res.json({ ok: true, acted: false, reason: "blackout" });
 
