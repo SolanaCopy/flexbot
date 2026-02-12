@@ -102,9 +102,32 @@ async function getDb() {
       "comment TEXT," +
       "status TEXT NOT NULL," +
       "created_at_ms INTEGER NOT NULL," +
-      "created_at_mt5 TEXT NOT NULL" +
+      "created_at_mt5 TEXT NOT NULL," +
+      // Telegram bookkeeping for public group teaser -> edit on close
+      "tg_open_chat_id TEXT," +
+      "tg_open_message_id INTEGER," +
+      // Simple close metadata (optional)
+      "closed_at_ms INTEGER," +
+      "close_outcome TEXT," +
+      "close_result TEXT" +
     ")"
   );
+
+  // Best-effort migrations for older DBs (ignore 'duplicate column name')
+  const alterCols = [
+    "ALTER TABLE signals ADD COLUMN tg_open_chat_id TEXT",
+    "ALTER TABLE signals ADD COLUMN tg_open_message_id INTEGER",
+    "ALTER TABLE signals ADD COLUMN closed_at_ms INTEGER",
+    "ALTER TABLE signals ADD COLUMN close_outcome TEXT",
+    "ALTER TABLE signals ADD COLUMN close_result TEXT",
+  ];
+  for (const sql of alterCols) {
+    try {
+      await libsqlClient.execute(sql);
+    } catch {
+      // ignore
+    }
+  }
 
   await libsqlClient.execute(
     "CREATE TABLE IF NOT EXISTS signal_exec (" +
@@ -827,6 +850,90 @@ app.post("/signal", async (req, res) => {
 // GET /signal/next?symbol=XAUUSD&since_ms=<unix_ms>
 // - since_ms is optional; when present, only returns signals created at/after since_ms.
 // - This lets MT5 EAs avoid executing old pending signals when first attached.
+// POST /signal/closed
+// Body (JSON): { secret?:string, signal_id:string, outcome:"TP"|"SL"|string, result?:string, closed_at_ms?:number }
+// Purpose: public group recap AFTER trade is closed (includes full details)
+app.post("/signal/closed", async (req, res) => {
+  try {
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const secret = (body?.secret != null ? String(body.secret) : (req.query.secret != null ? String(req.query.secret) : "")).trim();
+    const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET) : "";
+    if (!expected || secret !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    const signal_id = body?.signal_id ? String(body.signal_id) : "";
+    const outcome = body?.outcome != null ? String(body.outcome) : null;
+    const result = body?.result != null ? String(body.result) : null;
+    const closedAtMsRaw = body?.closed_at_ms != null ? Number(body.closed_at_ms) : Date.now();
+    const closed_at_ms = Number.isFinite(closedAtMsRaw) ? closedAtMsRaw : Date.now();
+
+    if (!signal_id) return res.status(400).json({ ok: false, error: "bad_signal_id" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const sigRow = await db.execute({
+      sql: "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,tg_open_chat_id,tg_open_message_id FROM signals WHERE id=? LIMIT 1",
+      args: [signal_id],
+    });
+    const sig = sigRow.rows?.[0] || null;
+    if (!sig) return res.status(404).json({ ok: false, error: "signal_not_found" });
+
+    let tp = [];
+    try { tp = JSON.parse(String(sig.tp_json || "[]")); } catch { tp = []; }
+
+    const exRow = await db.execute({
+      sql: "SELECT fill_price FROM signal_exec WHERE signal_id=? LIMIT 1",
+      args: [signal_id],
+    });
+    const entry = exRow.rows?.[0]?.fill_price != null ? Number(exRow.rows[0].fill_price) : null;
+
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+
+    // 1) Edit the original OPEN teaser (best effort)
+    const openChatId = sig.tg_open_chat_id != null ? String(sig.tg_open_chat_id) : null;
+    const openMsgId = sig.tg_open_message_id != null ? Number(sig.tg_open_message_id) : null;
+    if (openChatId && openMsgId) {
+      const editedText =
+        `✅ SIGNAL CLOSED (#${signal_id})\n` +
+        `${String(sig.symbol).toUpperCase()} ${String(sig.direction).toUpperCase()}\n` +
+        `Outcome: ${outcome || "-"} | Result: ${result || "-"}\n` +
+        `\n` +
+        `(Full details posted below)`;
+      try {
+        await tgEditMessageText({ chatId: openChatId, messageId: openMsgId, text: editedText });
+      } catch {
+        // ignore edit failures
+      }
+    }
+
+    // 2) Post a NEW CLOSED message with full details
+    const closedText = formatSignalClosedText({
+      id: signal_id,
+      symbol: String(sig.symbol),
+      direction: String(sig.direction),
+      entry: entry != null && Number.isFinite(entry) ? entry : "market",
+      sl: sig.sl != null ? Number(sig.sl) : null,
+      tp,
+      outcome,
+      result,
+    });
+
+    await tgSendMessage({ chatId, text: closedText });
+
+    // Update DB
+    await db.execute({
+      sql: "UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+      args: [closed_at_ms, outcome, result, signal_id],
+    });
+
+    return res.json({ ok: true, signal_id, posted: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "signal_closed_failed", message: String(e?.message || e) });
+  }
+});
+
 app.get("/signal/next", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
@@ -2158,8 +2265,44 @@ async function tgSendMessage({ chatId, text }) {
 
   const bodyText = await r.text();
   let json = null;
-  try { json = JSON.parse(bodyText); } catch { json = { ok:false, raw: bodyText }; }
+  try {
+    json = JSON.parse(bodyText);
+  } catch {
+    json = { ok: false, raw: bodyText };
+  }
   if (!r.ok || !json?.ok) throw new Error(json?.description || `telegram_http_${r.status}`);
+  return json;
+}
+
+async function tgEditMessageText({ chatId, messageId, text }) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
+  if (!chatId) throw new Error("missing_chatId");
+  if (!messageId) throw new Error("missing_messageId");
+
+  const url = `https://api.telegram.org/bot${token}/editMessageText`;
+  const r = await fetchFn(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, text }),
+  });
+
+  const bodyText = await r.text();
+  let json = null;
+  try {
+    json = JSON.parse(bodyText);
+  } catch {
+    json = { ok: false, raw: bodyText };
+  }
+
+  if (!r.ok || !json?.ok) {
+    // If the message is too old or can't be edited, don't hard-fail the whole close flow.
+    const err = json?.description || `telegram_http_${r.status}`;
+    const e = new Error(err);
+    e.details = json;
+    throw e;
+  }
+
   return json;
 }
 
@@ -2226,27 +2369,45 @@ async function fetchJson(url) {
   return r.json();
 }
 
-function formatSignalCaption({ symbol, direction, sl, tp, riskPct, comment }) {
-  const slStr = String(sl);
-  const tpStr = String(tp);
+function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
   const riskStr = String(riskPct);
 
-  const sym = String(symbol || '').toUpperCase();
-  const dir = String(direction || '').toUpperCase();
+  const sym = String(symbol || "").toUpperCase();
+  const dir = String(direction || "").toUpperCase();
 
-  // Clean single-message caption (Telegram-friendly)
-  // Example:
-  // 🚨 SCALP SETUP LIVE — XAUUSD BUY 🟢 Entry locked 🛑 SL: 4969.625 🎯 TP: 4987.550 💰 Risk: 0.5% ❗ Not Financial Advice.
-  const kind = String(comment || '').toLowerCase().includes('scalp') ? 'SCALP' : 'SETUP';
+  // Public group teaser caption (NO entry/SL/TP)
+  const kind = String(comment || "").toLowerCase().includes("scalp") ? "SCALP" : "SETUP";
 
   return (
-    `🚨 ${kind} SETUP LIVE — ${sym} ${dir} 🟢\n` +
-    `Entry locked\n` +
+    `🚨 LIVE SIGNAL OPEN (#${id})\n` +
+    `${kind}: ${sym} ${dir}\n` +
     `\n` +
-    `🛑 SL: ${slStr}\n` +
-    `🎯 TP: ${tpStr}\n` +
+    `Full entry/SL/TP + updates = MEMBERS ONLY\n` +
+    `➡️ DM de bot: /unlock\n` +
+    `\n` +
     `💰 Risk: ${riskStr}%\n` +
     `❗ Not Financial Advice.`
+  );
+}
+
+function formatSignalClosedText({ id, symbol, direction, entry, sl, tp, outcome, result }) {
+  const sym = String(symbol || "").toUpperCase();
+  const dir = String(direction || "").toUpperCase();
+
+  const tpList = Array.isArray(tp) ? tp : [];
+  const tpLine = tpList.length ? tpList.map((x, i) => `TP${i + 1}: ${x}`).join(" | ") : "TP: -";
+
+  return (
+    `✅ CLOSED (#${id})\n` +
+    `${sym} ${dir}\n` +
+    `\n` +
+    `Outcome: ${outcome || "-"}\n` +
+    `Result: ${result || "-"}\n` +
+    `\n` +
+    `Trade was:\n` +
+    `Entry: ${entry ?? "-"}\n` +
+    `SL: ${sl ?? "-"}\n` +
+    `${tpLine}`
   );
 }
 
@@ -2397,13 +2558,25 @@ async function autoScalpRunHandler(req, res) {
     photoUrl.searchParams.set("symbol", symbol);
     photoUrl.searchParams.set("interval", "1m");
     photoUrl.searchParams.set("hours", "3");
-    photoUrl.searchParams.set("entry", String(Number(entry.toFixed(3))));
-    photoUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
-    photoUrl.searchParams.set("tp", String(Number(tp.toFixed(3))));
+    // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
 
-    const caption = formatSignalCaption({ symbol, direction, sl: Number(sl.toFixed(3)), tp: Number(tp.toFixed(3)), riskPct: 1.0, comment: "auto_scalp" });
+    const caption = formatSignalCaption({ id: created.id, symbol, direction, riskPct: 1.0, comment: "auto_scalp" });
 
-    await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+    const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+
+    // Store open teaser message id so we can edit it later on close
+    try {
+      const db2 = await getDb();
+      const mid = tgPosted?.result?.message_id;
+      if (db2 && mid != null) {
+        await db2.execute({
+          sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
+          args: [String(chatId), Number(mid), String(created.id)],
+        });
+      }
+    } catch {
+      // ignore
+    }
 
     return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: true });
   } catch (e) {
