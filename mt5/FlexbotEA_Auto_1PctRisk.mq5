@@ -476,14 +476,39 @@ bool ExecuteSignal(const string json) {
   int digits=(int)SymbolInfoInteger(sym,SYMBOL_DIGITS);
   sl = NormalizeDouble(sl, digits);
 
+  ENUM_ORDER_TYPE ot = (dir=="BUY" ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
+
   // lotsize
-  // Rule: Always trade fixed 1.00 lot, but ONLY if that fixed lot would risk <= InpMaxRiskPercent.
-  // Compute the maximum allowed lots for this SL distance at InpMaxRiskPercent.
+  // AUTO mode sizes lots so that SL hit risks <= InpMaxRiskPercent.
   double riskPct = InpMaxRiskPercent;
   if(riskPct <= 0.0) riskPct = 1.0;
 
-  double allowedLots = CalcRiskLots(sym, ot, sl, riskPct); // lots that correspond to ~riskPct
+  // Compute allowed lots for riskPct
+  double allowedLots = CalcRiskLots(sym, ot, sl, riskPct);
   if(allowedLots <= 0.0) { g_lastSignalId=id; return false; }
+
+  if(InpDebugTrade)
+  {
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double riskMoney = balance * (riskPct / 100.0);
+    double price = (ot==ORDER_TYPE_BUY) ? SymbolInfoDouble(sym, SYMBOL_ASK) : SymbolInfoDouble(sym, SYMBOL_BID);
+    double tickSize  = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
+    double tickValue = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
+    double slDist = MathAbs(price - sl);
+    double lossPerLot = (tickSize>0 && tickValue>0) ? (slDist / tickSize) * tickValue : 0.0;
+
+    Print("RiskLots debug | id=", id,
+          " bal=", DoubleToString(balance,2),
+          " risk%=", DoubleToString(riskPct,2),
+          " risk$=", DoubleToString(riskMoney,2),
+          " price=", DoubleToString(price,digits),
+          " sl=", DoubleToString(sl,digits),
+          " slDist=", DoubleToString(slDist,digits),
+          " tickSize=", DoubleToString(tickSize,6),
+          " tickVal=", DoubleToString(tickValue,2),
+          " lossPerLot=", DoubleToString(lossPerLot,2),
+          " allowedLots=", DoubleToString(allowedLots,2));
+  }
 
   double fixedLots = ClampLots(sym, InpFixedLot);
   if(InpMaxLot > 0.0) fixedLots = MathMin(fixedLots, InpMaxLot);
@@ -521,7 +546,6 @@ bool ExecuteSignal(const string json) {
 
   if(lotsTotal <= 0.0) { g_lastSignalId=id; return false; }
 
-  ENUM_ORDER_TYPE ot = (dir=="BUY" ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
   double expected = (ot==ORDER_TYPE_BUY) ? SymbolInfoDouble(sym, SYMBOL_ASK) : SymbolInfoDouble(sym, SYMBOL_BID);
 
   trade.SetExpertMagicNumber(InpMagic);
