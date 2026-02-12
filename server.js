@@ -1,4 +1,6 @@
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 
 // Public base URL for self-calls inside automation endpoints.
 // On Render you can set PUBLIC_BASE_URL=https://flexbot-qpf2.onrender.com
@@ -864,6 +866,20 @@ app.post("/signal", async (req, res) => {
 // GET /signal/next?symbol=XAUUSD&since_ms=<unix_ms>
 // - since_ms is optional; when present, only returns signals created at/after since_ms.
 // - This lets MT5 EAs avoid executing old pending signals when first attached.
+function renderSvgToPngBuffer(svg) {
+  // Lazy-require to keep server boot safe even if optional deps fail.
+  const { Resvg } = require("@resvg/resvg-js");
+  const r = new Resvg(svg, {
+    fitTo: { mode: "width", value: 1080 },
+    font: {
+      // Let system fonts resolve; we avoid custom font files to keep deploy simple.
+      loadSystemFonts: true,
+    },
+  });
+  const pngData = r.render();
+  return Buffer.from(pngData.asPng());
+}
+
 // POST /signal/closed
 // Body (JSON): { secret?:string, signal_id:string, outcome:"TP"|"SL"|string, result?:string, closed_at_ms?:number }
 // Purpose: public group recap AFTER trade is closed (includes full details)
@@ -922,8 +938,8 @@ app.post("/signal/closed", async (req, res) => {
       }
     }
 
-    // 2) Post a NEW CLOSED message with full details
-    const closedText = formatSignalClosedText({
+    // 2) Post a NEW CLOSED recap as an IMAGE card (preferred)
+    const closedPayload = {
       id: signal_id,
       symbol: String(sig.symbol),
       direction: String(sig.direction),
@@ -932,9 +948,19 @@ app.post("/signal/closed", async (req, res) => {
       tp,
       outcome,
       result,
-    });
+    };
 
-    await tgSendMessage({ chatId, text: closedText });
+    const closedText = formatSignalClosedText(closedPayload);
+
+    // Try PNG card first, fallback to text.
+    try {
+      const svg = createClosedCardSvg(closedPayload);
+      const pngBuf = renderSvgToPngBuffer(svg);
+      const caption = `✅ CLOSED (#${signal_id}) ${String(sig.symbol).toUpperCase()} ${String(sig.direction).toUpperCase()} | ${outcome || "-"} | ${result || "-"}`;
+      await tgSendPhoto({ chatId, photo: pngBuf, caption });
+    } catch {
+      await tgSendMessage({ chatId, text: closedText });
+    }
 
     // Update DB
     await db.execute({
@@ -2350,11 +2376,32 @@ async function tgSendPhoto({ chatId, photo, caption }) {
   if (!chatId) throw new Error("missing_chatId");
 
   const url = `https://api.telegram.org/bot${token}/sendPhoto`;
-  const r = await fetchFn(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, photo, caption }),
-  });
+
+  // Telegram sendPhoto supports:
+  // - photo as file_id / URL (JSON)
+  // - photo as multipart/form-data upload (Buffer/Uint8Array)
+  const isBinary =
+    (typeof Buffer !== "undefined" && Buffer.isBuffer(photo)) ||
+    photo instanceof Uint8Array;
+
+  let r;
+  if (isBinary) {
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    if (caption) form.append("caption", String(caption));
+
+    const buf = Buffer.isBuffer(photo) ? photo : Buffer.from(photo);
+    const blob = new Blob([buf], { type: "image/png" });
+    form.append("photo", blob, "closed.png");
+
+    r = await fetchFn(url, { method: "POST", body: form });
+  } else {
+    r = await fetchFn(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, photo, caption }),
+    });
+  }
 
   const text = await r.text();
   let json = null;
@@ -2404,12 +2451,127 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
   );
 }
 
-function formatSignalClosedText({ id, symbol, direction, entry, sl, tp, outcome, result }) {
+let _mascotB64 = null;
+function getMascotB64() {
+  if (_mascotB64) return _mascotB64;
+  try {
+    const p = path.join(__dirname, "assets", "mascot.jpg");
+    const buf = fs.readFileSync(p);
+    _mascotB64 = buf.toString("base64");
+  } catch {
+    _mascotB64 = null;
+  }
+  return _mascotB64;
+}
+
+function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+function fitFontByChars(text, base, min, targetChars) {
+  const len = String(text || "").length;
+  if (len <= targetChars) return base;
+  const ratio = targetChars / Math.max(1, len);
+  return clamp(Math.floor(base * ratio), min, base);
+}
+function chunkString(s, n) {
+  const str = String(s || "");
+  const out = [];
+  for (let i = 0; i < str.length; i += n) out.push(str.slice(i, i + n));
+  return out;
+}
+
+function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl, tp }) {
+  const W = 1080;
+  const H = 1080;
+  const accent = "#7c3aed";
+  const bg1 = "#05060a";
+  const bg2 = "#0b0f1a";
+
   const sym = String(symbol || "").toUpperCase();
   const dir = String(direction || "").toUpperCase();
 
   const tpList = Array.isArray(tp) ? tp : [];
-  const tpLine = tpList.length ? tpList.map((x, i) => `TP${i + 1}: ${x}`).join(" | ") : "TP: -";
+  const tp1 = tpList.length ? tpList[0] : null;
+
+  const outcomeStr = outcome || "-";
+  const resultStr = result || "-";
+  const resultFont = fitFontByChars(resultStr, 82, 52, 13);
+
+  const mascotB64 = getMascotB64();
+  const idLines = chunkString(id, 22).slice(0, 3);
+
+  const outcomeColor = String(outcomeStr).toLowerCase().includes("tp") ? "#22c55e" : (String(outcomeStr).toLowerCase().includes("sl") ? "#ff4d4d" : "#f59e0b");
+  const resultColor = String(resultStr).trim().startsWith("-") ? "#ff4d4d" : "#22c55e";
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="${bg1}"/>
+    <stop offset="1" stop-color="${bg2}"/>
+  </linearGradient>
+  <radialGradient id="glow" cx="30%" cy="35%" r="60%">
+    <stop offset="0" stop-color="${accent}" stop-opacity="0.42"/>
+    <stop offset="1" stop-color="${accent}" stop-opacity="0"/>
+  </radialGradient>
+  <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+    <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity="0.55"/>
+  </filter>
+  <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur stdDeviation="10" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.40 0" result="g"/>
+    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <clipPath id="avatarClip"><circle cx="250" cy="420" r="220"/></clipPath>
+</defs>
+
+<rect width="${W}" height="${H}" fill="url(#bg)"/>
+<rect width="${W}" height="${H}" fill="url(#glow)"/>
+
+<rect x="40" y="40" width="1000" height="1000" rx="44" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+
+<circle cx="250" cy="420" r="245" fill="${accent}" opacity="0.18"/>
+<circle cx="250" cy="420" r="230" fill="none" stroke="rgba(124,58,237,0.55)" stroke-width="6"/>
+
+${mascotB64 ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
+  <image x="30" y="200" width="440" height="440" href="data:image/jpeg;base64,${mascotB64}" preserveAspectRatio="xMidYMid slice"/>
+</g>` : ``}
+
+<text x="520" y="150" font-family="Inter,Segoe UI,Arial" font-size="44" fill="rgba(255,255,255,0.78)" letter-spacing="6">FLEXBOT</text>
+<text x="520" y="210" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="800">CLOSED</text>
+
+<text x="520" y="290" font-family="Inter,Segoe UI,Arial" font-size="42" fill="rgba(255,255,255,0.9)" font-weight="700">${sym} ${dir}</text>
+<text x="520" y="340" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.70)">Outcome: <tspan fill="${outcomeColor}" font-weight="700">${outcomeStr}</tspan></text>
+
+<text x="520" y="470" font-family="Inter,Segoe UI,Arial" font-size="${resultFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)">${resultStr}</text>
+
+<g>
+  <rect x="520" y="540" width="480" height="300" rx="26" fill="rgba(0,0,0,0.28)" stroke="rgba(255,255,255,0.10)"/>
+
+  <text x="560" y="605" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.75)">Entry</text>
+  <text x="960" y="605" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="#fff" font-weight="700">${entry ?? "-"}</text>
+
+  <text x="560" y="675" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.75)">SL</text>
+  <text x="960" y="675" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="#fff" font-weight="700">${sl ?? "-"}</text>
+
+  <text x="560" y="745" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.75)">TP</text>
+  <text x="960" y="745" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="#fff" font-weight="700">${tp1 ?? "-"}</text>
+</g>
+
+<text x="80" y="980" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Signal ID</text>
+${idLines.map((l, i) => `<text x="190" y="980" dy="${i * 26}" font-family="Consolas,Menlo,monospace" font-size="22" fill="rgba(255,255,255,0.55)">${l}</text>`).join("\n")}
+
+<text x="80" y="1030" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Auto recap • after trade close</text>
+<text x="1000" y="1030" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">${new Date().toISOString().slice(0,19).replace("T"," ")}</text>
+</svg>`;
+}
+
+function formatSignalClosedText({ id, symbol, direction, entry, sl, tp, outcome, result }) {
+  const sym = String(symbol || "").toUpperCase();
+  const dir = String(direction || "").toUpperCase();
+
+  // Keep it compact: only show the first TP in public recap (boss request)
+  const tpList = Array.isArray(tp) ? tp : [];
+  const tp1 = tpList.length ? tpList[0] : null;
+  const tpLine = tp1 != null ? `TP: ${tp1}` : "TP: -";
 
   return (
     `✅ CLOSED (#${id})\n` +
