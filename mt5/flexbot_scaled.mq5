@@ -21,12 +21,12 @@ input double InpRiskPercent = 1.0; // requested risk % (legacy; used only by Cal
 input double MaxRiskPercent = 1.0; // hard cap (legacy)
 
 // Lotsize
-input bool InpUseFixedLot = false; // if true, always trade InpFixedLot (overrides risk sizing)
-input double InpFixedLot = 1.0; // fixed lotsize
+input bool InpUseFixedLot = true; // always trade a fixed lot size
+input double InpFixedLot = 1.0;  // fixed lotsize
 
-// Risk sizing (recommended): compute lots from SL distance so risk never exceeds this %
-input double InpMaxRiskPercent = 1.0; // never risk more than this % per trade
-input double InpMaxLot = 1.0; // HARD CAP lotsize. Keep at 1.0 to never exceed 1 lot.
+// Risk gate: only open trades when risk with InpFixedLot is <= this %
+input double InpMaxRiskPercent = 1.0; // do not open if risk would exceed this % per trade
+input double InpMaxLot = 1.0; // safety cap (keep 1.0)
 
 // Legacy scaling rule (only used if you re-enable it in code):
 // lots = (equity / 100000) * InpLotPer100k
@@ -477,23 +477,31 @@ bool ExecuteSignal(const string json) {
   sl = NormalizeDouble(sl, digits);
 
   // lotsize
-  // Goal: NEVER exceed InpMaxRiskPercent risk; also never exceed InpMaxLot lots.
-  double lotsTotal = 0.0;
-  if(InpUseFixedLot) {
-    // Fixed lot mode: WARNING: may exceed 1% risk if SL is tight. Use only if you accept that.
-    lotsTotal = ClampLots(sym, InpFixedLot);
-  } else {
-    double riskPct = InpMaxRiskPercent;
-    if(riskPct <= 0.0) riskPct = 1.0;
+  // Rule: Always trade fixed 1.00 lot, but ONLY if that fixed lot would risk <= InpMaxRiskPercent.
+  // Compute the maximum allowed lots for this SL distance at InpMaxRiskPercent.
+  double riskPct = InpMaxRiskPercent;
+  if(riskPct <= 0.0) riskPct = 1.0;
 
-    double riskLots = CalcRiskLots(sym, ot, sl, riskPct);
-    if(riskLots <= 0.0) { g_lastSignalId=id; return false; }
+  double allowedLots = CalcRiskLots(sym, ot, sl, riskPct); // lots that correspond to ~riskPct
+  if(allowedLots <= 0.0) { g_lastSignalId=id; return false; }
 
-    lotsTotal = riskLots;
+  double fixedLots = ClampLots(sym, InpFixedLot);
+  if(InpMaxLot > 0.0) fixedLots = MathMin(fixedLots, InpMaxLot);
+  fixedLots = ClampLots(sym, fixedLots);
+
+  // If the allowedLots is smaller than our fixed lots, then fixed lots would exceed riskPct -> SKIP.
+  if(fixedLots > allowedLots + 1e-9)
+  {
+    if(InpDebugTrade)
+      Print("Skip signal (risk too high for fixed lot). id=", id,
+            " fixed=", DoubleToString(fixedLots,2),
+            " allowed=", DoubleToString(allowedLots,2),
+            " maxRisk%=", DoubleToString(riskPct,2));
+    g_lastSignalId = id; // consume so we don't retry it
+    return false;
   }
 
-  if(InpMaxLot > 0.0) lotsTotal = MathMin(lotsTotal, InpMaxLot);
-  lotsTotal = ClampLots(sym, lotsTotal);
+  double lotsTotal = fixedLots;
   if(lotsTotal <= 0.0) { g_lastSignalId=id; return false; }
 
   ENUM_ORDER_TYPE ot = (dir=="BUY" ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
