@@ -17,10 +17,13 @@ input int     InpPollSeconds      = 5;
 input ulong   InpMagic            = 8210317741;
 input bool    InpUseSignalRiskPct = false;   // if true: uses min(signal.risk_pct, InpRiskPercent)
 input bool    InpEnableExecPost   = true;    // POST /signal/executed after opening
+input bool    InpEnableClosePost  = true;    // POST /signal/closed after trade closes
+input string  InpSignalSecret     = "";      // SIGNAL_SECRET for /signal/closed (keep private)
 
 // ===== Internal =====
 ulong g_lastPollMs = 0;
 string g_lastSignalId = "";
+bool   g_closePostedForLast = false;
 
 // --- helpers ---
 string Trim(const string s)
@@ -409,6 +412,7 @@ bool ExecuteSignal(const string signalJson)
 
   // Mark as processed
   g_lastSignalId = id;
+  g_closePostedForLast = false;
   GlobalVariableSet("FlexbotLastSignalId", (double)StringToInteger(id)); // best-effort; may overflow
 
   if(InpEnableExecPost)
@@ -451,6 +455,64 @@ int OnInit()
 void OnDeinit(const int reason)
 {
   EventKillTimer();
+}
+
+// Called on trade events; use it to notify backend when a trade closes.
+void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest& request, const MqlTradeResult& result)
+{
+  if(!InpEnableClosePost) return;
+  if(g_lastSignalId == "") return;
+  if(g_closePostedForLast) return;
+  if(InpSignalSecret == "") return; // required for /signal/closed
+
+  // We only care about new deals.
+  if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+
+  ulong deal = trans.deal;
+  if(deal == 0) return;
+
+  if(!HistoryDealSelect(deal)) return;
+
+  string sym = HistoryDealGetString(deal, DEAL_SYMBOL);
+  if(sym != InpSymbol) return;
+
+  long magic = (long)HistoryDealGetInteger(deal, DEAL_MAGIC);
+  if((ulong)magic != InpMagic) return;
+
+  long entryType = HistoryDealGetInteger(deal, DEAL_ENTRY);
+  if(entryType != DEAL_ENTRY_OUT) return; // closed deal
+
+  long reason = HistoryDealGetInteger(deal, DEAL_REASON);
+  string outcome = "CLOSED";
+  if(reason == DEAL_REASON_TP) outcome = "TP hit";
+  else if(reason == DEAL_REASON_SL) outcome = "SL hit";
+
+  double profit = HistoryDealGetDouble(deal, DEAL_PROFIT);
+  double swap   = HistoryDealGetDouble(deal, DEAL_SWAP);
+  double comm   = HistoryDealGetDouble(deal, DEAL_COMMISSION);
+  double net    = profit + swap + comm;
+
+  string resultStr = DoubleToString(net, 2) + " USD";
+
+  string body = "{";
+  body += "\"secret\":\"" + InpSignalSecret + "\"";
+  body += ",\"signal_id\":\"" + g_lastSignalId + "\"";
+  body += ",\"outcome\":\"" + outcome + "\"";
+  body += ",\"result\":\"" + resultStr + "\"";
+  body += ",\"closed_at_ms\":" + (string)((long)TimeCurrent()*1000);
+  body += "}";
+
+  string url = BuildUrl("/signal/closed");
+  int st = HttpPostJson(url, body);
+  if(st >= 200 && st < 300)
+  {
+    g_closePostedForLast = true;
+    Print("/signal/closed ok for signal ", g_lastSignalId, " outcome=", outcome, " result=", resultStr);
+  }
+  else
+  {
+    Print("/signal/closed POST status=", st);
+  }
 }
 
 void OnTimer()
