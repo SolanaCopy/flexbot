@@ -956,7 +956,7 @@ app.post("/signal/closed", async (req, res) => {
     try {
       const svg = createClosedCardSvg(closedPayload);
       const pngBuf = renderSvgToPngBuffer(svg);
-      const caption = `✅ CLOSED (#${signal_id}) ${String(sig.symbol).toUpperCase()} ${String(sig.direction).toUpperCase()} | ${outcome || "-"} | ${result || "-"}`;
+      const caption = `✅ CLOSED`;
       await tgSendPhoto({ chatId, photo: pngBuf, caption });
     } catch {
       await tgSendMessage({ chatId, text: closedText });
