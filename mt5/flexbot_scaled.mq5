@@ -21,14 +21,17 @@ input double InpRiskPercent = 1.0; // requested risk % (legacy; used only by Cal
 input double MaxRiskPercent = 1.0; // hard cap (legacy)
 
 // Lotsize
-input bool InpUseFixedLot = true; // if true, always trade InpFixedLot
+input bool InpUseFixedLot = false; // if true, always trade InpFixedLot (overrides risk sizing)
 input double InpFixedLot = 1.0; // fixed lotsize
 
-// Scaling rule:
+// Risk sizing (recommended): compute lots from SL distance so risk never exceeds this %
+input double InpMaxRiskPercent = 1.0; // never risk more than this % per trade
+input double InpMaxLot = 1.0; // HARD CAP lotsize. Keep at 1.0 to never exceed 1 lot.
+
+// Legacy scaling rule (only used if you re-enable it in code):
 // lots = (equity / 100000) * InpLotPer100k
-// Examples (InpLotPer100k=1): 100k->1.00, 50k->0.50, 10k->0.10
 input double InpLotPer100k = 1.0;
-input double InpMaxLot = 1.0; // HARD CAP lotsize (used when not fixed-lot). 0 disables.
+
 input double RR = 1.5; // fixed Risk:Reward for TP
 
 input int InpPollSeconds = 30; // reduce polling spam
@@ -290,9 +293,37 @@ double ClampLots(const string symbol, double lots) {
   double step = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
   if(step <= 0.0) step = 0.01;
   lots = MathMax(minLot, MathMin(maxLot, lots));
+  // floor to step so we don't accidentally oversize
   double steps = MathFloor(lots/step + 1e-9);
   double v = steps * step;
   return NormalizeDouble(v, StepDigitsFromStep(step));
+}
+
+// Risk-based lots: returns lots so that SL hit ~= riskPercent of BALANCE.
+// This guarantees risk never exceeds riskPercent if SL is actually set.
+double CalcRiskLots(const string symbol, ENUM_ORDER_TYPE ot, double slPrice, double riskPercent)
+{
+  if(riskPercent <= 0.0) return 0.0;
+
+  double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+  if(balance <= 0.0) return 0.0;
+
+  double riskMoney = balance * (riskPercent / 100.0);
+
+  double price = (ot==ORDER_TYPE_BUY) ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
+
+  double tickSize  = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+  double tickValue = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+  if(tickSize <= 0.0 || tickValue <= 0.0) return 0.0;
+
+  double slDist = MathAbs(price - slPrice);
+  if(slDist <= 0.0) return 0.0;
+
+  double lossPerLot = (slDist / tickSize) * tickValue;
+  if(lossPerLot <= 0.0) return 0.0;
+
+  double lots = riskMoney / lossPerLot;
+  return ClampLots(symbol, lots);
 }
 
 bool HasOpenPositionForMagic(const string sym, const ulong magic, string &ticketOut) {
@@ -446,19 +477,24 @@ bool ExecuteSignal(const string json) {
   sl = NormalizeDouble(sl, digits);
 
   // lotsize
+  // Goal: NEVER exceed InpMaxRiskPercent risk; also never exceed InpMaxLot lots.
   double lotsTotal = 0.0;
-  double lotsRaw = 0.0;
   if(InpUseFixedLot) {
+    // Fixed lot mode: WARNING: may exceed 1% risk if SL is tight. Use only if you accept that.
     lotsTotal = ClampLots(sym, InpFixedLot);
-    lotsRaw = lotsTotal;
   } else {
-    double eq = AccountInfoDouble(ACCOUNT_EQUITY);
-    lotsRaw = (eq / 100000.0) * InpLotPer100k;
-    lotsTotal = ClampLots(sym, lotsRaw);
-    if(InpMaxLot > 0) lotsTotal = MathMin(lotsTotal, InpMaxLot);
-    lotsTotal = ClampLots(sym, lotsTotal);
-    if(lotsTotal<=0) { g_lastSignalId=id; return false; }
+    double riskPct = InpMaxRiskPercent;
+    if(riskPct <= 0.0) riskPct = 1.0;
+
+    double riskLots = CalcRiskLots(sym, ot, sl, riskPct);
+    if(riskLots <= 0.0) { g_lastSignalId=id; return false; }
+
+    lotsTotal = riskLots;
   }
+
+  if(InpMaxLot > 0.0) lotsTotal = MathMin(lotsTotal, InpMaxLot);
+  lotsTotal = ClampLots(sym, lotsTotal);
+  if(lotsTotal <= 0.0) { g_lastSignalId=id; return false; }
 
   ENUM_ORDER_TYPE ot = (dir=="BUY" ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
   double expected = (ot==ORDER_TYPE_BUY) ? SymbolInfoDouble(sym, SYMBOL_ASK) : SymbolInfoDouble(sym, SYMBOL_BID);
