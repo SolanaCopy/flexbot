@@ -582,7 +582,14 @@ app.get("/signal/create", async (req, res) => {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "";
     const direction = req.query.direction ? String(req.query.direction).toUpperCase() : "";
     const sl = Number(req.query.sl);
-    const risk_pct = req.query.risk_pct != null ? Number(req.query.risk_pct) : 0.5;
+
+    // Risk cap: never create signals above this risk % (default 1.0)
+    let risk_pct = req.query.risk_pct != null ? Number(req.query.risk_pct) : 0.5;
+    const maxRiskEnv = Number(process.env.SIGNAL_MAX_RISK_PCT || 1.0);
+    const maxRiskPct = Number.isFinite(maxRiskEnv) && maxRiskEnv > 0 ? maxRiskEnv : 1.0;
+    if (!Number.isFinite(risk_pct) || risk_pct <= 0) risk_pct = 0.5;
+    risk_pct = Math.min(risk_pct, maxRiskPct);
+
     const comment = req.query.comment != null ? String(req.query.comment) : null;
 
     const tp = String(req.query.tp || "")
@@ -638,7 +645,14 @@ app.get("/signal/auto/create", async (req, res) => {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "";
     const direction = req.query.direction ? String(req.query.direction).toUpperCase() : "";
     const sl = Number(req.query.sl);
-    const risk_pct = req.query.risk_pct != null ? Number(req.query.risk_pct) : 0.5;
+
+    // Risk cap: never create signals above this risk % (default 1.0)
+    let risk_pct = req.query.risk_pct != null ? Number(req.query.risk_pct) : 0.5;
+    const maxRiskEnv = Number(process.env.SIGNAL_MAX_RISK_PCT || 1.0);
+    const maxRiskPct = Number.isFinite(maxRiskEnv) && maxRiskEnv > 0 ? maxRiskEnv : 1.0;
+    if (!Number.isFinite(risk_pct) || risk_pct <= 0) risk_pct = 0.5;
+    risk_pct = Math.min(risk_pct, maxRiskPct);
+
     const comment = req.query.comment != null ? String(req.query.comment) : null;
 
     const tp = String(req.query.tp || "")
@@ -2500,7 +2514,14 @@ async function autoScalpRunHandler(req, res) {
       equityUsd = Number.isFinite(eqEnv) && eqEnv > 0 ? eqEnv : 100000;
     }
 
-    const targetRiskUsd = equityUsd * 0.01;
+    // Risk for auto scalp signals (default 1%); also respect SIGNAL_MAX_RISK_PCT.
+    const autoRiskEnv = Number(process.env.AUTO_SCALP_RISK_PCT || 1.0);
+    const maxRiskEnv2 = Number(process.env.SIGNAL_MAX_RISK_PCT || 1.0);
+    const maxRiskPct2 = Number.isFinite(maxRiskEnv2) && maxRiskEnv2 > 0 ? maxRiskEnv2 : 1.0;
+    let riskPct2 = Number.isFinite(autoRiskEnv) && autoRiskEnv > 0 ? autoRiskEnv : 1.0;
+    riskPct2 = Math.min(riskPct2, maxRiskPct2);
+
+    const targetRiskUsd = equityUsd * (riskPct2 / 100.0);
     const slDist = targetRiskUsd / (usdPer1PricePerLot * assumedLots);
 
     const sl = direction === "SELL" ? entry + slDist : entry - slDist;
@@ -2546,7 +2567,7 @@ async function autoScalpRunHandler(req, res) {
     createUrl.searchParams.set("direction", direction);
     createUrl.searchParams.set("sl", String(Number(sl.toFixed(3))));
     createUrl.searchParams.set("tp", String(Number(tp.toFixed(3))));
-    createUrl.searchParams.set("risk_pct", "1.0");
+    createUrl.searchParams.set("risk_pct", String(riskPct2));
     createUrl.searchParams.set("comment", "auto_scalp");
 
     const created = await fetchJson(createUrl.toString());
