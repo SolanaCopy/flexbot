@@ -2493,7 +2493,7 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
 
   const outcomeStr = outcome || "-";
   const resultStr = result || "-";
-  const resultFont = fitFontByChars(resultStr, 82, 52, 13);
+  const resultFont = fitFontByChars(resultStr, 78, 46, 13);
 
   const mascotB64 = getMascotB64();
   const idLines = chunkString(id, 22).slice(0, 3);
@@ -2541,7 +2541,7 @@ ${mascotB64 ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
 <text x="520" y="290" font-family="Inter,Segoe UI,Arial" font-size="42" fill="rgba(255,255,255,0.9)" font-weight="700">${sym} ${dir}</text>
 <text x="520" y="340" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.70)">Outcome: <tspan fill="${outcomeColor}" font-weight="700">${outcomeStr}</tspan></text>
 
-<text x="520" y="470" font-family="Inter,Segoe UI,Arial" font-size="${resultFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)">${resultStr}</text>
+<text x="520" y="470" font-family="Inter,Segoe UI,Arial" font-size="${resultFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="500" lengthAdjust="spacingAndGlyphs">${resultStr}</text>
 
 <g>
   <rect x="520" y="540" width="480" height="300" rx="26" fill="rgba(0,0,0,0.28)" stroke="rgba(255,255,255,0.10)"/>
