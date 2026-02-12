@@ -26,7 +26,7 @@ input double InpFixedLot = 1.0;  // (unused when InpUseFixedLot=false)
 
 // Risk gate: only open trades when risk with InpFixedLot is <= this %
 input double InpMaxRiskPercent = 1.0; // max risk per trade (AUTO lots). 100k≈1.0 lot, 10k≈0.10 lot depending on SL.
-input double InpMaxLot = 10.0; // safety cap. Leave high; risk sizing will usually keep it low.
+input double InpMaxLot = 1.0; // HARD CAP lotsize (ready for users). Never exceed 1.0 lot.
 
 // Legacy scaling rule (only used if you re-enable it in code):
 // lots = (equity / 100000) * InpLotPer100k
