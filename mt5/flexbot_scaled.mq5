@@ -21,14 +21,14 @@ input double InpRiskPercent = 1.0; // requested risk % (legacy; used only by Cal
 input double MaxRiskPercent = 1.0; // hard cap (legacy)
 
 // Lotsize
-input bool InpUseFixedLot = false; // if true, always trade InpFixedLot
+input bool InpUseFixedLot = true; // if true, always trade InpFixedLot
 input double InpFixedLot = 1.0; // fixed lotsize
 
 // Scaling rule:
 // lots = (equity / 100000) * InpLotPer100k
 // Examples (InpLotPer100k=1): 100k->1.00, 50k->0.50, 10k->0.10
 input double InpLotPer100k = 1.0;
-input double InpMaxLot = 10.0; // HARD CAP lotsize (used when not fixed-lot). 0 disables.
+input double InpMaxLot = 1.0; // HARD CAP lotsize (used when not fixed-lot). 0 disables.
 input double RR = 1.5; // fixed Risk:Reward for TP
 
 input int InpPollSeconds = 30; // reduce polling spam
