@@ -419,7 +419,7 @@ void EnsureBannerObjects() {
   long cid = ChartID();
 
   // rectangle background
-  if(!ObjectFind(cid, BannerRectName())) {
+  if(ObjectFind(cid, BannerRectName()) < 0) {
     ObjectCreate(cid, BannerRectName(), OBJ_RECTANGLE_LABEL, 0, 0, 0);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_XDISTANCE, 10);
@@ -435,7 +435,7 @@ void EnsureBannerObjects() {
   }
 
   // text label
-  if(!ObjectFind(cid, BannerTextName())) {
+  if(ObjectFind(cid, BannerTextName()) < 0) {
     ObjectCreate(cid, BannerTextName(), OBJ_LABEL, 0, 0, 0);
     ObjectSetInteger(cid, BannerTextName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
     ObjectSetInteger(cid, BannerTextName(), OBJPROP_XDISTANCE, 26);
