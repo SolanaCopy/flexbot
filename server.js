@@ -1,6 +1,7 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 // Public base URL for self-calls inside automation endpoints.
 // On Render you can set PUBLIC_BASE_URL=https://flexbot-qpf2.onrender.com
@@ -2451,17 +2452,64 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
   );
 }
 
-let _mascotB64 = null;
-function getMascotB64() {
-  if (_mascotB64) return _mascotB64;
+// Mascot variants
+// - WIN: random pick from assets/mascot_win*.(png|jpg|jpeg|webp)
+// - LOSS: random pick from assets/mascot_loss*.(png|jpg|jpeg|webp)
+// - Fallback: assets/mascot.jpg (legacy)
+let _mascotCache = null;
+function _guessMimeByExt(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  return "application/octet-stream";
+}
+function _loadMascotCache() {
+  if (_mascotCache) return _mascotCache;
+  const dir = path.join(__dirname, "assets");
+  let files = [];
   try {
-    const p = path.join(__dirname, "assets", "mascot.jpg");
-    const buf = fs.readFileSync(p);
-    _mascotB64 = buf.toString("base64");
+    files = fs.readdirSync(dir);
   } catch {
-    _mascotB64 = null;
+    files = [];
   }
-  return _mascotB64;
+
+  const isImage = (f) => /\.(png|jpg|jpeg|webp)$/i.test(f);
+  const win = files.filter((f) => isImage(f) && /^mascot_win/i.test(f)).map((f) => path.join(dir, f));
+  const loss = files.filter((f) => isImage(f) && /^mascot_loss/i.test(f)).map((f) => path.join(dir, f));
+  const legacy = path.join(dir, "mascot.jpg");
+
+  _mascotCache = { win, loss, legacy };
+  return _mascotCache;
+}
+function getMascotDataUri({ outcome, result }) {
+  const cache = _loadMascotCache();
+
+  // Determine win/loss using the same logic as the card colors
+  const outcomeStr = String(outcome || "").toLowerCase();
+  const resultStr = String(result || "").trim();
+  const isWin = outcomeStr.includes("tp") || (resultStr && !resultStr.startsWith("-"));
+
+  let pool = isWin ? cache.win : cache.loss;
+  if (!pool || pool.length === 0) {
+    // fallback to legacy mascot.jpg if variants aren't present
+    pool = [cache.legacy];
+  }
+
+  let chosen = pool[0];
+  try {
+    chosen = pool[crypto.randomInt(0, pool.length)];
+  } catch {
+    chosen = pool[0];
+  }
+
+  try {
+    const buf = fs.readFileSync(chosen);
+    const mime = _guessMimeByExt(chosen);
+    return `data:${mime};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
@@ -2495,7 +2543,7 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
   const resultStr = result || "-";
   const resultFont = fitFontByChars(resultStr, 78, 46, 13);
 
-  const mascotB64 = getMascotB64();
+  const mascotDataUri = getMascotDataUri({ outcome: outcomeStr, result: resultStr });
   const idLines = chunkString(id, 22).slice(0, 3);
 
   const outcomeColor = String(outcomeStr).toLowerCase().includes("tp") ? "#22c55e" : (String(outcomeStr).toLowerCase().includes("sl") ? "#ff4d4d" : "#f59e0b");
@@ -2531,8 +2579,8 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
 <circle cx="250" cy="420" r="245" fill="${accent}" opacity="0.18"/>
 <circle cx="250" cy="420" r="230" fill="none" stroke="rgba(124,58,237,0.55)" stroke-width="6"/>
 
-${mascotB64 ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
-  <image x="30" y="200" width="440" height="440" href="data:image/jpeg;base64,${mascotB64}" preserveAspectRatio="xMidYMid slice"/>
+${mascotDataUri ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
+  <image x="30" y="200" width="440" height="440" href="${mascotDataUri}" preserveAspectRatio="xMidYMid slice"/>
 </g>` : ``}
 
 <text x="520" y="150" font-family="Inter,Segoe UI,Arial" font-size="44" fill="rgba(255,255,255,0.78)" letter-spacing="6">FLEXBOT</text>
