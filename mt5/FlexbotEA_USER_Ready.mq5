@@ -526,13 +526,14 @@ void EnsureBannerObjects() {
   EnsureConnInBanner();
 
   // vertical spacing + font sizes
+  // Keep all lines same size (boss request): equal to the drawdown/details line.
   ObjectSetInteger(cid, BannerLineName(1), OBJPROP_YDISTANCE, 26);
-  ObjectSetInteger(cid, BannerLineName(1), OBJPROP_FONTSIZE, 16);
+  ObjectSetInteger(cid, BannerLineName(1), OBJPROP_FONTSIZE, 12);
 
-  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_YDISTANCE, 48);
-  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_FONTSIZE, 14);
+  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_YDISTANCE, 46);
+  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_FONTSIZE, 12);
 
-  ObjectSetInteger(cid, BannerLineName(3), OBJPROP_YDISTANCE, 68);
+  ObjectSetInteger(cid, BannerLineName(3), OBJPROP_YDISTANCE, 66);
   ObjectSetInteger(cid, BannerLineName(3), OBJPROP_FONTSIZE, 12);
 }
 
