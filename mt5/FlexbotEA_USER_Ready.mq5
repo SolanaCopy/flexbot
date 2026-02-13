@@ -109,6 +109,7 @@ void LoadOrResetDayStartEquity() {
   if(ymd != g_dailyYmd) {
     g_dailyYmd = ymd;
     g_dailyStop = false;
+    BannerClearKey("daily_stop");
     g_dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
     GlobalVariableSet(GVNameDayStartEq(), g_dayStartEquity);
     GlobalVariableSet(GVNameDayYmd(), (double)g_dailyYmd);
@@ -151,6 +152,11 @@ void EnforceDailyLossGuard() {
   if(!g_dailyStop && ddPct >= InpMaxDailyLossPercent) {
     g_dailyStop = true;
     Print("DailyLoss HIT: ddPct=", DoubleToString(ddPct,2), "% limit=", DoubleToString(InpMaxDailyLossPercent,2));
+    BannerSetPrio(100, "daily_stop",
+      "FLEXBOT USER EA",
+      "Status: DAILY STOP",
+      "DD " + DoubleToString(ddPct,2) + "% ≥ " + DoubleToString(InpMaxDailyLossPercent,2) + "%"
+    );
     if(InpDailyLossClosePositions) ClosePositionsForThisEA();
   }
 }
@@ -365,6 +371,17 @@ void ReportPositionStateThrottled() {
   if(StringLen(Trim(InpEaApiKey)) > 0) hdr = "X-API-Key: " + InpEaApiKey + "\r\n";
   int code = HttpPostJson(url, body, hdr);
   if(InpDebugHttp) Print("POST /ea/status code=", code);
+
+  // Keep the most important banner message visible
+  if(code == 401) {
+    BannerSetPrio(90, "ea_auth",
+      "FLEXBOT USER EA",
+      "Status: CONFIG ERROR",
+      "EA_API_KEY invalid/missing (401)"
+    );
+  } else if(code >= 200 && code < 300) {
+    BannerClearKey("ea_auth");
+  }
 }
 
 bool CooldownActive() {
@@ -414,6 +431,31 @@ string BannerLineName(const int i){ return BannerPrefix() + "_LINE" + (string)i;
 string g_bannerLine1 = "";
 string g_bannerLine2 = "";
 string g_bannerLine3 = "";
+
+// banner priority (higher wins). Some states are sticky.
+int g_bannerPrio = 0;
+string g_bannerKey = "";
+
+void BannerClearKey(const string key) {
+  if(g_bannerKey == key) { g_bannerKey = ""; g_bannerPrio = 0; }
+}
+
+void BannerSetPrio(const int prio, const string key, const string l1, const string l2, const string l3) {
+  // allow same-key updates even if prio is equal
+  if(key == g_bannerKey || prio >= g_bannerPrio) {
+    g_bannerPrio = prio;
+    g_bannerKey = key;
+    SetBanner(l1, l2, l3);
+  }
+}
+
+void BannerResetTransientEachTick() {
+  // transient messages should not block the normal CONNECTED state
+  if(g_bannerKey == "skip" || g_bannerKey == "connected" || g_bannerKey == "starting") {
+    g_bannerKey = "";
+    g_bannerPrio = 0;
+  }
+}
 
 int BannerWidthByText(const string l1, const string l2, const string l3) {
   int m = (int)MathMax(StringLen(l1), MathMax(StringLen(l2), StringLen(l3)));
@@ -495,7 +537,7 @@ void LogSkip(const string reason, const string id="") {
   // Keep logs user-friendly and actionable
   if(id!="") Print("SKIP(", id, "): ", reason);
   else Print("SKIP: ", reason);
-  SetBanner("FLEXBOT USER EA", "Status: SKIP", reason);
+  BannerSetPrio(70, "skip", "FLEXBOT USER EA", "Status: SKIP", reason);
 }
 
 bool ExecuteSignal(const string json) {
@@ -756,7 +798,7 @@ int OnInit() {
         " | MaxLot=", DoubleToString(InpMaxLot,2),
         " | PollSec=", (string)InpPollSeconds);
   Print("👉 MT5: Tools→Options→Expert Advisors→Allow WebRequest: add ", InpBaseUrl);
-  SetBanner("FLEXBOT USER EA", "Status: STARTING", "Waiting for backend...");
+  BannerSetPrio(5, "starting", "FLEXBOT USER EA", "Status: STARTING", "Waiting for backend...");
   EventSetTimer(1);
   return INIT_SUCCEEDED;
 }
@@ -764,6 +806,9 @@ int OnInit() {
 void OnDeinit(const int reason){ EventKillTimer(); RemoveBanner(); }
 
 void OnTimer() {
+  // reset transient banners every tick so sticky alerts stay on top
+  BannerResetTransientEachTick();
+
   ulong nowMs=(ulong)(GetMicrosecondCount()/1000);
   if(g_lastPollMs!=0 && nowMs-g_lastPollMs < (ulong)InpPollSeconds*1000) return;
   g_lastPollMs=nowMs;
@@ -792,13 +837,14 @@ void OnTimer() {
       g_loggedConnected = true;
       Print("✅ FlexbotUserEA connected to backend OK (HTTP ", st, "). Waiting for signals…");
     }
-    SetBanner("FLEXBOT USER EA", "Status: CONNECTED", "Waiting for signals...");
+    BannerClearKey("no_conn");
+    BannerSetPrio(10, "connected", "FLEXBOT USER EA", "Status: CONNECTED", "Waiting for signals...");
   }
   else
   {
     if(!g_loggedConnected)
       Print("❌ FlexbotUserEA cannot reach backend (HTTP ", st, "). Check WebRequest allowlist + URL.");
-    SetBanner("FLEXBOT USER EA", "Status: NO CONNECTION", "Fix: Allow WebRequest + check BaseUrl");
+    BannerSetPrio(80, "no_conn", "FLEXBOT USER EA", "Status: NO CONNECTION", "Fix: Allow WebRequest + check BaseUrl");
     return;
   }
 
@@ -806,7 +852,9 @@ void OnTimer() {
   if(InpCooldownMinutes > 0 && CooldownActive()) {
     long untilMs = g_lastOpenMs + (long)InpCooldownMinutes * 60 * 1000;
     datetime untilT = (datetime)(untilMs/1000);
-    SetBanner("FLEXBOT USER EA", "Status: COOLDOWN", "Until: " + TimeToString(untilT, TIME_DATE|TIME_MINUTES));
+    BannerSetPrio(60, "cooldown", "FLEXBOT USER EA", "Status: COOLDOWN", "Until: " + TimeToString(untilT, TIME_DATE|TIME_MINUTES));
+  } else {
+    BannerClearKey("cooldown");
   }
 
   ExecuteSignal(body);
