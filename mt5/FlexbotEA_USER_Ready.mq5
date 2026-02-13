@@ -410,10 +410,19 @@ bool ModifyStopsWithRetries(const string sym, ulong ticket, double sl, double tp
 // --- On-chart banner (always visible) ---
 string BannerPrefix(){ return "FLEXBOT_BANNER_" + InpSymbol + "_" + (string)InpMagic; }
 string BannerRectName(){ return BannerPrefix() + "_RECT"; }
-string BannerTextName(){ return BannerPrefix() + "_TEXT"; }
+string BannerLineName(const int i){ return BannerPrefix() + "_LINE" + (string)i; }
 string g_bannerLine1 = "";
 string g_bannerLine2 = "";
 string g_bannerLine3 = "";
+
+int BannerWidthByText(const string l1, const string l2, const string l3) {
+  int m = (int)MathMax(StringLen(l1), MathMax(StringLen(l2), StringLen(l3)));
+  // rough estimate: ~8 px per char + padding
+  int w = 40 + m * 8;
+  if(w < 420) w = 420;
+  if(w > 860) w = 860;
+  return w;
+}
 
 void EnsureBannerObjects() {
   long cid = ChartID();
@@ -425,7 +434,7 @@ void EnsureBannerObjects() {
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_XDISTANCE, 10);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_YDISTANCE, 18);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_XSIZE, 560);
-    ObjectSetInteger(cid, BannerRectName(), OBJPROP_YSIZE, 92);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_YSIZE, 84);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_COLOR, clrNONE);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_BGCOLOR, (color)0x6D28D9); // purple
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_BORDER_TYPE, BORDER_FLAT);
@@ -434,33 +443,51 @@ void EnsureBannerObjects() {
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_HIDDEN, true);
   }
 
-  // text label
-  if(ObjectFind(cid, BannerTextName()) < 0) {
-    ObjectCreate(cid, BannerTextName(), OBJ_LABEL, 0, 0, 0);
-    ObjectSetInteger(cid, BannerTextName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
-    ObjectSetInteger(cid, BannerTextName(), OBJPROP_XDISTANCE, 26);
-    ObjectSetInteger(cid, BannerTextName(), OBJPROP_YDISTANCE, 26);
-    ObjectSetInteger(cid, BannerTextName(), OBJPROP_COLOR, clrWhite);
-    ObjectSetInteger(cid, BannerTextName(), OBJPROP_FONTSIZE, 14);
-    ObjectSetString(cid, BannerTextName(), OBJPROP_FONT, "Segoe UI");
-    ObjectSetInteger(cid, BannerTextName(), OBJPROP_SELECTABLE, false);
-    ObjectSetInteger(cid, BannerTextName(), OBJPROP_HIDDEN, true);
+  // 3 separate text lines for clean layout
+  for(int i=1;i<=3;i++) {
+    string n = BannerLineName(i);
+    if(ObjectFind(cid, n) < 0) {
+      ObjectCreate(cid, n, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(cid, n, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(cid, n, OBJPROP_XDISTANCE, 26);
+      ObjectSetInteger(cid, n, OBJPROP_COLOR, clrWhite);
+      ObjectSetString(cid, n, OBJPROP_FONT, "Segoe UI");
+      ObjectSetInteger(cid, n, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(cid, n, OBJPROP_HIDDEN, true);
+    }
   }
+
+  // vertical spacing + font sizes
+  ObjectSetInteger(cid, BannerLineName(1), OBJPROP_YDISTANCE, 26);
+  ObjectSetInteger(cid, BannerLineName(1), OBJPROP_FONTSIZE, 16);
+
+  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_YDISTANCE, 48);
+  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_FONTSIZE, 14);
+
+  ObjectSetInteger(cid, BannerLineName(3), OBJPROP_YDISTANCE, 68);
+  ObjectSetInteger(cid, BannerLineName(3), OBJPROP_FONTSIZE, 12);
 }
 
 void SetBanner(const string l1, const string l2, const string l3) {
   EnsureBannerObjects();
   g_bannerLine1 = l1; g_bannerLine2 = l2; g_bannerLine3 = l3;
+
   long cid = ChartID();
-  string txt = l1 + "\n" + l2 + "\n" + l3;
-  ObjectSetString(cid, BannerTextName(), OBJPROP_TEXT, txt);
+  int w = BannerWidthByText(l1,l2,l3);
+  ObjectSetInteger(cid, BannerRectName(), OBJPROP_XSIZE, w);
+
+  ObjectSetString(cid, BannerLineName(1), OBJPROP_TEXT, l1);
+  ObjectSetString(cid, BannerLineName(2), OBJPROP_TEXT, l2);
+  ObjectSetString(cid, BannerLineName(3), OBJPROP_TEXT, l3);
   ChartRedraw(cid);
 }
 
 void RemoveBanner() {
   long cid = ChartID();
   ObjectDelete(cid, BannerRectName());
-  ObjectDelete(cid, BannerTextName());
+  ObjectDelete(cid, BannerLineName(1));
+  ObjectDelete(cid, BannerLineName(2));
+  ObjectDelete(cid, BannerLineName(3));
 }
 
 // --- Trade execution (single position) ---
