@@ -504,7 +504,7 @@ void EnsureBannerObjects() {
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_XSIZE, 560);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_YSIZE, 84);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_COLOR, clrNONE);
-    ObjectSetInteger(cid, BannerRectName(), OBJPROP_BGCOLOR, (color)0x6D28D9); // purple
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_BGCOLOR, (color)0x2B1B5A); // dark premium purple
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_BORDER_TYPE, BORDER_FLAT);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_BACK, false);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_SELECTABLE, false);
