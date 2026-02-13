@@ -407,11 +407,68 @@ bool ModifyStopsWithRetries(const string sym, ulong ticket, double sl, double tp
   return false;
 }
 
+// --- On-chart banner (always visible) ---
+string BannerPrefix(){ return "FLEXBOT_BANNER_" + InpSymbol + "_" + (string)InpMagic; }
+string BannerRectName(){ return BannerPrefix() + "_RECT"; }
+string BannerTextName(){ return BannerPrefix() + "_TEXT"; }
+string g_bannerLine1 = "";
+string g_bannerLine2 = "";
+string g_bannerLine3 = "";
+
+void EnsureBannerObjects() {
+  long cid = ChartID();
+
+  // rectangle background
+  if(!ObjectFind(cid, BannerRectName())) {
+    ObjectCreate(cid, BannerRectName(), OBJ_RECTANGLE_LABEL, 0, 0, 0);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_XDISTANCE, 10);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_YDISTANCE, 18);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_XSIZE, 560);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_YSIZE, 92);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_COLOR, clrNONE);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_BGCOLOR, (color)0x6D28D9); // purple
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_BORDER_TYPE, BORDER_FLAT);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_BACK, false);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_HIDDEN, true);
+  }
+
+  // text label
+  if(!ObjectFind(cid, BannerTextName())) {
+    ObjectCreate(cid, BannerTextName(), OBJ_LABEL, 0, 0, 0);
+    ObjectSetInteger(cid, BannerTextName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(cid, BannerTextName(), OBJPROP_XDISTANCE, 26);
+    ObjectSetInteger(cid, BannerTextName(), OBJPROP_YDISTANCE, 26);
+    ObjectSetInteger(cid, BannerTextName(), OBJPROP_COLOR, clrWhite);
+    ObjectSetInteger(cid, BannerTextName(), OBJPROP_FONTSIZE, 14);
+    ObjectSetString(cid, BannerTextName(), OBJPROP_FONT, "Segoe UI");
+    ObjectSetInteger(cid, BannerTextName(), OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(cid, BannerTextName(), OBJPROP_HIDDEN, true);
+  }
+}
+
+void SetBanner(const string l1, const string l2, const string l3) {
+  EnsureBannerObjects();
+  g_bannerLine1 = l1; g_bannerLine2 = l2; g_bannerLine3 = l3;
+  long cid = ChartID();
+  string txt = l1 + "\n" + l2 + "\n" + l3;
+  ObjectSetString(cid, BannerTextName(), OBJPROP_TEXT, txt);
+  ChartRedraw(cid);
+}
+
+void RemoveBanner() {
+  long cid = ChartID();
+  ObjectDelete(cid, BannerRectName());
+  ObjectDelete(cid, BannerTextName());
+}
+
 // --- Trade execution (single position) ---
 void LogSkip(const string reason, const string id="") {
   // Keep logs user-friendly and actionable
   if(id!="") Print("SKIP(", id, "): ", reason);
   else Print("SKIP: ", reason);
+  SetBanner("FLEXBOT USER EA", "Status: SKIP", reason);
 }
 
 bool ExecuteSignal(const string json) {
@@ -672,11 +729,12 @@ int OnInit() {
         " | MaxLot=", DoubleToString(InpMaxLot,2),
         " | PollSec=", (string)InpPollSeconds);
   Print("👉 MT5: Tools→Options→Expert Advisors→Allow WebRequest: add ", InpBaseUrl);
+  SetBanner("FLEXBOT USER EA", "Status: STARTING", "Waiting for backend...");
   EventSetTimer(1);
   return INIT_SUCCEEDED;
 }
 
-void OnDeinit(const int reason){ EventKillTimer(); }
+void OnDeinit(const int reason){ EventKillTimer(); RemoveBanner(); }
 
 void OnTimer() {
   ulong nowMs=(ulong)(GetMicrosecondCount()/1000);
@@ -707,12 +765,21 @@ void OnTimer() {
       g_loggedConnected = true;
       Print("✅ FlexbotUserEA connected to backend OK (HTTP ", st, "). Waiting for signals…");
     }
+    SetBanner("FLEXBOT USER EA", "Status: CONNECTED", "Waiting for signals...");
   }
   else
   {
     if(!g_loggedConnected)
       Print("❌ FlexbotUserEA cannot reach backend (HTTP ", st, "). Check WebRequest allowlist + URL.");
+    SetBanner("FLEXBOT USER EA", "Status: NO CONNECTION", "Fix: Allow WebRequest + check BaseUrl");
     return;
+  }
+
+  // If we're in cooldown, show it clearly on-chart
+  if(InpCooldownMinutes > 0 && CooldownActive()) {
+    long untilMs = g_lastOpenMs + (long)InpCooldownMinutes * 60 * 1000;
+    datetime untilT = (datetime)(untilMs/1000);
+    SetBanner("FLEXBOT USER EA", "Status: COOLDOWN", "Until: " + TimeToString(untilT, TIME_DATE|TIME_MINUTES));
   }
 
   ExecuteSignal(body);
