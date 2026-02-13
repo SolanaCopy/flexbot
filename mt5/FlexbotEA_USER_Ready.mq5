@@ -437,6 +437,8 @@ void EnsureConnInBanner() {
   if(ObjectFind(cid, BannerConnName()) < 0) {
     ObjectCreate(cid, BannerConnName(), OBJ_LABEL, 0, 0, 0);
     ObjectSetInteger(cid, BannerConnName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    // Anchor text to the right so both CONNECTED and DISCONNECTED fit nicely.
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
     // Position will be set dynamically in SetBanner() based on rect width
     ObjectSetInteger(cid, BannerConnName(), OBJPROP_YDISTANCE, 26);
     ObjectSetInteger(cid, BannerConnName(), OBJPROP_FONTSIZE, 12);
@@ -553,10 +555,10 @@ void SetBanner(const string l1, const string l2, const string l3) {
   EnsureConnInBanner();
   int xRect = 10;
   int padR = 18;
-  int approxConnW = 120;
-  int xConn = xRect + w - padR - approxConnW;
-  if(xConn < 300) xConn = 300;
-  ObjectSetInteger(cid, BannerConnName(), OBJPROP_XDISTANCE, xConn);
+  // With ANCHOR_RIGHT_UPPER we set the right edge position.
+  int xRight = xRect + w - padR;
+  if(xRight < 320) xRight = 320;
+  ObjectSetInteger(cid, BannerConnName(), OBJPROP_XDISTANCE, xRight);
   SetConnState(g_connOk);
 
   ChartRedraw(cid);
