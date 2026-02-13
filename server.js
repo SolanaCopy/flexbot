@@ -2604,8 +2604,8 @@ ${mascotDataUri ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
   <text x="960" y="745" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="#fff" font-weight="700">${tp1 ?? "-"}</text>
 </g>
 
-<text x="80" y="980" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Signal ID</text>
-${idLines.map((l, i) => `<text x="190" y="980" dy="${i * 26}" font-family="Consolas,Menlo,monospace" font-size="22" fill="rgba(255,255,255,0.55)">${l}</text>`).join("\n")}
+<text x="80" y="980" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Ref</text>
+<text x="140" y="980" font-family="Consolas,Menlo,monospace" font-size="22" fill="rgba(255,255,255,0.55)">${String(id||"").slice(0,8)}</text>
 
 <text x="80" y="1030" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Auto recap • after trade close</text>
 <text x="1000" y="1030" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">${new Date().toISOString().slice(0,19).replace("T"," ")}</text>
