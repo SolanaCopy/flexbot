@@ -428,6 +428,31 @@ bool ModifyStopsWithRetries(const string sym, ulong ticket, double sl, double tp
 string BannerPrefix(){ return "FLEXBOT_BANNER_" + InpSymbol + "_" + (string)InpMagic; }
 string BannerRectName(){ return BannerPrefix() + "_RECT"; }
 string BannerLineName(const int i){ return BannerPrefix() + "_LINE" + (string)i; }
+
+// Small connection badge (top-right)
+string ConnBadgeName(){ return BannerPrefix() + "_CONN"; }
+bool g_connOk = false;
+void EnsureConnBadge() {
+  long cid = ChartID();
+  if(ObjectFind(cid, ConnBadgeName()) < 0) {
+    ObjectCreate(cid, ConnBadgeName(), OBJ_LABEL, 0, 0, 0);
+    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_XDISTANCE, 12);
+    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_YDISTANCE, 12);
+    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_FONTSIZE, 11);
+    ObjectSetString(cid, ConnBadgeName(), OBJPROP_FONT, "Segoe UI");
+    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_HIDDEN, true);
+  }
+}
+void SetConnBadge(const bool ok) {
+  g_connOk = ok;
+  EnsureConnBadge();
+  long cid = ChartID();
+  ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_COLOR, ok ? clrLime : clrRed);
+  ObjectSetString(cid, ConnBadgeName(), OBJPROP_TEXT, ok ? "● CONNECTED" : "● DISCONNECTED");
+  ChartRedraw(cid);
+}
 string g_bannerLine1 = "";
 string g_bannerLine2 = "";
 string g_bannerLine3 = "";
@@ -530,6 +555,7 @@ void RemoveBanner() {
   ObjectDelete(cid, BannerLineName(1));
   ObjectDelete(cid, BannerLineName(2));
   ObjectDelete(cid, BannerLineName(3));
+  ObjectDelete(cid, ConnBadgeName());
 }
 
 // --- Trade execution (single position) ---
@@ -799,6 +825,7 @@ int OnInit() {
         " | PollSec=", (string)InpPollSeconds);
   Print("👉 MT5: Tools→Options→Expert Advisors→Allow WebRequest: add ", InpBaseUrl);
   BannerSetPrio(5, "starting", "FLEXBOT USER EA", "Status: STARTING", "Waiting for backend...");
+  SetConnBadge(false);
   EventSetTimer(1);
   return INIT_SUCCEEDED;
 }
@@ -837,11 +864,13 @@ void OnTimer() {
       g_loggedConnected = true;
       Print("✅ FlexbotUserEA connected to backend OK (HTTP ", st, "). Waiting for signals…");
     }
+    SetConnBadge(true);
     BannerClearKey("no_conn");
     BannerSetPrio(10, "connected", "FLEXBOT USER EA", "Status: CONNECTED", "Waiting for signals...");
   }
   else
   {
+    SetConnBadge(false);
     if(!g_loggedConnected)
       Print("❌ FlexbotUserEA cannot reach backend (HTTP ", st, "). Check WebRequest allowlist + URL.");
     BannerSetPrio(80, "no_conn", "FLEXBOT USER EA", "Status: NO CONNECTION", "Fix: Allow WebRequest + check BaseUrl");
