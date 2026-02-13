@@ -2482,6 +2482,7 @@ function _loadMascotCache() {
   _mascotCache = { win, loss, legacy };
   return _mascotCache;
 }
+let _lastMascotPick = { win: null, loss: null };
 function getMascotDataUri({ outcome, result }) {
   const cache = _loadMascotCache();
 
@@ -2491,6 +2492,8 @@ function getMascotDataUri({ outcome, result }) {
   const isWin = outcomeStr.includes("tp") || (resultStr && !resultStr.startsWith("-"));
 
   let pool = isWin ? cache.win : cache.loss;
+  const key = isWin ? "win" : "loss";
+
   if (!pool || pool.length === 0) {
     // fallback to legacy mascot.jpg if variants aren't present
     pool = [cache.legacy];
@@ -2498,7 +2501,18 @@ function getMascotDataUri({ outcome, result }) {
 
   let chosen = pool[0];
   try {
-    chosen = pool[crypto.randomInt(0, pool.length)];
+    if (pool.length <= 1) {
+      chosen = pool[0];
+    } else {
+      // Pick random, but avoid repeating the same image twice in a row.
+      const last = _lastMascotPick[key];
+      let attempt = 0;
+      do {
+        chosen = pool[crypto.randomInt(0, pool.length)];
+        attempt++;
+      } while (chosen === last && attempt < 6);
+      _lastMascotPick[key] = chosen;
+    }
   } catch {
     chosen = pool[0];
   }
