@@ -429,29 +429,28 @@ string BannerPrefix(){ return "FLEXBOT_BANNER_" + InpSymbol + "_" + (string)InpM
 string BannerRectName(){ return BannerPrefix() + "_RECT"; }
 string BannerLineName(const int i){ return BannerPrefix() + "_LINE" + (string)i; }
 
-// Small connection badge (top-right)
-string ConnBadgeName(){ return BannerPrefix() + "_CONN"; }
+// Connection label inside the purple banner (right side)
+string BannerConnName(){ return BannerPrefix() + "_CONN_IN"; }
 bool g_connOk = false;
-void EnsureConnBadge() {
+void EnsureConnInBanner() {
   long cid = ChartID();
-  if(ObjectFind(cid, ConnBadgeName()) < 0) {
-    ObjectCreate(cid, ConnBadgeName(), OBJ_LABEL, 0, 0, 0);
-    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_XDISTANCE, 12);
-    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_YDISTANCE, 12);
-    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_FONTSIZE, 11);
-    ObjectSetString(cid, ConnBadgeName(), OBJPROP_FONT, "Segoe UI");
-    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_SELECTABLE, false);
-    ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_HIDDEN, true);
+  if(ObjectFind(cid, BannerConnName()) < 0) {
+    ObjectCreate(cid, BannerConnName(), OBJ_LABEL, 0, 0, 0);
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    // Position will be set dynamically in SetBanner() based on rect width
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_YDISTANCE, 26);
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_FONTSIZE, 12);
+    ObjectSetString(cid, BannerConnName(), OBJPROP_FONT, "Segoe UI");
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_HIDDEN, true);
   }
 }
-void SetConnBadge(const bool ok) {
+void SetConnState(const bool ok) {
   g_connOk = ok;
-  EnsureConnBadge();
+  EnsureConnInBanner();
   long cid = ChartID();
-  ObjectSetInteger(cid, ConnBadgeName(), OBJPROP_COLOR, ok ? clrLime : clrRed);
-  ObjectSetString(cid, ConnBadgeName(), OBJPROP_TEXT, ok ? "● CONNECTED" : "● DISCONNECTED");
-  ChartRedraw(cid);
+  ObjectSetInteger(cid, BannerConnName(), OBJPROP_COLOR, ok ? clrLime : clrRed);
+  ObjectSetString(cid, BannerConnName(), OBJPROP_TEXT, ok ? "CONNECTED" : "DISCONNECTED");
 }
 string g_bannerLine1 = "";
 string g_bannerLine2 = "";
@@ -524,6 +523,8 @@ void EnsureBannerObjects() {
     }
   }
 
+  EnsureConnInBanner();
+
   // vertical spacing + font sizes
   ObjectSetInteger(cid, BannerLineName(1), OBJPROP_YDISTANCE, 26);
   ObjectSetInteger(cid, BannerLineName(1), OBJPROP_FONTSIZE, 16);
@@ -546,6 +547,17 @@ void SetBanner(const string l1, const string l2, const string l3) {
   ObjectSetString(cid, BannerLineName(1), OBJPROP_TEXT, l1);
   ObjectSetString(cid, BannerLineName(2), OBJPROP_TEXT, l2);
   ObjectSetString(cid, BannerLineName(3), OBJPROP_TEXT, l3);
+
+  // Place CONNECTED/DISCONNECTED on the right side of the banner
+  EnsureConnInBanner();
+  int xRect = 10;
+  int padR = 18;
+  int approxConnW = 120;
+  int xConn = xRect + w - padR - approxConnW;
+  if(xConn < 300) xConn = 300;
+  ObjectSetInteger(cid, BannerConnName(), OBJPROP_XDISTANCE, xConn);
+  SetConnState(g_connOk);
+
   ChartRedraw(cid);
 }
 
@@ -555,7 +567,7 @@ void RemoveBanner() {
   ObjectDelete(cid, BannerLineName(1));
   ObjectDelete(cid, BannerLineName(2));
   ObjectDelete(cid, BannerLineName(3));
-  ObjectDelete(cid, ConnBadgeName());
+  ObjectDelete(cid, BannerConnName());
 }
 
 // --- Trade execution (single position) ---
@@ -825,7 +837,7 @@ int OnInit() {
         " | PollSec=", (string)InpPollSeconds);
   Print("👉 MT5: Tools→Options→Expert Advisors→Allow WebRequest: add ", InpBaseUrl);
   BannerSetPrio(5, "starting", "FLEXBOT USER EA", "Status: STARTING", "Waiting for backend...");
-  SetConnBadge(false);
+  SetConnState(false);
   EventSetTimer(1);
   return INIT_SUCCEEDED;
 }
@@ -864,13 +876,13 @@ void OnTimer() {
       g_loggedConnected = true;
       Print("✅ FlexbotUserEA connected to backend OK (HTTP ", st, "). Waiting for signals…");
     }
-    SetConnBadge(true);
+    SetConnState(true);
     BannerClearKey("no_conn");
     BannerSetPrio(10, "connected", "FLEXBOT USER EA", "Status: CONNECTED", "Waiting for signals...");
   }
   else
   {
-    SetConnBadge(false);
+    SetConnState(false);
     if(!g_loggedConnected)
       Print("❌ FlexbotUserEA cannot reach backend (HTTP ", st, "). Check WebRequest allowlist + URL.");
     BannerSetPrio(80, "no_conn", "FLEXBOT USER EA", "Status: NO CONNECTION", "Fix: Allow WebRequest + check BaseUrl");
