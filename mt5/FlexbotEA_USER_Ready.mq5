@@ -14,6 +14,9 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
+// Banner icon resource (place file in MQL5/Images before compiling)
+#resource "\\Images\\flexbot_banner_icon.png"
+
 // ===== Inputs =====
 input string InpBaseUrl = "https://flexbot-qpf2.onrender.com";
 input string InpSymbol = "XAUUSD";
@@ -427,6 +430,7 @@ bool ModifyStopsWithRetries(const string sym, ulong ticket, double sl, double tp
 // --- On-chart banner (always visible) ---
 string BannerPrefix(){ return "FLEXBOT_BANNER_" + InpSymbol + "_" + (string)InpMagic; }
 string BannerRectName(){ return BannerPrefix() + "_RECT"; }
+string BannerIconName(){ return BannerPrefix() + "_ICON"; }
 string BannerLineName(const int i){ return BannerPrefix() + "_LINE" + (string)i; }
 
 // Connection label inside the purple banner (right side)
@@ -511,18 +515,32 @@ void EnsureBannerObjects() {
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_HIDDEN, true);
   }
 
+  // Icon (left)
+  if(ObjectFind(cid, BannerIconName()) < 0) {
+    ObjectCreate(cid, BannerIconName(), OBJ_BITMAP_LABEL, 0, 0, 0);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_XDISTANCE, 18);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 28);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 40);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 40);
+    ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "::Images\\flexbot_banner_icon.png");
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_HIDDEN, true);
+  }
+
   // 3 separate text lines for clean layout
+  int textX = 68; // leave space for icon
   for(int i=1;i<=3;i++) {
     string n = BannerLineName(i);
     if(ObjectFind(cid, n) < 0) {
       ObjectCreate(cid, n, OBJ_LABEL, 0, 0, 0);
       ObjectSetInteger(cid, n, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(cid, n, OBJPROP_XDISTANCE, 26);
       ObjectSetInteger(cid, n, OBJPROP_COLOR, clrWhite);
       ObjectSetString(cid, n, OBJPROP_FONT, "Segoe UI");
       ObjectSetInteger(cid, n, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(cid, n, OBJPROP_HIDDEN, true);
     }
+    ObjectSetInteger(cid, n, OBJPROP_XDISTANCE, textX);
   }
 
   EnsureConnInBanner();
@@ -567,6 +585,7 @@ void SetBanner(const string l1, const string l2, const string l3) {
 void RemoveBanner() {
   long cid = ChartID();
   ObjectDelete(cid, BannerRectName());
+  ObjectDelete(cid, BannerIconName());
   ObjectDelete(cid, BannerLineName(1));
   ObjectDelete(cid, BannerLineName(2));
   ObjectDelete(cid, BannerLineName(3));
