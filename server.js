@@ -2347,6 +2347,131 @@ async function tgEditMessageText({ chatId, messageId, text }) {
   return json;
 }
 
+// --- Telegram inbound (webhook) ---
+// Minimal auto-replies in the community group (no FAQ engine).
+// Configure:
+// - TELEGRAM_BOT_TOKEN
+// - TELEGRAM_CHAT_ID (group id, e.g. -100...)
+// - PUBLIC_BASE_URL (for webhook set)
+// - TELEGRAM_WEBHOOK_SECRET (recommended)
+const tgReplyCooldown = new Map(); // key -> lastMs
+function tgCooldownOk(key, ms) {
+  const now = Date.now();
+  const last = tgReplyCooldown.get(key) || 0;
+  if (now - last < ms) return false;
+  tgReplyCooldown.set(key, now);
+  return true;
+}
+
+function isWeekendAmsterdam(tsMs = Date.now()) {
+  const { weekday } = inAmsterdamParts(tsMs);
+  return weekday.startsWith("za") || weekday.startsWith("zo");
+}
+
+function buildAutoReply(text) {
+  const t = String(text || "").toLowerCase();
+  const weekend = isWeekendAmsterdam();
+
+  // Weekend / market closed
+  if (weekend && (t.includes("knallen") || t.includes("trade") || t.includes("signaal") || t.includes("open") || t.includes("gaan we") || t.includes("vandaag"))) {
+    return "De markt is dicht (weekend) — Flexbot opent nu geen nieuwe trades. Maandag zijn we terug.";
+  }
+
+  // Unlock / members
+  if (t.includes("unlock") || t.includes("member") || t.includes("members") || t.includes("betaal") || t.includes("paid")) {
+    return "Voor members: DM de bot met /unlock.";
+  }
+
+  // EA not trading / disconnected
+  if (t.includes("disconnected") || t.includes("geen trades") || t.includes("werkt niet") || t.includes("pakte niet") || t.includes("opent niet")) {
+    return "Check de EA banner + Toolbox→Experts. Als hij DISCONNECTED is: Tools→Options→EA→Allow WebRequest + BaseUrl klopt. Stuur anders een screenshot van Experts + banner.";
+  }
+
+  // Daily stop
+  if (t.includes("daily stop") || t.includes("daily") || t.includes("drawdown") || t.includes("dd")) {
+    return "Zie je DAILY STOP op de banner? Dan stopt Flexbot met nieuwe trades tot de volgende trading day (bescherming).";
+  }
+
+  // Default: no reply
+  return null;
+}
+
+async function tgSetWebhook() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
+  const secret = (process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+  const base = (process.env.PUBLIC_BASE_URL || BASE_URL).trim().replace(/\/$/, "");
+  const hookPath = secret ? `/telegram/webhook/${encodeURIComponent(secret)}` : "/telegram/webhook";
+  const url = `${base}${hookPath}`;
+
+  const api = `https://api.telegram.org/bot${token}/setWebhook`;
+  const r = await fetchFn(api, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  const txt = await r.text();
+  let json = null;
+  try { json = JSON.parse(txt); } catch { json = { ok: false, raw: txt }; }
+  return { httpOk: r.ok, json, url };
+}
+
+// Call once after deploy: GET /telegram/webhook/set?key=<ADMIN_KEY>
+app.get("/telegram/webhook/set", async (req, res) => {
+  try {
+    const adminKey = (process.env.ADMIN_KEY || "").trim();
+    if (adminKey && String(req.query.key || "") !== adminKey) return res.status(401).json({ ok: false, error: "unauthorized" });
+    const out = await tgSetWebhook();
+    return res.json({ ok: true, ...out });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+async function handleTelegramUpdate(req, res) {
+  try {
+    const update = req.body || {};
+    const msg = update.message || update.edited_message || null;
+    if (!msg) return res.json({ ok: true });
+
+    const chatId = String(msg.chat?.id || "");
+    const targetChatId = String(process.env.TELEGRAM_CHAT_ID || "");
+    if (targetChatId && chatId !== targetChatId) return res.json({ ok: true });
+
+    // ignore other bots
+    if (msg.from?.is_bot) return res.json({ ok: true });
+
+    const text = msg.text || msg.caption || "";
+
+    // Only reply to questions / mentions to avoid spam
+    const isQuestion = String(text).includes("?");
+    const mentionsFlex = /\bflexbot\b|\bflex\b/i.test(String(text));
+    if (!isQuestion && !mentionsFlex) return res.json({ ok: true });
+
+    // Cooldown: per-user and per-group
+    const userId = String(msg.from?.id || "");
+    if (!tgCooldownOk(`u:${userId}`, 10 * 60 * 1000)) return res.json({ ok: true });
+    if (!tgCooldownOk(`g:${chatId}`, 2 * 60 * 1000)) return res.json({ ok: true });
+
+    const reply = buildAutoReply(text);
+    if (!reply) return res.json({ ok: true });
+
+    await tgSendMessage({ chatId, text: reply });
+    return res.json({ ok: true });
+  } catch (e) {
+    // Always ack webhook to avoid Telegram retry storms
+    return res.json({ ok: true, error: String(e?.message || e) });
+  }
+}
+
+app.post("/telegram/webhook", express.json({ limit: "1mb" }), handleTelegramUpdate);
+app.post("/telegram/webhook/:secret", express.json({ limit: "1mb" }), (req, res) => {
+  const secret = String(req.params.secret || "");
+  const expected = (process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+  if (expected && secret !== expected) return res.status(401).json({ ok: false });
+  return handleTelegramUpdate(req, res);
+});
+
 // Cache voor supportvragen
 const supportCache = new Map();
 
