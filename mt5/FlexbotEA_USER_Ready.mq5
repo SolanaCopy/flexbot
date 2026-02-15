@@ -14,7 +14,8 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-// Banner icon file (BMP) — place in MQL5/Images
+// Banner icon as embedded BMP resource (most reliable across MT5 builds)
+#resource "\\Images\\flexbot_banner_icon.bmp"
 
 // ===== Inputs =====
 input string InpBaseUrl = "https://flexbot-qpf2.onrender.com";
@@ -432,8 +433,7 @@ bool ModifyStopsWithRetries(const string sym, ulong ticket, double sl, double tp
 // --- On-chart banner (always visible) ---
 string BannerPrefix(){ return "FLEXBOT_BANNER_" + InpSymbol + "_" + (string)InpMagic; }
 string BannerRectName(){ return BannerPrefix() + "_RECT"; }
-ulong g_bannerNonce = 0;
-string BannerIconName(){ return BannerPrefix() + "_ICON_" + (string)g_bannerNonce; }
+string BannerIconName(){ return BannerPrefix() + "_ICON"; }
 string BannerLineName(const int i){ return BannerPrefix() + "_LINE" + (string)i; }
 
 // Connection label inside the purple banner (right side)
@@ -593,13 +593,12 @@ void SetBanner(const string l1, const string l2, const string l3) {
 
 void RemoveBanner() {
   long cid = ChartID();
-  // Delete any previous banner objects by prefix (icon name may include nonce)
-  string prefix = BannerPrefix();
-  int total = ObjectsTotal(cid, 0, -1);
-  for(int i=total-1; i>=0; i--) {
-    string n = ObjectName(cid, i, 0, -1);
-    if(StringFind(n, prefix) == 0) ObjectDelete(cid, n);
-  }
+  ObjectDelete(cid, BannerRectName());
+  ObjectDelete(cid, BannerIconName());
+  ObjectDelete(cid, BannerLineName(1));
+  ObjectDelete(cid, BannerLineName(2));
+  ObjectDelete(cid, BannerLineName(3));
+  ObjectDelete(cid, BannerConnName());
 }
 
 // --- Trade execution (single position) ---
@@ -869,8 +868,7 @@ int OnInit() {
         " | PollSec=", (string)InpPollSeconds);
   Print("👉 MT5: Tools→Options→Expert Advisors→Allow WebRequest: add ", InpBaseUrl);
 
-  // Force-clear any old banner objects (including cached icon) on init
-  g_bannerNonce = (ulong)(TimeLocal()) ^ (ulong)(GetMicrosecondCount());
+  // Force-clear any old banner objects on init
   RemoveBanner();
 
   BannerSetPrio(5, "starting", "FLEXBOT USER EA", "Status: STARTING", "Waiting for backend...");
