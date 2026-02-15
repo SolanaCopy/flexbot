@@ -55,6 +55,9 @@ input bool InpDebugTrade = true;
 input bool InpBlockSameDirection = true;
 input int InpCooldownMinutes = 30;
 
+// Banner icon file (MT5 sometimes caches bitmap labels; changing filename forces reload)
+input string InpBannerIconFile = "flexbot_banner_icon.bmp";
+
 // Prop / FTMO guard
 input double InpMaxDailyLossPercent = 4.0;
 input bool InpDailyLossClosePositions = true;
@@ -529,7 +532,9 @@ void EnsureBannerObjects() {
   ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 48);
   // Load BMP from MQL5/Images (most compatible)
   // Prefer ::Images namespace for bitmap labels
-  ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "::Images\\flexbot_banner_icon.bmp");
+  string iconFile = Trim(InpBannerIconFile);
+  if(iconFile=="") iconFile = "flexbot_banner_icon.bmp";
+  ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "::Images\\" + iconFile);
 
   // 3 separate text lines for clean layout
   int textX = 70; // leave space for icon
