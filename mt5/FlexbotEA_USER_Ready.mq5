@@ -14,8 +14,9 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-// Banner icon file (place in MQL5/Images before compiling)
-// NOTE: MT5 bitmap label expects BMP; we ship a .bmp for max compatibility.
+// Banner icon resource
+// PNG resources fail in MetaEditor; BMP works.
+#resource "\\Images\\flexbot_banner_icon.bmp"
 
 // ===== Inputs =====
 input string InpBaseUrl = "https://flexbot-qpf2.onrender.com";
@@ -523,9 +524,8 @@ void EnsureBannerObjects() {
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 28);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 40);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 40);
-    // For OBJ_BITMAP_LABEL, MT5 resolves relative paths from MQL5/Images
-    // Using just the filename is the most compatible across terminals.
-    ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "flexbot_banner_icon.bmp");
+    // Use embedded BMP resource for maximum reliability
+    ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "::Images\\flexbot_banner_icon.bmp");
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_SELECTABLE, false);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_HIDDEN, true);
   }
