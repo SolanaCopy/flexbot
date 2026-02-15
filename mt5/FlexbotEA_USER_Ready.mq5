@@ -523,7 +523,9 @@ void EnsureBannerObjects() {
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 28);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 40);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 40);
-    ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "Images\\flexbot_banner_icon.bmp");
+    // For OBJ_BITMAP_LABEL, MT5 resolves relative paths from MQL5/Images
+    // Using just the filename is the most compatible across terminals.
+    ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "flexbot_banner_icon.bmp");
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_SELECTABLE, false);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_HIDDEN, true);
   }
