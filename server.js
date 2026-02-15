@@ -2544,8 +2544,9 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
   const W = 1080;
   const H = 1080;
   const accent = "#7c3aed";
-  const bg1 = "#05060a";
-  const bg2 = "#0b0f1a";
+  // Darker / black theme (boss request)
+  const bg1 = "#000000";
+  const bg2 = "#060607";
 
   const sym = String(symbol || "").toUpperCase();
   const dir = String(direction || "").toUpperCase();
@@ -2588,7 +2589,7 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
 <rect width="${W}" height="${H}" fill="url(#bg)"/>
 <rect width="${W}" height="${H}" fill="url(#glow)"/>
 
-<rect x="40" y="40" width="1000" height="1000" rx="44" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+<rect x="40" y="40" width="1000" height="1000" rx="44" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.10)" stroke-width="2"/>
 
 <circle cx="250" cy="420" r="245" fill="${accent}" opacity="0.18"/>
 <circle cx="250" cy="420" r="230" fill="none" stroke="rgba(124,58,237,0.55)" stroke-width="6"/>
@@ -2606,7 +2607,7 @@ ${mascotDataUri ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
 <text x="520" y="470" font-family="Inter,Segoe UI,Arial" font-size="${resultFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="500" lengthAdjust="spacingAndGlyphs">${resultStr}</text>
 
 <g>
-  <rect x="520" y="540" width="480" height="300" rx="26" fill="rgba(0,0,0,0.28)" stroke="rgba(255,255,255,0.10)"/>
+  <rect x="520" y="540" width="480" height="300" rx="26" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.12)"/>
 
   <text x="560" y="605" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.75)">Entry</text>
   <text x="960" y="605" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="#fff" font-weight="700">${entry ?? "-"}</text>
