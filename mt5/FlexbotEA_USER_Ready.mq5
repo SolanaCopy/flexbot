@@ -515,19 +515,20 @@ void EnsureBannerObjects() {
   }
 
   // Icon (left)
+  // Icon (force refresh): always set bmpfile so MT5 doesn't keep an old cached bitmap
   if(ObjectFind(cid, BannerIconName()) < 0) {
     ObjectCreate(cid, BannerIconName(), OBJ_BITMAP_LABEL, 0, 0, 0);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
-    // Move a bit left/up and make it bigger so it's clearly visible
-    ObjectSetInteger(cid, BannerIconName(), OBJPROP_XDISTANCE, 10);
-    ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 24);
-    ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 48);
-    ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 48);
-    // Load BMP from MQL5/Images (most compatible)
-    ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "flexbot_banner_icon.bmp");
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_SELECTABLE, false);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_HIDDEN, true);
   }
+  // Move a bit left/up and make it bigger so it's clearly visible
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_XDISTANCE, 10);
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 24);
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 48);
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 48);
+  // Load BMP from MQL5/Images (most compatible)
+  ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "flexbot_banner_icon.bmp");
 
   // 3 separate text lines for clean layout
   int textX = 70; // leave space for icon
@@ -859,6 +860,10 @@ int OnInit() {
         " | MaxLot=", DoubleToString(InpMaxLot,2),
         " | PollSec=", (string)InpPollSeconds);
   Print("👉 MT5: Tools→Options→Expert Advisors→Allow WebRequest: add ", InpBaseUrl);
+
+  // Force-clear any old banner objects (including cached icon) on init
+  RemoveBanner();
+
   BannerSetPrio(5, "starting", "FLEXBOT USER EA", "Status: STARTING", "Waiting for backend...");
   SetConnState(false);
   EventSetTimer(1);
