@@ -14,7 +14,7 @@
 #include <Trade/Trade.mqh>
 CTrade trade;
 
-// Banner icon file (transparent PNG) — place in MQL5/Images
+// Banner icon file (BMP) — place in MQL5/Images
 
 // ===== Inputs =====
 input string InpBaseUrl = "https://flexbot-qpf2.onrender.com";
@@ -523,8 +523,8 @@ void EnsureBannerObjects() {
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 24);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 48);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 48);
-    // Load transparent PNG from MQL5/Images
-    ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "flexbot_banner_icon.png");
+    // Load BMP from MQL5/Images (most compatible)
+    ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "flexbot_banner_icon.bmp");
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_SELECTABLE, false);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_HIDDEN, true);
   }
