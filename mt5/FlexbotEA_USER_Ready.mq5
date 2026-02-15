@@ -520,10 +520,11 @@ void EnsureBannerObjects() {
   if(ObjectFind(cid, BannerIconName()) < 0) {
     ObjectCreate(cid, BannerIconName(), OBJ_BITMAP_LABEL, 0, 0, 0);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
-    ObjectSetInteger(cid, BannerIconName(), OBJPROP_XDISTANCE, 18);
-    ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 28);
-    ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 40);
-    ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 40);
+    // Move a bit left/up and make it bigger so it's clearly visible
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_XDISTANCE, 10);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 24);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 48);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 48);
     // Use embedded BMP resource for maximum reliability
     ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "::Images\\flexbot_banner_icon.bmp");
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_SELECTABLE, false);
@@ -531,7 +532,7 @@ void EnsureBannerObjects() {
   }
 
   // 3 separate text lines for clean layout
-  int textX = 68; // leave space for icon
+  int textX = 70; // leave space for icon
   for(int i=1;i<=3;i++) {
     string n = BannerLineName(i);
     if(ObjectFind(cid, n) < 0) {
