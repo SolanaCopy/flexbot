@@ -528,7 +528,8 @@ void EnsureBannerObjects() {
   ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 48);
   ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 48);
   // Load BMP from MQL5/Images (most compatible)
-  ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "flexbot_banner_icon.bmp");
+  // Prefer ::Images namespace for bitmap labels
+  ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "::Images\\flexbot_banner_icon.bmp");
 
   // 3 separate text lines for clean layout
   int textX = 70; // leave space for icon
