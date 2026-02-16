@@ -70,7 +70,9 @@ input int MinTPDistancePoints = 300;
 // ===== Internal =====
 ulong g_lastPollMs = 0;
 string g_lastSignalId = "";
-string g_lastSeenId = "";
+string g_lastSeenId = ""; // legacy (do not use for consuming; kept for backward compatibility)
+string g_lastAttemptId = "";
+ulong  g_lastAttemptTick = 0;
 long g_sinceMs = 0;
 long g_lastOpenMs = 0;
 
@@ -477,11 +479,19 @@ bool ExecuteSignal(const string json) {
   }
 
   long createdAtMs = (long)createdAt;
-  AdvanceSinceMs(createdAtMs);
 
-  if(id=="" || id==g_lastSeenId) return false;
-  g_lastSeenId = id;
+  if(id=="" ) return false;
   if(id==g_lastSignalId) return false;
+
+  // IMPORTANT: do NOT consume/advance since_ms just because we *saw* the signal.
+  // Otherwise temporary skips (spread/cooldown) cause this account to "eat" the signal
+  // and drift out of sync. We only AdvanceSinceMs(createdAtMs) after a successful open.
+  //
+  // Throttle retries per-signal to keep Experts readable.
+  ulong nowTick = GetTickCount();
+  if(id==g_lastAttemptId && (nowTick - g_lastAttemptTick) < 15000) return false;
+  g_lastAttemptId = id;
+  g_lastAttemptTick = nowTick;
 
   if(dir!="BUY" && dir!="SELL") { g_lastSignalId=id; return false; }
 
@@ -628,6 +638,7 @@ bool ExecuteSignal(const string json) {
 
   g_lastSignalId = id;
   PersistSaveSignalId(id);
+  AdvanceSinceMs(createdAtMs);
 
   if(InpEnableExecPost) {
     long nowMs = NowMsUtc();
