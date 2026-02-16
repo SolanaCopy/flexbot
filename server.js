@@ -2443,17 +2443,24 @@ async function handleTelegramUpdate(req, res) {
 
     const text = msg.text || msg.caption || "";
 
-    // Only reply to questions / mentions to avoid spam
+    const userId = String(msg.from?.id || "");
+    const ownerIds = (process.env.TELEGRAM_OWNER_IDS || "8210317741,1404483922")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const isOwner = ownerIds.includes(userId);
+
+    // For the owner: reply to ANY message (still with cooldown) so it feels responsive.
+    // For others: only reply to questions/mentions to avoid spam.
     const isQuestion = String(text).includes("?");
     const mentionsFlex = /\bflexbot\b|\bflex\b/i.test(String(text));
-    if (!isQuestion && !mentionsFlex) return res.json({ ok: true });
+    if (!isOwner && !isQuestion && !mentionsFlex) return res.json({ ok: true });
 
     // Cooldown: per-user and per-group
-    const userId = String(msg.from?.id || "");
-    if (!tgCooldownOk(`u:${userId}`, 10 * 60 * 1000)) return res.json({ ok: true });
+    if (!tgCooldownOk(`u:${userId}`, isOwner ? 30 * 1000 : 10 * 60 * 1000)) return res.json({ ok: true });
     if (!tgCooldownOk(`g:${chatId}`, 2 * 60 * 1000)) return res.json({ ok: true });
 
-    const reply = buildAutoReply(text);
+    const reply = buildAutoReply(text) || (isOwner ? "Yo" : null);
     if (!reply) return res.json({ ok: true });
 
     await tgSendMessage({ chatId, text: reply });
