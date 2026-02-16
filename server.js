@@ -202,6 +202,49 @@ async function getDb() {
   return libsqlClient;
 }
 
+async function isMainAccountLocked(symbol) {
+  const db = await getDb();
+  if (!db) return { ok: false, locked: false, reason: "db_required" };
+
+  const account_login = String(process.env.MAIN_ACCOUNT_LOGIN || "").trim();
+  const server = String(process.env.MAIN_ACCOUNT_SERVER || "").trim();
+  const magicRaw = Number(process.env.MAIN_MAGIC || 0);
+  const magic = Number.isFinite(magicRaw) ? Math.floor(magicRaw) : 0;
+
+  const maxAgeRaw = Number(process.env.MAIN_EA_STATUS_MAX_AGE_MS || 0);
+  const maxAgeMs = Number.isFinite(maxAgeRaw) && maxAgeRaw > 0 ? maxAgeRaw : 2 * 60 * 1000;
+
+  if (!account_login || !server) {
+    return { ok: false, locked: false, reason: "main_lock_not_configured" };
+  }
+
+  const rows = await db.execute({
+    sql:
+      "SELECT has_position,updated_at_ms FROM ea_positions WHERE account_login=? AND server=? AND magic=? AND symbol=? LIMIT 1",
+    args: [account_login, server, magic, String(symbol).toUpperCase()],
+  });
+  const r = rows.rows?.[0] || null;
+  if (!r) return { ok: true, locked: false, reason: "no_status" };
+
+  const hasPos = Number(r.has_position) === 1;
+  const updatedAt = r.updated_at_ms != null ? Number(r.updated_at_ms) : NaN;
+  const fresh = Number.isFinite(updatedAt) ? Date.now() - updatedAt <= maxAgeMs : false;
+
+  if (fresh && hasPos) return { ok: true, locked: true, reason: "open_position_lock" };
+  return { ok: true, locked: false, reason: fresh ? "no_open_position" : "stale_status" };
+}
+
+// Debug helper (optional)
+app.get("/ea/main/lock", async (req, res) => {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const r = await isMainAccountLocked(symbol);
+    return res.json({ ok: true, symbol, ...r });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 async function persistCandle(c) {
   try {
     const db = await getDb();
@@ -2792,6 +2835,10 @@ async function autoScalpRunHandler(req, res) {
     // 0) market close guard
     const m = marketBlockedNow();
     if (m.blocked) return res.json({ ok: true, acted: false, reason: m.reason });
+
+    // 0b) main account open-position lock (no new signals while main has a trade open)
+    const lock = await isMainAccountLocked(symbol);
+    if (lock.ok && lock.locked) return res.json({ ok: true, acted: false, reason: lock.reason });
 
     // 1) blackout
     const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=30`);
