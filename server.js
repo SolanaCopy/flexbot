@@ -235,15 +235,15 @@ async function isMainAccountLocked(symbol) {
 }
 
 // Debug helper (optional)
-app.get("/ea/main/lock", async (req, res) => {
-  try {
-    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
-    const r = await isMainAccountLocked(symbol);
-    return res.json({ ok: true, symbol, ...r });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e?.message || e) });
-  }
-});
+// (moved) app.get("/ea/main/lock", async (req, res) => {
+//  try {
+//    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+//    const r = await isMainAccountLocked(symbol);
+//    return res.json({ ok: true, symbol, ...r });
+//  } catch (e) {
+//    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+//  }
+//});
 
 async function persistCandle(c) {
   try {
@@ -282,6 +282,17 @@ async function persistCandle(c) {
 
 const app = express();
 app.use(express.text({ type: "*/*" }));
+
+// Debug: check main-account open-position lock state
+app.get("/ea/main/lock", async (req, res) => {
+  try {
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const r = await isMainAccountLocked(symbol);
+    return res.json({ ok: true, symbol, ...r });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
 
 // Node 18+ heeft fetch standaard. Voor oudere Node versies: npm i node-fetch
 const fetchFn =
