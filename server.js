@@ -2952,7 +2952,7 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
     <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.40 0" result="g"/>
     <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
   </filter>
-  <clipPath id="avatarClip"><circle cx="275" cy="420" r="210"/></clipPath>
+  <clipPath id="avatarClip"><circle cx="280" cy="420" r="210"/></clipPath>
 </defs>
 
 <rect width="${W}" height="${H}" fill="url(#bg)"/>
@@ -2960,12 +2960,12 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
 
 <rect x="40" y="40" width="1000" height="1000" rx="44" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.10)" stroke-width="2"/>
 
-<circle cx="275" cy="420" r="238" fill="${accent}" opacity="0.18"/>
-<circle cx="275" cy="420" r="220" fill="none" stroke="rgba(124,58,237,0.55)" stroke-width="6"/>
+<circle cx="280" cy="420" r="238" fill="${accent}" opacity="0.18"/>
+<circle cx="280" cy="420" r="220" fill="none" stroke="rgba(124,58,237,0.55)" stroke-width="6"/>
 
 ${mascotDataUri ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
   <!-- Slightly smaller + centered so the avatar never "sticks out" past the ring -->
-  <image x="75" y="220" width="400" height="400" href="${mascotDataUri}" preserveAspectRatio="xMidYMid slice"/>
+  <image x="80" y="220" width="400" height="400" href="${mascotDataUri}" preserveAspectRatio="xMidYMid slice"/>
 </g>` : ``}
 
 <text x="520" y="150" font-family="Inter,Segoe UI,Arial" font-size="44" fill="rgba(255,255,255,0.78)" letter-spacing="6">FLEXBOT</text>
