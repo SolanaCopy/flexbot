@@ -2536,6 +2536,11 @@ function buildAutoReply(text) {
     return "Zie je DAILY STOP op de banner? Dan stopt Flexbot met nieuwe trades tot de volgende trading day (bescherming).";
   }
 
+  // News (data-driven; avoids hallucinations)
+  if (t.includes("news") || t.includes("rood") || t.includes("red") || t.includes("impact") || t.includes("calendar") || t.includes("kalender")) {
+    return "NEWS_CHECK";
+  }
+
   // Default: no reply
   return null;
 }
@@ -2604,8 +2609,42 @@ async function handleTelegramUpdate(req, res) {
     if (!tgCooldownOk(`u:${userId}`, isOwner ? 30 * 1000 : 10 * 60 * 1000)) return res.json({ ok: true });
     if (!tgCooldownOk(`g:${chatId}`, 2 * 60 * 1000)) return res.json({ ok: true });
 
-    const reply = buildAutoReply(text) || (isOwner ? "Yo" : null);
+    let reply = buildAutoReply(text) || (isOwner ? "Yo" : null);
     if (!reply) return res.json({ ok: true });
+
+    // Data-driven news reply
+    if (reply === "NEWS_CHECK") {
+      try {
+        const all = await getFfEvents();
+        const now = Date.now();
+        const curList = String(process.env.NEWS_REPLY_CURRENCIES || "USD").toUpperCase().split(",").map((s) => s.trim()).filter(Boolean);
+        const hi = all
+          .filter((e) => String(e.impact) === "high")
+          .filter((e) => curList.length ? curList.includes(String(e.currency || "").toUpperCase()) : true)
+          .filter((e) => Number.isFinite(e.ts))
+          .sort((a, b) => a.ts - b.ts);
+
+        const upcoming = hi.filter((e) => e.ts >= now).slice(0, 5);
+        const recent = hi.filter((e) => e.ts < now && e.ts >= now - 3 * 60 * 60 * 1000).slice(-3);
+
+        if (!upcoming.length && !recent.length) {
+          reply = `Volgens ForexFactory feed: geen HIGH news voor ${curList.join(",")} (nu/komende uren).`;
+        } else {
+          const lines = [];
+          if (recent.length) {
+            lines.push(`🟥 HIGH news (laatste 3u) ${curList.join(",")}:`);
+            for (const e of recent) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
+          }
+          if (upcoming.length) {
+            lines.push(`🟥 HIGH news (upcoming) ${curList.join(",")}:`);
+            for (const e of upcoming) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
+          }
+          reply = lines.slice(0, 10).join("\n");
+        }
+      } catch {
+        reply = "Kon news feed niet lezen (tijdelijk).";
+      }
+    }
 
     await tgSendMessage({ chatId, text: reply });
     return res.json({ ok: true });
@@ -3133,9 +3172,10 @@ async function autoNewsPauseHandler(req, res) {
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
     const all = await getFfEvents();
+    const curList = String(process.env.NEWS_ALERT_CURRENCIES || "USD").toUpperCase().split(",").map((s) => s.trim()).filter(Boolean);
     const events = all
-      .filter((e) => String(e.currency || "").toUpperCase() === "USD")
-      .filter((e) => String(e.impact) === "high");
+      .filter((e) => String(e.impact) === "high")
+      .filter((e) => curList.length ? curList.includes(String(e.currency || "").toUpperCase()) : true);
 
     const now = Date.now();
     const upcoming = events
@@ -3146,19 +3186,21 @@ async function autoNewsPauseHandler(req, res) {
     if (!upcoming) return res.json({ ok: true, acted: false, reason: "no_upcoming" });
 
     const minutes = Math.max(0, Math.round((upcoming.ts - now) / 60000));
-    const title = String(upcoming.e.title || upcoming.e.event || "USD High");
+    const title = String(upcoming.e.title || upcoming.e.event || "High News");
 
     // de-dupe: once per event within 60m
     const refMs = upcoming.ts;
     const kind = "news_pause";
     const insertedAt = now;
+
+    const dedupSym = String(upcoming.e.currency || "NEWS").toUpperCase();
     await db.execute({
       sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
-      args: ["USD", kind, refMs, insertedAt],
+      args: [dedupSym, kind, refMs, insertedAt],
     });
     const chk = await db.execute({
       sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
-      args: ["USD", kind, refMs],
+      args: [dedupSym, kind, refMs],
     });
     const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
     const notify = Number.isFinite(createdAt) && createdAt === insertedAt;
