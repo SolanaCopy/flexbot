@@ -1086,6 +1086,44 @@ app.get("/signal/next", async (req, res) => {
   }
 });
 
+// GET /debug/signal?id=...&secret=...
+// Returns signal row + last execution callback (raw_json) for troubleshooting.
+app.get("/debug/signal", async (req, res) => {
+  try {
+    const secret = (req.query.secret != null ? String(req.query.secret) : "").trim();
+    const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET) : "";
+    if (!expected || secret !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    const id = req.query.id != null ? String(req.query.id) : "";
+    if (!id) return res.status(400).json({ ok: false, error: "missing_id" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const sigRow = await db.execute({
+      sql: "SELECT * FROM signals WHERE id=? LIMIT 1",
+      args: [id],
+    });
+    const sig = sigRow.rows?.[0] || null;
+
+    const exRow = await db.execute({
+      sql: "SELECT signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json FROM signal_exec WHERE signal_id=? LIMIT 1",
+      args: [id],
+    });
+    const ex = exRow.rows?.[0] || null;
+
+    let exJson = null;
+    try { exJson = ex?.raw_json != null ? JSON.parse(String(ex.raw_json)) : null; } catch { exJson = { raw: ex?.raw_json }; }
+
+    const okModRaw = exJson?.ok_mod ?? exJson?.okMod ?? exJson?.okmod;
+    const ok_mod = okModRaw === true || okModRaw === 1 || okModRaw === "1" || okModRaw === "true";
+
+    return res.json({ ok: true, signal: sig, exec: ex, exec_json: exJson, ok_mod });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "debug_failed", message: String(e?.message || e) });
+  }
+});
+
 // POST /signal/executed
 // Body (JSON): { signal_id, ticket, fill_price, time?:string|ms, ok_mod?:boolean|0|1 }
 // NOTE: We only start server-side cooldown + Telegram posting when ok_mod is true (EA confirms it actually placed/modified).
