@@ -1048,24 +1048,24 @@ app.post("/signal/closed", async (req, res) => {
         } catch {}
 
         if (isTp && next === 1) {
-          await tgSendMessage({ chatId, text: "✅ TP geraakt — netjes." });
+          await tgSendMessage({ chatId, text: "✅ TP geraakt — netjes.\nhttps://www.fxflexbot.com/" });
         } else if (isTp && next === 2) {
           // Send streak-2 banner image
           const bannerPath = path.join(__dirname, "assets", "streak_tp2.png");
           if (fs.existsSync(bannerPath)) {
             const buf = fs.readFileSync(bannerPath);
-            await tgSendPhoto({ chatId, photo: buf, caption: "🔥 2 TP’s op rij — momentum." });
+            await tgSendPhoto({ chatId, photo: buf, caption: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
           } else {
-            await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum." });
+            await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
           }
         } else if (isTp && next === 3) {
           // Send streak-3 banner image
           const bannerPath = path.join(__dirname, "assets", "streak_tp3.png");
           if (fs.existsSync(bannerPath)) {
             const buf = fs.readFileSync(bannerPath);
-            await tgSendPhoto({ chatId, photo: buf, caption: "🏆 3 TP’s op rij — win streak." });
+            await tgSendPhoto({ chatId, photo: buf, caption: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
           } else {
-            await tgSendMessage({ chatId, text: "🏆 3 TP’s op rij — win streak." });
+            await tgSendMessage({ chatId, text: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
           }
         }
       }
