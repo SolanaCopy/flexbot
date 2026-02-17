@@ -1050,7 +1050,14 @@ app.post("/signal/closed", async (req, res) => {
         if (isTp && next === 1) {
           await tgSendMessage({ chatId, text: "✅ TP geraakt — netjes." });
         } else if (isTp && next === 2) {
-          await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum." });
+          // Send streak-2 banner image
+          const bannerPath = path.join(__dirname, "assets", "streak_tp2.png");
+          if (fs.existsSync(bannerPath)) {
+            const buf = fs.readFileSync(bannerPath);
+            await tgSendPhoto({ chatId, photo: buf, caption: "🔥 2 TP’s op rij — momentum." });
+          } else {
+            await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum." });
+          }
         } else if (isTp && next === 3) {
           await tgSendMessage({ chatId, text: "🏆 3 TP’s op rij — win streak." });
         }
