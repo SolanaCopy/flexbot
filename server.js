@@ -1140,11 +1140,13 @@ app.post("/signal/executed", async (req, res) => {
       });
 
       // Execution-confirmed Telegram OPEN teaser (same look as before)
-      // Idempotent: only post if we haven't stored tg_open_message_id yet.
+      // Idempotent by default, but we can force repost during migration.
+      const forceOpen = ["1", "true", "yes", "on"].includes(String(process.env.FORCE_TG_OPEN_ON_EXEC || "").toLowerCase());
+
       const openChatIdExisting = sig?.tg_open_chat_id != null ? String(sig.tg_open_chat_id) : null;
       const openMsgIdExisting = sig?.tg_open_message_id != null ? Number(sig.tg_open_message_id) : null;
 
-      if (!openChatIdExisting || !openMsgIdExisting) {
+      if (forceOpen || !openChatIdExisting || !openMsgIdExisting) {
         const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
         const photoUrl = new URL(`${BASE_URL}/chart.png`);
         photoUrl.searchParams.set("symbol", sym);
