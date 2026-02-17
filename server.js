@@ -1108,10 +1108,13 @@ app.post("/signal/executed", async (req, res) => {
       args: [signal_id, ticket, fill_price, executed_at_ms, executed_at_mt5, JSON.stringify(body)],
     });
 
-    await db.execute({
-      sql: "UPDATE signals SET status='executed' WHERE id=?",
-      args: [signal_id],
-    });
+    // Only mark executed when EA confirms it actually opened AND set/modified stops.
+    if (ok_mod) {
+      await db.execute({
+        sql: "UPDATE signals SET status='executed' WHERE id=?",
+        args: [signal_id],
+      });
+    }
 
     // Update EA cooldown state ONLY when EA confirms success.
     // Prefer symbol from signals table (authoritative)
