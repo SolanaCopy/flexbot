@@ -55,8 +55,11 @@ input bool InpBlockSameDirection = true;
 input int InpCooldownMinutes = 30;
 
 // Prop / FTMO guard
+// Daily loss is measured as (DayStartBalance - currentEquity) / DayStartBalance.
+// Reset time is at midnight for an offset from GMT (default: NL winter time = +1). Set to +2 in summer time.
+input int    InpDailyResetGmtOffsetHours = 1;
 input double InpMaxDailyLossPercent = 4.0;
-input bool InpDailyLossClosePositions = true;
+input bool   InpDailyLossClosePositions = true;
 
 // Execution / slippage protection
 input int MaxSpreadPoints = 120; // 0 disables
@@ -88,6 +91,7 @@ string g_persistedClosedSignalId = "";
 bool g_dailyStop = false;
 int g_dailyYmd = 0;
 double g_dayStartEquity = 0.0;
+double g_dayStartBalance = 0.0;
 
 // Cooldown reporting to backend
 bool g_cdReportedActive = false;
@@ -99,6 +103,7 @@ string Trim(const string s){ string r=s; StringTrimLeft(r); StringTrimRight(r); 
 long NowMsUtc(){ return (long)TimeGMT() * 1000; }
 string GVNameSince(){ return "flexbot_since_ms_" + InpSymbol; }
 string GVNameDayStartEq(){ return "flexbot_daystart_eq_" + InpSymbol + "_" + (string)InpMagic; }
+string GVNameDayStartBal(){ return "flexbot_daystart_bal_" + InpSymbol + "_" + (string)InpMagic; }
 string GVNameDayYmd(){ return "flexbot_day_ymd_" + InpSymbol + "_" + (string)InpMagic; }
 
 string PersistFileName(){ return "flexbot_state_" + InpSymbol + "_" + (string)InpMagic + ".txt"; }
@@ -134,22 +139,35 @@ void PersistLoad() {
   FileClose(h);
 }
 
-int ServerYmd() {
+int ResetYmdByGmtOffset() {
+  // Use GMT + offset so we can align the "trading day" reset to NL midnight.
+  // Note: DST is not auto-detected in MQL5. Change InpDailyResetGmtOffsetHours seasonally (+1 winter, +2 summer).
+  datetime t = TimeGMT() + (InpDailyResetGmtOffsetHours * 3600);
   MqlDateTime dt;
-  TimeToStruct(TimeCurrent(), dt);
+  TimeToStruct(t, dt);
   return dt.year*10000 + dt.mon*100 + dt.day;
 }
 
 void LoadOrResetDayStartEquity() {
-  int ymd = ServerYmd();
+  int ymd = ResetYmdByGmtOffset();
   if(ymd != g_dailyYmd) {
     g_dailyYmd = ymd;
     g_dailyStop = false;
-    g_dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
-    GlobalVariableSet(GVNameDayStartEq(), g_dayStartEquity);
+
+    // Baseline: balance at reset time (NL midnight). Daily loss measured against equity.
+    g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    g_dayStartEquity  = AccountInfoDouble(ACCOUNT_EQUITY);
+
+    GlobalVariableSet(GVNameDayStartBal(), g_dayStartBalance);
+    GlobalVariableSet(GVNameDayStartEq(),  g_dayStartEquity);
     GlobalVariableSet(GVNameDayYmd(), (double)g_dailyYmd);
-    Print("Daily baseline set (server day). ymd=", g_dailyYmd, " startEquity=", DoubleToString(g_dayStartEquity,2));
+
+    Print("Daily baseline set (GMT+", InpDailyResetGmtOffsetHours, "). ymd=", g_dailyYmd,
+          " startBalance=", DoubleToString(g_dayStartBalance,2),
+          " startEquity=", DoubleToString(g_dayStartEquity,2));
   } else {
+    if(g_dayStartBalance<=0 && GlobalVariableCheck(GVNameDayStartBal()))
+      g_dayStartBalance = GlobalVariableGet(GVNameDayStartBal());
     if(g_dayStartEquity<=0 && GlobalVariableCheck(GVNameDayStartEq()))
       g_dayStartEquity = GlobalVariableGet(GVNameDayStartEq());
   }
@@ -180,10 +198,10 @@ bool ClosePositionsForThisEA() {
 void EnforceDailyLossGuard() {
   if(InpMaxDailyLossPercent <= 0) return;
   LoadOrResetDayStartEquity();
-  if(g_dayStartEquity <= 0) return;
+  if(g_dayStartBalance <= 0) return;
   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
-  double dd = g_dayStartEquity - eq;
-  double ddPct = (dd / g_dayStartEquity) * 100.0;
+  double dd = g_dayStartBalance - eq;
+  double ddPct = (dd / g_dayStartBalance) * 100.0;
   if(!g_dailyStop && ddPct >= InpMaxDailyLossPercent) {
     g_dailyStop = true;
     Print("DailyLoss HIT: ddPct=", DoubleToString(ddPct,2), "% limit=", DoubleToString(InpMaxDailyLossPercent,2));
