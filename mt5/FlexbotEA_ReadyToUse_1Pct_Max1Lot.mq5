@@ -11,6 +11,9 @@
 //+------------------------------------------------------------------+
 #property strict
 
+// Banner icon as embedded BMP resource (most reliable across MT5 builds)
+#resource "\\Images\\flexbot_banner_icon.bmp"
+
 #include <Trade/Trade.mqh>
 CTrade trade;
 
@@ -50,6 +53,10 @@ input string InpSignalSecret = "";     // SIGNAL_SECRET for /signal/closed (keep
 input bool InpDebugHttp = true;
 input bool InpDebugTrade = true;
 
+// On-chart banner
+input bool   InpEnableBanner = true;
+input string InpBannerIconFile = "flexbot_banner_icon.bmp";
+
 // Safety
 input bool InpBlockSameDirection = true;
 input int InpCooldownMinutes = 30;
@@ -69,6 +76,81 @@ input int MaxEntryDistancePoints = 60;
 // FTMO / sanity guards
 input int MinSLDistancePoints = 300;
 input int MinTPDistancePoints = 300;
+
+// ===== On-chart banner (lightweight) =====
+string BannerPrefix(){ return "FLEXBOT_BANNER_" + InpSymbol + "_" + (string)InpMagic; }
+string BannerRectName(){ return BannerPrefix() + "_RECT"; }
+string BannerIconName(){ return BannerPrefix() + "_ICON"; }
+string BannerLineName(const int i){ return BannerPrefix() + "_LINE" + (string)i; }
+
+void EnsureBannerObjects() {
+  if(!InpEnableBanner) return;
+  long cid = ChartID();
+
+  if(ObjectFind(cid, BannerRectName()) < 0) {
+    ObjectCreate(cid, BannerRectName(), OBJ_RECTANGLE_LABEL, 0, 0, 0);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_XDISTANCE, 10);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_YDISTANCE, 18);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_XSIZE, 560);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_YSIZE, 84);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_COLOR, clrNONE);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_BGCOLOR, clrBlack);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_BORDER_TYPE, BORDER_FLAT);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_BACK, false);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_HIDDEN, true);
+  }
+
+  if(ObjectFind(cid, BannerIconName()) < 0) {
+    ObjectCreate(cid, BannerIconName(), OBJ_BITMAP_LABEL, 0, 0, 0);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(cid, BannerIconName(), OBJPROP_HIDDEN, true);
+  }
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_XDISTANCE, 10);
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 24);
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 48);
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 48);
+  string iconFile = Trim(InpBannerIconFile);
+  if(iconFile=="") iconFile = "flexbot_banner_icon.bmp";
+  ObjectSetString(cid, BannerIconName(), OBJPROP_BMPFILE, "::Images\\" + iconFile);
+
+  for(int i=1;i<=3;i++) {
+    string n = BannerLineName(i);
+    if(ObjectFind(cid, n) < 0) {
+      ObjectCreate(cid, n, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(cid, n, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(cid, n, OBJPROP_XDISTANCE, 68);
+      ObjectSetInteger(cid, n, OBJPROP_FONTSIZE, 12);
+      ObjectSetString(cid, n, OBJPROP_FONT, "Segoe UI");
+      ObjectSetInteger(cid, n, OBJPROP_COLOR, clrWhite);
+      ObjectSetInteger(cid, n, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(cid, n, OBJPROP_HIDDEN, true);
+    }
+  }
+  ObjectSetInteger(cid, BannerLineName(1), OBJPROP_YDISTANCE, 26);
+  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_YDISTANCE, 46);
+  ObjectSetInteger(cid, BannerLineName(3), OBJPROP_YDISTANCE, 66);
+}
+
+void SetBanner(const string l1, const string l2, const string l3) {
+  if(!InpEnableBanner) return;
+  EnsureBannerObjects();
+  long cid = ChartID();
+  ObjectSetString(cid, BannerLineName(1), OBJPROP_TEXT, l1);
+  ObjectSetString(cid, BannerLineName(2), OBJPROP_TEXT, l2);
+  ObjectSetString(cid, BannerLineName(3), OBJPROP_TEXT, l3);
+}
+
+void RemoveBanner() {
+  long cid = ChartID();
+  ObjectDelete(cid, BannerRectName());
+  ObjectDelete(cid, BannerIconName());
+  ObjectDelete(cid, BannerLineName(1));
+  ObjectDelete(cid, BannerLineName(2));
+  ObjectDelete(cid, BannerLineName(3));
+}
 
 // ===== Internal =====
 ulong g_lastPollMs = 0;
@@ -199,9 +281,19 @@ void EnforceDailyLossGuard() {
   if(InpMaxDailyLossPercent <= 0) return;
   LoadOrResetDayStartEquity();
   if(g_dayStartBalance <= 0) return;
+
   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
   double dd = g_dayStartBalance - eq;
   double ddPct = (dd / g_dayStartBalance) * 100.0;
+
+  // Banner update
+  if(InpEnableBanner) {
+    string l1 = "FLEXBOT EA";
+    string l2 = "Baseline bal: " + DoubleToString(g_dayStartBalance, 2);
+    string l3 = g_dailyStop ? "Status: DAILY STOP" : ("DD: " + DoubleToString(ddPct, 2) + "% / " + DoubleToString(InpMaxDailyLossPercent, 2) + "%");
+    SetBanner(l1, l2, l3);
+  }
+
   if(!g_dailyStop && ddPct >= InpMaxDailyLossPercent) {
     g_dailyStop = true;
     Print("DailyLoss HIT: ddPct=", DoubleToString(ddPct,2), "% limit=", DoubleToString(InpMaxDailyLossPercent,2));
@@ -838,8 +930,15 @@ int OnInit() {
   SaveSinceMs();
 
   g_dailyYmd = (int)(GlobalVariableCheck(GVNameDayYmd()) ? GlobalVariableGet(GVNameDayYmd()) : 0);
+  if(GlobalVariableCheck(GVNameDayStartBal())) g_dayStartBalance = GlobalVariableGet(GVNameDayStartBal());
   if(GlobalVariableCheck(GVNameDayStartEq())) g_dayStartEquity = GlobalVariableGet(GVNameDayStartEq());
   LoadOrResetDayStartEquity();
+
+  // Banner init
+  if(InpEnableBanner) {
+    RemoveBanner();
+    EnsureBannerObjects();
+  }
 
   PersistLoad();
   if(Trim(g_persistedSignalId)!="") g_lastSignalId = g_persistedSignalId;
@@ -850,7 +949,7 @@ int OnInit() {
   return INIT_SUCCEEDED;
 }
 
-void OnDeinit(const int reason){ EventKillTimer(); }
+void OnDeinit(const int reason){ EventKillTimer(); if(InpEnableBanner) RemoveBanner(); }
 
 void OnTimer() {
   ulong nowMs=(ulong)(GetMicrosecondCount()/1000);
