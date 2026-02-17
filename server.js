@@ -2942,6 +2942,14 @@ async function autoScalpRunHandler(req, res) {
     const sl = direction === "SELL" ? entry + slDist : entry - slDist;
     const tp = direction === "SELL" ? entry - slDist * 1.5 : entry + slDist * 1.5;
 
+    // Hard consistency guard (should never fail, but protects against NaNs / sign mistakes)
+    if (direction === "BUY" && !(sl < entry && tp > entry)) {
+      return res.json({ ok: true, acted: false, reason: "invalid_levels_buy", entry, sl, tp });
+    }
+    if (direction === "SELL" && !(sl > entry && tp < entry)) {
+      return res.json({ ok: true, acted: false, reason: "invalid_levels_sell", entry, sl, tp });
+    }
+
     // 5) validate: only post setups that match risk/guard rules
     // Defaults for XAUUSD: point=0.01 (2 digits). Override via env XAUUSD_POINT.
     // You can also override via query params: min_sl_points, min_tp_points, max_rr.
@@ -2949,10 +2957,12 @@ async function autoScalpRunHandler(req, res) {
     const point = Number.isFinite(pointRaw) && pointRaw > 0 ? pointRaw : 0.01;
 
     const minSlPtsRaw = req.query.min_sl_points != null ? Number(req.query.min_sl_points) : Number(process.env.AUTO_SCALP_MIN_SL_POINTS || 800);
+    const maxSlPtsRaw = req.query.max_sl_points != null ? Number(req.query.max_sl_points) : Number(process.env.AUTO_SCALP_MAX_SL_POINTS || 2000);
     const minTpPtsRaw = req.query.min_tp_points != null ? Number(req.query.min_tp_points) : Number(process.env.AUTO_SCALP_MIN_TP_POINTS || 800);
     const maxRrRaw = req.query.max_rr != null ? Number(req.query.max_rr) : Number(process.env.AUTO_SCALP_MAX_RR || 2.0);
 
     const minSlPts = Number.isFinite(minSlPtsRaw) && minSlPtsRaw > 0 ? minSlPtsRaw : 800;
+    const maxSlPts = Number.isFinite(maxSlPtsRaw) && maxSlPtsRaw > 0 ? maxSlPtsRaw : 2000;
     const minTpPts = Number.isFinite(minTpPtsRaw) && minTpPtsRaw > 0 ? minTpPtsRaw : 800;
     const maxRr = Number.isFinite(maxRrRaw) && maxRrRaw > 0 ? maxRrRaw : 2.0;
 
@@ -2964,6 +2974,9 @@ async function autoScalpRunHandler(req, res) {
 
     if (slDistPts < minSlPts) {
       return res.json({ ok: true, acted: false, reason: "sl_too_close", slDistPts, minSlPts });
+    }
+    if (slDistPts > maxSlPts) {
+      return res.json({ ok: true, acted: false, reason: "sl_too_far", slDistPts, maxSlPts });
     }
     if (tpDistPts < minTpPts) {
       return res.json({ ok: true, acted: false, reason: "tp_too_close", tpDistPts, minTpPts });
