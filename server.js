@@ -2537,7 +2537,16 @@ function buildAutoReply(text) {
   }
 
   // News (data-driven; avoids hallucinations)
-  if (t.includes("news") || t.includes("rood") || t.includes("red") || t.includes("impact") || t.includes("calendar") || t.includes("kalender")) {
+  // Include both EN + NL keywords so common questions like "is er morgen nieuws?" trigger.
+  if (
+    t.includes("news") ||
+    t.includes("nieuws") ||
+    t.includes("rood") ||
+    t.includes("red") ||
+    t.includes("impact") ||
+    t.includes("calendar") ||
+    t.includes("kalender")
+  ) {
     return "NEWS_CHECK";
   }
 
