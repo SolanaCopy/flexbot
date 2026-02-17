@@ -1119,7 +1119,7 @@ app.post("/signal/executed", async (req, res) => {
     // Update EA cooldown state ONLY when EA confirms success.
     // Prefer symbol from signals table (authoritative)
     const sigRow = await db.execute({
-      sql: "SELECT symbol,direction,sl,tp_json,risk_pct,comment FROM signals WHERE id=? LIMIT 1",
+      sql: "SELECT symbol,direction,sl,tp_json,risk_pct,comment,tg_open_chat_id,tg_open_message_id FROM signals WHERE id=? LIMIT 1",
       args: [signal_id],
     });
     const sig = sigRow.rows?.[0] || null;
@@ -1130,6 +1130,40 @@ app.post("/signal/executed", async (req, res) => {
         sql: "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket) VALUES (?,?,?,?)",
         args: [sym, executed_at_ms, signal_id, ticket],
       });
+
+      // Execution-confirmed Telegram OPEN teaser (same look as before)
+      // Idempotent: only post if we haven't stored tg_open_message_id yet.
+      const openChatIdExisting = sig?.tg_open_chat_id != null ? String(sig.tg_open_chat_id) : null;
+      const openMsgIdExisting = sig?.tg_open_message_id != null ? Number(sig.tg_open_message_id) : null;
+
+      if (!openChatIdExisting || !openMsgIdExisting) {
+        const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+        const photoUrl = new URL(`${BASE_URL}/chart.png`);
+        photoUrl.searchParams.set("symbol", sym);
+        photoUrl.searchParams.set("interval", "1m");
+        photoUrl.searchParams.set("hours", "3");
+        // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
+
+        const dir = sig?.direction != null ? String(sig.direction).toUpperCase() : null;
+        const riskPct = sig?.risk_pct != null ? Number(sig.risk_pct) : 1.0;
+        const comment = sig?.comment != null ? String(sig.comment) : null;
+
+        if (dir && ["BUY", "SELL"].includes(dir)) {
+          try {
+            const caption = formatSignalCaption({ id: signal_id, symbol: sym, direction: dir, riskPct, comment });
+            const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+            const mid = tgPosted?.result?.message_id;
+            if (mid != null) {
+              await db.execute({
+                sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
+                args: [String(chatId), Number(mid), String(signal_id)],
+              });
+            }
+          } catch {
+            // best effort; execution state must not fail due to Telegram
+          }
+        }
+      }
     }
 
     return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod });
@@ -3004,33 +3038,11 @@ async function autoScalpRunHandler(req, res) {
     const created = await fetchJson(createUrl.toString());
     if (!created?.ok) return res.status(502).json({ ok: false, error: "signal_create_failed", details: created });
 
-    // 7) telegram post (only after passing validations + creating signal)
-    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
-    const photoUrl = new URL(`${BASE_URL}/chart.png`);
-    photoUrl.searchParams.set("symbol", symbol);
-    photoUrl.searchParams.set("interval", "1m");
-    photoUrl.searchParams.set("hours", "3");
-    // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
+    // 7) Telegram OPEN post is execution-confirmed.
+    // We intentionally do NOT post here to avoid ghost signals.
+    // Posting happens in POST /signal/executed when ok_mod=true.
 
-    const caption = formatSignalCaption({ id: created.id, symbol, direction, riskPct: 1.0, comment: "auto_scalp" });
-
-    const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
-
-    // Store open teaser message id so we can edit it later on close
-    try {
-      const db2 = await getDb();
-      const mid = tgPosted?.result?.message_id;
-      if (db2 && mid != null) {
-        await db2.execute({
-          sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
-          args: [String(chatId), Number(mid), String(created.id)],
-        });
-      }
-    } catch {
-      // ignore
-    }
-
-    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: true });
+    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: false, signal_id: created.id });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_scalp_failed", message: String(e?.message || e) });
   }
