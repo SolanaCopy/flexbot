@@ -1017,6 +1017,48 @@ app.post("/signal/closed", async (req, res) => {
       await tgSendMessage({ chatId, text: closedText });
     }
 
+    // 3) TP streak message (based on closed-card outcome)
+    try {
+      const sym2 = String(sig.symbol || "XAUUSD").toUpperCase();
+      const out = String(outcome || "").toLowerCase();
+      const isTp = out.includes("tp");
+      const isSl = out.includes("sl");
+
+      const stateDir = path.join(__dirname, "state");
+      const fp = path.join(stateDir, `tp-streak-${sym2}.json`);
+      try { fs.mkdirSync(stateDir, { recursive: true }); } catch {}
+
+      let st = { streak: 0, lastSignalId: "" };
+      try {
+        const raw = fs.readFileSync(fp, "utf8");
+        const j = JSON.parse(raw);
+        st = { streak: Number(j?.streak || 0), lastSignalId: String(j?.lastSignalId || "") };
+      } catch {}
+
+      // de-dupe per signal
+      if (st.lastSignalId !== signal_id) {
+        let next = st.streak;
+        if (isTp) next = Math.max(0, st.streak) + 1;
+        else if (isSl) next = 0;
+        else next = st.streak; // no change on unknown outcomes
+
+        st = { streak: next, lastSignalId: signal_id };
+        try {
+          fs.writeFileSync(fp, JSON.stringify({ ...st, updatedAt: new Date().toISOString() }, null, 2), "utf8");
+        } catch {}
+
+        if (isTp && next === 1) {
+          await tgSendMessage({ chatId, text: "✅ TP geraakt — netjes." });
+        } else if (isTp && next === 2) {
+          await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum." });
+        } else if (isTp && next === 3) {
+          await tgSendMessage({ chatId, text: "🏆 3 TP’s op rij — win streak." });
+        }
+      }
+    } catch {
+      // best-effort
+    }
+
     // Update DB
     await db.execute({
       sql: "UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
