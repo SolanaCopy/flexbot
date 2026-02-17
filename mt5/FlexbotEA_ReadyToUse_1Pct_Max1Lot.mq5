@@ -83,16 +83,22 @@ string BannerRectName(){ return BannerPrefix() + "_RECT"; }
 string BannerIconName(){ return BannerPrefix() + "_ICON"; }
 string BannerLineName(const int i){ return BannerPrefix() + "_LINE" + (string)i; }
 
+string BannerConnName(){ return BannerPrefix() + "_CONN"; }
+
 void EnsureBannerObjects() {
   if(!InpEnableBanner) return;
   long cid = ChartID();
 
+  const int x0 = 10;
+  const int y0 = 18;
+  const int w0 = 560;
+
   if(ObjectFind(cid, BannerRectName()) < 0) {
     ObjectCreate(cid, BannerRectName(), OBJ_RECTANGLE_LABEL, 0, 0, 0);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
-    ObjectSetInteger(cid, BannerRectName(), OBJPROP_XDISTANCE, 10);
-    ObjectSetInteger(cid, BannerRectName(), OBJPROP_YDISTANCE, 18);
-    ObjectSetInteger(cid, BannerRectName(), OBJPROP_XSIZE, 560);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_XDISTANCE, x0);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_YDISTANCE, y0);
+    ObjectSetInteger(cid, BannerRectName(), OBJPROP_XSIZE, w0);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_YSIZE, 84);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_COLOR, clrNONE);
     ObjectSetInteger(cid, BannerRectName(), OBJPROP_BGCOLOR, clrBlack);
@@ -108,8 +114,8 @@ void EnsureBannerObjects() {
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_SELECTABLE, false);
     ObjectSetInteger(cid, BannerIconName(), OBJPROP_HIDDEN, true);
   }
-  ObjectSetInteger(cid, BannerIconName(), OBJPROP_XDISTANCE, 10);
-  ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, 24);
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_XDISTANCE, x0);
+  ObjectSetInteger(cid, BannerIconName(), OBJPROP_YDISTANCE, y0 + 6);
   ObjectSetInteger(cid, BannerIconName(), OBJPROP_XSIZE, 48);
   ObjectSetInteger(cid, BannerIconName(), OBJPROP_YSIZE, 48);
   string iconFile = Trim(InpBannerIconFile);
@@ -121,17 +127,32 @@ void EnsureBannerObjects() {
     if(ObjectFind(cid, n) < 0) {
       ObjectCreate(cid, n, OBJ_LABEL, 0, 0, 0);
       ObjectSetInteger(cid, n, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(cid, n, OBJPROP_XDISTANCE, 68);
+      ObjectSetInteger(cid, n, OBJPROP_XDISTANCE, x0 + 58);
       ObjectSetInteger(cid, n, OBJPROP_FONTSIZE, 12);
       ObjectSetString(cid, n, OBJPROP_FONT, "Segoe UI");
       ObjectSetInteger(cid, n, OBJPROP_COLOR, clrWhite);
       ObjectSetInteger(cid, n, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(cid, n, OBJPROP_HIDDEN, true);
+      ObjectSetString(cid, n, OBJPROP_TEXT, ""); // prevent default "Label"
     }
   }
-  ObjectSetInteger(cid, BannerLineName(1), OBJPROP_YDISTANCE, 26);
-  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_YDISTANCE, 46);
-  ObjectSetInteger(cid, BannerLineName(3), OBJPROP_YDISTANCE, 66);
+  ObjectSetInteger(cid, BannerLineName(1), OBJPROP_YDISTANCE, y0 + 8);
+  ObjectSetInteger(cid, BannerLineName(2), OBJPROP_YDISTANCE, y0 + 28);
+  ObjectSetInteger(cid, BannerLineName(3), OBJPROP_YDISTANCE, y0 + 48);
+
+  // Connection label top-right inside the banner
+  if(ObjectFind(cid, BannerConnName()) < 0) {
+    ObjectCreate(cid, BannerConnName(), OBJ_LABEL, 0, 0, 0);
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_FONTSIZE, 12);
+    ObjectSetString(cid, BannerConnName(), OBJPROP_FONT, "Segoe UI");
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(cid, BannerConnName(), OBJPROP_HIDDEN, true);
+    ObjectSetString(cid, BannerConnName(), OBJPROP_TEXT, "");
+  }
+  ObjectSetInteger(cid, BannerConnName(), OBJPROP_XDISTANCE, x0 + w0 - 10);
+  ObjectSetInteger(cid, BannerConnName(), OBJPROP_YDISTANCE, y0 + 8);
 }
 
 void SetBanner(const string l1, const string l2, const string l3) {
@@ -141,6 +162,9 @@ void SetBanner(const string l1, const string l2, const string l3) {
   ObjectSetString(cid, BannerLineName(1), OBJPROP_TEXT, l1);
   ObjectSetString(cid, BannerLineName(2), OBJPROP_TEXT, l2);
   ObjectSetString(cid, BannerLineName(3), OBJPROP_TEXT, l3);
+
+  ObjectSetInteger(cid, BannerConnName(), OBJPROP_COLOR, g_connOk ? clrLime : clrRed);
+  ObjectSetString(cid, BannerConnName(), OBJPROP_TEXT, g_connOk ? "CONNECTED" : "DISCONNECTED");
 }
 
 void RemoveBanner() {
@@ -150,9 +174,11 @@ void RemoveBanner() {
   ObjectDelete(cid, BannerLineName(1));
   ObjectDelete(cid, BannerLineName(2));
   ObjectDelete(cid, BannerLineName(3));
+  ObjectDelete(cid, BannerConnName());
 }
 
 // ===== Internal =====
+bool g_connOk = false;
 ulong g_lastPollMs = 0;
 string g_lastSignalId = "";
 string g_lastSeenId = ""; // legacy (do not use for consuming; kept for backward compatibility)
@@ -289,8 +315,8 @@ void EnforceDailyLossGuard() {
   // Banner update
   if(InpEnableBanner) {
     string l1 = "FLEXBOT EA";
-    string l2 = "Baseline bal: " + DoubleToString(g_dayStartBalance, 2);
-    string l3 = g_dailyStop ? "Status: DAILY STOP" : ("DD: " + DoubleToString(ddPct, 2) + "% / " + DoubleToString(InpMaxDailyLossPercent, 2) + "%");
+    string l2 = g_dailyStop ? "Status: DAILY STOP (4% limit hit)" : "Status: Waiting for signals...";
+    string l3 = "DD: " + DoubleToString(ddPct, 2) + "% / " + DoubleToString(InpMaxDailyLossPercent, 2) + "%";
     SetBanner(l1, l2, l3);
   }
 
@@ -972,6 +998,13 @@ void OnTimer() {
   string url = BuildUrl("/signal/next?symbol=" + InpSymbol + "&since_ms=" + (string)g_sinceMs);
   string body=HttpGetText(url, st);
   if(InpDebugHttp) Print("Next status=",st," url=", url);
+
+  g_connOk = (st>=200 && st<300);
+  if(InpEnableBanner && !g_dailyStop) {
+    // Refresh banner connection line even when no signals.
+    SetBanner("FLEXBOT EA", "Status: Waiting for signals...", "DD: " + DoubleToString(((g_dayStartBalance-AccountInfoDouble(ACCOUNT_EQUITY))/g_dayStartBalance)*100.0,2) + "% / " + DoubleToString(InpMaxDailyLossPercent,2) + "%");
+  }
+
   if(st<200 || st>=300) return;
   ExecuteSignal(body);
 }
