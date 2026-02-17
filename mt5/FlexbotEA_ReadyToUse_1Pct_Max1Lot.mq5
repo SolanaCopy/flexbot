@@ -650,6 +650,35 @@ bool ExecuteSignal(const string json) {
   bool okMod = ModifyStopsWithRetries(sym, ticket, sl, tp);
   if(InpDebugTrade) Print("Stops set okMod=", (okMod?"true":"false"), " entry=", DoubleToString(entry,digits), " sl=", DoubleToString(sl,digits), " tp=", DoubleToString(tp,digits));
 
+  // If we could not set SL/TP, immediately close the position to avoid unprotected trades.
+  // Do NOT consume the signal, so we can retry later or after backend fixes.
+  if(!okMod) {
+    if(InpDebugTrade) Print("SKIP/FAIL: could not set stops (invalid stops). Closing position. id=", id, " ticket=", (string)ticket);
+    trade.PositionClose(ticket);
+    // Clear lastOpenMs so cooldown doesn't lock out due to a failed open.
+    g_lastOpenMs = 0;
+
+    // Best-effort report position state
+    ReportPositionStateThrottled();
+
+    // Optionally inform backend that this signal failed (ok_mod=false)
+    if(InpEnableExecPost) {
+      long nowMs = NowMsUtc();
+      string body = "{";
+      body += "\"signal_id\":\"" + id + "\"";
+      body += ",\"ticket\":\"" + (string)ticket + "\"";
+      body += ",\"fill_price\":" + DoubleToString(entry, digits);
+      body += ",\"ok_mod\":false";
+      body += ",\"time\":" + (string)nowMs;
+      body += "}";
+      int st = HttpPostJson(BuildUrl("/signal/executed"), body);
+      if(InpDebugHttp) Print("POST /signal/executed (ok_mod=false) code=", st);
+    }
+
+    return false;
+  }
+
+  // Success: persist + consume
   g_lastSignalId = id;
   PersistSaveSignalId(id);
   AdvanceSinceMs(createdAtMs);
@@ -659,10 +688,12 @@ bool ExecuteSignal(const string json) {
     string body = "{";
     body += "\"signal_id\":\"" + id + "\"";
     body += ",\"ticket\":\"" + (string)ticket + "\"";
+    body += ",\"fill_price\":" + DoubleToString(entry, digits);
+    body += ",\"ok_mod\":true";
     body += ",\"time\":" + (string)nowMs;
     body += "}";
     int st = HttpPostJson(BuildUrl("/signal/executed"), body);
-    if(InpDebugHttp) Print("POST /signal/executed code=", st);
+    if(InpDebugHttp) Print("POST /signal/executed (ok_mod=true) code=", st);
   }
 
   return true;
