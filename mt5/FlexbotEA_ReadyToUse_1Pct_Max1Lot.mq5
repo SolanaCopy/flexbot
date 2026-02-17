@@ -525,6 +525,20 @@ bool ExecuteSignal(const string json) {
 
   ENUM_ORDER_TYPE ot = (dir=="BUY" ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
 
+  // Safety guard: reject signals where SL is on the wrong side of price.
+  // This prevents huge/invalid SL distances from opening out-of-sync trades.
+  double curPrice = (ot==ORDER_TYPE_BUY) ? SymbolInfoDouble(sym, SYMBOL_ASK) : SymbolInfoDouble(sym, SYMBOL_BID);
+  if(ot==ORDER_TYPE_BUY && sl >= curPrice) {
+    if(InpDebugTrade) Print("SKIP invalid SL for BUY. id=", id, " price=", DoubleToString(curPrice,digits), " sl=", DoubleToString(sl,digits));
+    g_lastSignalId = id;
+    return false;
+  }
+  if(ot==ORDER_TYPE_SELL && sl <= curPrice) {
+    if(InpDebugTrade) Print("SKIP invalid SL for SELL. id=", id, " price=", DoubleToString(curPrice,digits), " sl=", DoubleToString(sl,digits));
+    g_lastSignalId = id;
+    return false;
+  }
+
   // lotsize
   // AUTO mode sizes lots so that SL hit risks <= InpMaxRiskPercent.
   double riskPct = InpMaxRiskPercent;
