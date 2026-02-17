@@ -2936,8 +2936,30 @@ async function autoScalpRunHandler(req, res) {
     let riskPct2 = Number.isFinite(autoRiskEnv) && autoRiskEnv > 0 ? autoRiskEnv : 1.0;
     riskPct2 = Math.min(riskPct2, maxRiskPct2);
 
+    // 5) validate + CLAMP: ensure SL distance is in a scalp-friendly range.
+    // Goal: keep lots near ~1.00 on 100k accounts (while still using risk_pct).
+    // Defaults for XAUUSD: point=0.01 (2 digits). Override via env XAUUSD_POINT.
+    const pointRaw = Number(process.env.XAUUSD_POINT || 0.01);
+    const point = Number.isFinite(pointRaw) && pointRaw > 0 ? pointRaw : 0.01;
+
+    const minSlPtsRaw = req.query.min_sl_points != null ? Number(req.query.min_sl_points) : Number(process.env.AUTO_SCALP_MIN_SL_POINTS || 800);
+    const maxSlPtsRaw = req.query.max_sl_points != null ? Number(req.query.max_sl_points) : Number(process.env.AUTO_SCALP_MAX_SL_POINTS || 1200);
+    const minTpPtsRaw = req.query.min_tp_points != null ? Number(req.query.min_tp_points) : Number(process.env.AUTO_SCALP_MIN_TP_POINTS || 800);
+    const maxRrRaw = req.query.max_rr != null ? Number(req.query.max_rr) : Number(process.env.AUTO_SCALP_MAX_RR || 2.0);
+
+    const minSlPts = Number.isFinite(minSlPtsRaw) && minSlPtsRaw > 0 ? minSlPtsRaw : 800;
+    const maxSlPts = Number.isFinite(maxSlPtsRaw) && maxSlPtsRaw > 0 ? maxSlPtsRaw : 1200;
+    const minTpPts = Number.isFinite(minTpPtsRaw) && minTpPtsRaw > 0 ? minTpPtsRaw : 800;
+    const maxRr = Number.isFinite(maxRrRaw) && maxRrRaw > 0 ? maxRrRaw : 2.0;
+
     const targetRiskUsd = equityUsd * (riskPct2 / 100.0);
-    const slDist = targetRiskUsd / (usdPer1PricePerLot * assumedLots);
+    let slDist = targetRiskUsd / (usdPer1PricePerLot * assumedLots);
+
+    // Convert to points and clamp into [minSlPts, maxSlPts]
+    let slPts = slDist / point;
+    if (!Number.isFinite(slPts) || slPts <= 0) return res.json({ ok: true, acted: false, reason: "bad_sl_pts", slPts });
+    slPts = Math.max(minSlPts, Math.min(maxSlPts, slPts));
+    slDist = slPts * point;
 
     const sl = direction === "SELL" ? entry + slDist : entry - slDist;
     const tp = direction === "SELL" ? entry - slDist * 1.5 : entry + slDist * 1.5;
@@ -2950,34 +2972,12 @@ async function autoScalpRunHandler(req, res) {
       return res.json({ ok: true, acted: false, reason: "invalid_levels_sell", entry, sl, tp });
     }
 
-    // 5) validate: only post setups that match risk/guard rules
-    // Defaults for XAUUSD: point=0.01 (2 digits). Override via env XAUUSD_POINT.
-    // You can also override via query params: min_sl_points, min_tp_points, max_rr.
-    const pointRaw = Number(process.env.XAUUSD_POINT || 0.01);
-    const point = Number.isFinite(pointRaw) && pointRaw > 0 ? pointRaw : 0.01;
-
-    const minSlPtsRaw = req.query.min_sl_points != null ? Number(req.query.min_sl_points) : Number(process.env.AUTO_SCALP_MIN_SL_POINTS || 800);
-    const maxSlPtsRaw = req.query.max_sl_points != null ? Number(req.query.max_sl_points) : Number(process.env.AUTO_SCALP_MAX_SL_POINTS || 2000);
-    const minTpPtsRaw = req.query.min_tp_points != null ? Number(req.query.min_tp_points) : Number(process.env.AUTO_SCALP_MIN_TP_POINTS || 800);
-    const maxRrRaw = req.query.max_rr != null ? Number(req.query.max_rr) : Number(process.env.AUTO_SCALP_MAX_RR || 2.0);
-
-    const minSlPts = Number.isFinite(minSlPtsRaw) && minSlPtsRaw > 0 ? minSlPtsRaw : 800;
-    const maxSlPts = Number.isFinite(maxSlPtsRaw) && maxSlPtsRaw > 0 ? maxSlPtsRaw : 2000;
-    const minTpPts = Number.isFinite(minTpPtsRaw) && minTpPtsRaw > 0 ? minTpPtsRaw : 800;
-    const maxRr = Number.isFinite(maxRrRaw) && maxRrRaw > 0 ? maxRrRaw : 2.0;
-
     const slDist2 = Math.abs(entry - sl);
     const tpDist = Math.abs(entry - tp);
     const slDistPts = slDist2 / point;
     const tpDistPts = tpDist / point;
     const rr = slDist2 > 0 ? tpDist / slDist2 : Infinity;
 
-    if (slDistPts < minSlPts) {
-      return res.json({ ok: true, acted: false, reason: "sl_too_close", slDistPts, minSlPts });
-    }
-    if (slDistPts > maxSlPts) {
-      return res.json({ ok: true, acted: false, reason: "sl_too_far", slDistPts, maxSlPts });
-    }
     if (tpDistPts < minTpPts) {
       return res.json({ ok: true, acted: false, reason: "tp_too_close", tpDistPts, minTpPts });
     }
