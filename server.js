@@ -2550,6 +2550,11 @@ function buildAutoReply(text) {
     return "NEWS_CHECK";
   }
 
+  // Myfxbook trophy case
+  if (t.includes("myfxbook") || t.includes("fxbook")) {
+    return "TROPHY_LIST";
+  }
+
   // Default: no reply
   return null;
 }
@@ -2608,11 +2613,15 @@ async function handleTelegramUpdate(req, res) {
       .filter(Boolean);
     const isOwner = ownerIds.includes(userId);
 
+    const t = String(text || "").toLowerCase();
+    const wantsTrophy = t.includes("myfxbook") || t.includes("fxbook");
+
     // For the owner: reply to ANY message (still with cooldown) so it feels responsive.
     // For others: only reply to questions/mentions to avoid spam.
+    // Exception: allow "myfxbook" keyword to return trophy list even without a question mark.
     const isQuestion = String(text).includes("?");
     const mentionsFlex = /\bflexbot\b|\bflex\b/i.test(String(text));
-    if (!isOwner && !isQuestion && !mentionsFlex) return res.json({ ok: true });
+    if (!isOwner && !wantsTrophy && !isQuestion && !mentionsFlex) return res.json({ ok: true });
 
     // Cooldown: per-user and per-group
     if (!tgCooldownOk(`u:${userId}`, isOwner ? 30 * 1000 : 10 * 60 * 1000)) return res.json({ ok: true });
@@ -2620,6 +2629,116 @@ async function handleTelegramUpdate(req, res) {
 
     let reply = buildAutoReply(text) || (isOwner ? "Yo" : null);
     if (!reply) return res.json({ ok: true });
+
+    // Trophy case (Myfxbook)
+    if (reply === "TROPHY_LIST") {
+      try {
+        const dir = path.join(__dirname, "state");
+        const fp = path.join(dir, "trophies.json");
+        let trophies = [];
+        try {
+          const raw = fs.readFileSync(fp, "utf8");
+          const json = JSON.parse(raw);
+          trophies = Array.isArray(json?.trophies) ? json.trophies : [];
+        } catch {
+          trophies = [];
+        }
+
+        // Seed with env default if empty
+        if (!trophies.length) {
+          trophies = [
+            {
+              title: "FTMO 100K — Phase ✅",
+              url: "https://www.myfxbook.com/members/FlexbotAI/flexbot-ftmo-100k-challenge-phase/11935332",
+            },
+          ];
+        }
+
+        const max = 10;
+        const lines = ["🏛 FLEXBOT TROPHY CASE (Myfxbook)"];
+        trophies.slice(0, max).forEach((x, i) => {
+          const title = String(x?.title || `Challenge #${i + 1}`).trim();
+          const url = String(x?.url || "").trim().replace(/>+$/, "");
+          if (!url) return;
+          lines.push(`${i + 1}) ${title}`);
+          lines.push(`<${url}>`);
+        });
+        const caption = lines.join("\n");
+
+        // Send as photo with caption
+        const bannerPath = path.join(__dirname, "assets", "trophy_banner.png");
+        const buf = fs.existsSync(bannerPath) ? fs.readFileSync(bannerPath) : null;
+        if (buf) {
+          await tgSendPhoto({ chatId, photo: buf, caption });
+          return res.json({ ok: true });
+        }
+
+        // Fallback: text only
+        await tgSendMessage({ chatId, text: caption });
+        return res.json({ ok: true });
+      } catch {
+        await tgSendMessage({ chatId, text: "Myfxbook lijst is nu even niet beschikbaar." });
+        return res.json({ ok: true });
+      }
+    }
+
+    // Owner commands: /trophy add <url> | <title>
+    if (isOwner && /^\/trophy\b/i.test(String(text || "").trim())) {
+      const raw = String(text || "").trim();
+      const mAdd = raw.match(/^\/trophy\s+add\s+([^\s|]+)\s*(?:\|\s*(.+))?$/i);
+      const mList = raw.match(/^\/trophy\s+list\b/i);
+      if (mAdd) {
+        const url = String(mAdd[1] || "").trim().replace(/>+$/, "");
+        const title = String(mAdd[2] || "Challenge ✅").trim();
+        if (!url.startsWith("http")) {
+          await tgSendMessage({ chatId, text: "Gebruik: /trophy add <link> | <titel>" });
+          return res.json({ ok: true });
+        }
+        const dir = path.join(__dirname, "state");
+        const fp = path.join(dir, "trophies.json");
+        try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+        let trophies = [];
+        try {
+          const raw2 = fs.readFileSync(fp, "utf8");
+          const json = JSON.parse(raw2);
+          trophies = Array.isArray(json?.trophies) ? json.trophies : [];
+        } catch {
+          trophies = [];
+        }
+        trophies.unshift({ title, url });
+        trophies = trophies.slice(0, 25);
+        try {
+          fs.writeFileSync(fp, JSON.stringify({ trophies, updatedAt: new Date().toISOString() }, null, 2), "utf8");
+        } catch {}
+
+        await tgSendMessage({ chatId, text: `✅ Added trophy: ${title}\n<${url}>` });
+        return res.json({ ok: true });
+      }
+      if (mList) {
+        const dir = path.join(__dirname, "state");
+        const fp = path.join(dir, "trophies.json");
+        let trophies = [];
+        try {
+          const raw2 = fs.readFileSync(fp, "utf8");
+          const json = JSON.parse(raw2);
+          trophies = Array.isArray(json?.trophies) ? json.trophies : [];
+        } catch {
+          trophies = [];
+        }
+        if (!trophies.length) {
+          await tgSendMessage({ chatId, text: "Nog geen trophies opgeslagen." });
+          return res.json({ ok: true });
+        }
+        const lines = ["🏛 Trophy list:"];
+        trophies.slice(0, 20).forEach((x, i) => {
+          const title = String(x?.title || `#${i + 1}`).trim();
+          const url = String(x?.url || "").trim();
+          lines.push(`${i + 1}) ${title} — <${url}>`);
+        });
+        await tgSendMessage({ chatId, text: lines.join("\n") });
+        return res.json({ ok: true });
+      }
+    }
 
     // Data-driven news reply
     if (reply === "NEWS_CHECK") {
