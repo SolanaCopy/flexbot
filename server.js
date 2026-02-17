@@ -2797,8 +2797,11 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
   // Public group teaser caption (NO entry/SL/TP)
   const kind = String(comment || "").toLowerCase().includes("scalp") ? "SCALP" : "SETUP";
 
+  const ref = String(id || "");
+  const shortRef = ref ? ref.slice(-8) : "";
+
   return (
-    `🚨 LIVE SIGNAL OPEN (#${id})\n` +
+    `🚨 LIVE SIGNAL OPEN${shortRef ? ` (#${shortRef})` : ""}\n` +
     `${kind}: ${sym} ${dir}\n` +
     `\n` +
     `Full entry/SL/TP + updates = MEMBERS ONLY\n` +
@@ -2990,7 +2993,7 @@ ${mascotDataUri ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
 </g>
 
 <text x="80" y="980" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Ref</text>
-<text x="140" y="980" font-family="Consolas,Menlo,monospace" font-size="22" fill="rgba(255,255,255,0.55)">${String(id||"").slice(0,8)}</text>
+<text x="140" y="980" font-family="Consolas,Menlo,monospace" font-size="22" fill="rgba(255,255,255,0.55)">${String(id||"").slice(-8)}</text>
 
 <text x="80" y="1030" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Auto recap • after trade close</text>
 <text x="1000" y="1030" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">${new Date().toISOString().slice(0,19).replace("T"," ")}</text>
