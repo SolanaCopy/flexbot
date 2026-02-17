@@ -2617,29 +2617,62 @@ async function handleTelegramUpdate(req, res) {
       try {
         const all = await getFfEvents();
         const now = Date.now();
-        const curList = String(process.env.NEWS_REPLY_CURRENCIES || "USD").toUpperCase().split(",").map((s) => s.trim()).filter(Boolean);
+        const curList = String(process.env.NEWS_REPLY_CURRENCIES || "USD")
+          .toUpperCase()
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        const t = String(text || "").toLowerCase();
+        const wantsTomorrow = t.includes("morgen") || t.includes("tomorrow") || t.includes("tmr");
+
+        // YYYY-MM-DD for Europe/Amsterdam
+        const amsYmd = (tsMs) => {
+          const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Europe/Amsterdam",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).formatToParts(new Date(tsMs));
+          const get = (k) => parts.find((p) => p.type === k)?.value;
+          return `${get("year")}-${get("month")}-${get("day")}`;
+        };
+
+        const ymdTomorrow = amsYmd(now + 24 * 60 * 60 * 1000);
+
         const hi = all
           .filter((e) => String(e.impact) === "high")
-          .filter((e) => curList.length ? curList.includes(String(e.currency || "").toUpperCase()) : true)
+          .filter((e) => (curList.length ? curList.includes(String(e.currency || "").toUpperCase()) : true))
           .filter((e) => Number.isFinite(e.ts))
           .sort((a, b) => a.ts - b.ts);
 
-        const upcoming = hi.filter((e) => e.ts >= now).slice(0, 5);
-        const recent = hi.filter((e) => e.ts < now && e.ts >= now - 3 * 60 * 60 * 1000).slice(-3);
-
-        if (!upcoming.length && !recent.length) {
-          reply = `Volgens ForexFactory feed: geen HIGH news voor ${curList.join(",")} (nu/komende uren).`;
+        if (wantsTomorrow) {
+          const tom = hi.filter((e) => amsYmd(e.ts) === ymdTomorrow).slice(0, 10);
+          if (!tom.length) {
+            reply = `Morgen (${ymdTomorrow}) geen HIGH news voor ${curList.join(",")} volgens de feed.`;
+          } else {
+            const lines = [`🟥 HIGH news morgen (${ymdTomorrow}) ${curList.join(",")}:`];
+            for (const e of tom) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
+            reply = lines.join("\n");
+          }
         } else {
-          const lines = [];
-          if (recent.length) {
-            lines.push(`🟥 HIGH news (laatste 3u) ${curList.join(",")}:`);
-            for (const e of recent) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
+          const upcoming = hi.filter((e) => e.ts >= now).slice(0, 5);
+          const recent = hi.filter((e) => e.ts < now && e.ts >= now - 3 * 60 * 60 * 1000).slice(-3);
+
+          if (!upcoming.length && !recent.length) {
+            reply = `Volgens ForexFactory feed: geen HIGH news voor ${curList.join(",")} (nu/komende uren).`;
+          } else {
+            const lines = [];
+            if (recent.length) {
+              lines.push(`🟥 HIGH news (laatste 3u) ${curList.join(",")}:`);
+              for (const e of recent) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
+            }
+            if (upcoming.length) {
+              lines.push(`🟥 HIGH news (upcoming) ${curList.join(",")}:`);
+              for (const e of upcoming) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
+            }
+            reply = lines.slice(0, 10).join("\n");
           }
-          if (upcoming.length) {
-            lines.push(`🟥 HIGH news (upcoming) ${curList.join(",")}:`);
-            for (const e of upcoming) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
-          }
-          reply = lines.slice(0, 10).join("\n");
         }
       } catch {
         reply = "Kon news feed niet lezen (tijdelijk).";
