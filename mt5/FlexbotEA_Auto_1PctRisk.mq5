@@ -621,7 +621,9 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
   if(sym != InpSymbol) return;
 
   long magic = (long)HistoryDealGetInteger(deal, DEAL_MAGIC);
-  if((ulong)magic != InpMagic) return;
+  // If the user closes manually, some brokers report DEAL_MAGIC=0 on the closing deal.
+  // Allow magic=0 for CLOSE posts so manual closes still get posted.
+  if((ulong)magic != InpMagic && magic != 0) return;
 
   long entryType = HistoryDealGetInteger(deal, DEAL_ENTRY);
   if(entryType != DEAL_ENTRY_OUT) return;
