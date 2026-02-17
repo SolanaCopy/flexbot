@@ -2832,8 +2832,18 @@ function _loadMascotCache() {
   }
 
   const isImage = (f) => /\.(png|jpg|jpeg|webp)$/i.test(f);
-  const win = files.filter((f) => isImage(f) && /^mascot_win/i.test(f)).map((f) => path.join(dir, f));
-  const loss = files.filter((f) => isImage(f) && /^mascot_loss/i.test(f)).map((f) => path.join(dir, f));
+  const isTransparentPreferred = (f) => /\.(png|webp)$/i.test(f);
+
+  // Prefer transparent formats (png/webp). Only fall back to jpg/jpeg if no transparent variants exist.
+  let win = files.filter((f) => isImage(f) && /^mascot_win/i.test(f));
+  const winT = win.filter(isTransparentPreferred);
+  if (winT.length) win = winT;
+  win = win.map((f) => path.join(dir, f));
+
+  let loss = files.filter((f) => isImage(f) && /^mascot_loss/i.test(f));
+  const lossT = loss.filter(isTransparentPreferred);
+  if (lossT.length) loss = lossT;
+  loss = loss.map((f) => path.join(dir, f));
   const legacyPng = path.join(dir, "mascot.png");
   const legacyJpg = path.join(dir, "mascot.jpg");
 
