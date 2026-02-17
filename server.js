@@ -1154,13 +1154,13 @@ app.post("/signal/executed", async (req, res) => {
       args: [signal_id, ticket, fill_price, executed_at_ms, executed_at_mt5, JSON.stringify(body)],
     });
 
-    // Only mark executed when EA confirms it actually opened AND set/modified stops.
-    if (ok_mod) {
-      await db.execute({
-        sql: "UPDATE signals SET status='executed' WHERE id=?",
-        args: [signal_id],
-      });
-    }
+    // Mark executed as soon as we receive an execution callback.
+    // This prevents the same signal from being served repeatedly from /signal/next.
+    // Telegram posting + cooldown can still be gated by ok_mod unless FORCE_TG_OPEN_ON_EXEC is enabled.
+    await db.execute({
+      sql: "UPDATE signals SET status='executed' WHERE id=?",
+      args: [signal_id],
+    });
 
     // Update EA cooldown state ONLY when EA confirms success.
     // Prefer symbol from signals table (authoritative)
@@ -1171,44 +1171,49 @@ app.post("/signal/executed", async (req, res) => {
     const sig = sigRow.rows?.[0] || null;
     const sym = sig?.symbol != null ? String(sig.symbol).toUpperCase() : null;
 
-    if (sym && ok_mod) {
-      await db.execute({
-        sql: "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket) VALUES (?,?,?,?)",
-        args: [sym, executed_at_ms, signal_id, ticket],
-      });
+    if (sym) {
+      // Update EA cooldown state only when EA confirms success.
+      if (ok_mod) {
+        await db.execute({
+          sql: "INSERT OR REPLACE INTO ea_state (symbol,last_executed_ms,last_signal_id,last_ticket) VALUES (?,?,?,?)",
+          args: [sym, executed_at_ms, signal_id, ticket],
+        });
+      }
 
-      // Execution-confirmed Telegram OPEN teaser (same look as before)
-      // Idempotent by default, but we can force repost during migration.
+      // Telegram OPEN teaser
+      // - Default: post only when ok_mod=true (execution-confirmed)
+      // - Migration override: FORCE_TG_OPEN_ON_EXEC=1 will post even if ok_mod parsing fails.
       const forceOpen = ["1", "true", "yes", "on"].includes(String(process.env.FORCE_TG_OPEN_ON_EXEC || "").toLowerCase());
+      if (ok_mod || forceOpen) {
+        const openChatIdExisting = sig?.tg_open_chat_id != null ? String(sig.tg_open_chat_id) : null;
+        const openMsgIdExisting = sig?.tg_open_message_id != null ? Number(sig.tg_open_message_id) : null;
 
-      const openChatIdExisting = sig?.tg_open_chat_id != null ? String(sig.tg_open_chat_id) : null;
-      const openMsgIdExisting = sig?.tg_open_message_id != null ? Number(sig.tg_open_message_id) : null;
+        if (forceOpen || !openChatIdExisting || !openMsgIdExisting) {
+          const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+          const photoUrl = new URL(`${BASE_URL}/chart.png`);
+          photoUrl.searchParams.set("symbol", sym);
+          photoUrl.searchParams.set("interval", "1m");
+          photoUrl.searchParams.set("hours", "3");
+          // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
 
-      if (forceOpen || !openChatIdExisting || !openMsgIdExisting) {
-        const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
-        const photoUrl = new URL(`${BASE_URL}/chart.png`);
-        photoUrl.searchParams.set("symbol", sym);
-        photoUrl.searchParams.set("interval", "1m");
-        photoUrl.searchParams.set("hours", "3");
-        // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
+          const dir = sig?.direction != null ? String(sig.direction).toUpperCase() : null;
+          const riskPct = sig?.risk_pct != null ? Number(sig.risk_pct) : 1.0;
+          const comment = sig?.comment != null ? String(sig.comment) : null;
 
-        const dir = sig?.direction != null ? String(sig.direction).toUpperCase() : null;
-        const riskPct = sig?.risk_pct != null ? Number(sig.risk_pct) : 1.0;
-        const comment = sig?.comment != null ? String(sig.comment) : null;
-
-        if (dir && ["BUY", "SELL"].includes(dir)) {
-          try {
-            const caption = formatSignalCaption({ id: signal_id, symbol: sym, direction: dir, riskPct, comment });
-            const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
-            const mid = tgPosted?.result?.message_id;
-            if (mid != null) {
-              await db.execute({
-                sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
-                args: [String(chatId), Number(mid), String(signal_id)],
-              });
+          if (dir && ["BUY", "SELL"].includes(dir)) {
+            try {
+              const caption = formatSignalCaption({ id: signal_id, symbol: sym, direction: dir, riskPct, comment });
+              const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+              const mid = tgPosted?.result?.message_id;
+              if (mid != null) {
+                await db.execute({
+                  sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
+                  args: [String(chatId), Number(mid), String(signal_id)],
+                });
+              }
+            } catch {
+              // best effort; execution state must not fail due to Telegram
             }
-          } catch {
-            // best effort; execution state must not fail due to Telegram
           }
         }
       }
