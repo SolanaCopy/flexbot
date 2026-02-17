@@ -1037,6 +1037,14 @@ app.get("/signal/next", async (req, res) => {
     const sinceMs = sinceRaw && /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : 0;
     const sinceMsSafe = Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : 0;
 
+    // TTL guard: never serve very old pending signals (prevents stale/ghost backlog).
+    // Env: SIGNAL_TTL_MIN (default 120 minutes). Set to 0 to disable.
+    const ttlMinRaw = Number(process.env.SIGNAL_TTL_MIN || 120);
+    const ttlMin = Number.isFinite(ttlMinRaw) && ttlMinRaw > 0 ? ttlMinRaw : 0;
+    const ttlMs = ttlMin > 0 ? ttlMin * 60 * 1000 : 0;
+    const minByTtl = ttlMs > 0 ? (Date.now() - ttlMs) : 0;
+    const minCreatedAtMs = Math.max(sinceMsSafe, minByTtl);
+
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
@@ -1046,7 +1054,7 @@ app.get("/signal/next", async (req, res) => {
         "FROM signals " +
         "WHERE symbol=? AND status='new' AND created_at_ms >= ? " +
         "ORDER BY created_at_ms ASC LIMIT 1",
-      args: [symbol, sinceMsSafe],
+      args: [symbol, minCreatedAtMs],
     });
 
     const r = rows.rows?.[0];
