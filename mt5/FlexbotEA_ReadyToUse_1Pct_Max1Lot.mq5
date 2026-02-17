@@ -427,6 +427,52 @@ bool EntryDistanceOk(const string sym, double expectedPrice, double fillPrice) {
   return true;
 }
 
+// Clamp SL/TP to broker minimum stop/freeze distance.
+// This prevents frequent "invalid stops" when SL/TP is too close to current price.
+bool ClampStopsToBroker(const string sym, const ENUM_ORDER_TYPE ot, const double entry, double &sl, double &tp) {
+  MqlTick tk;
+  if(!SymbolInfoTick(sym, tk)) return false;
+
+  double pt = SymbolInfoDouble(sym, SYMBOL_POINT);
+  if(pt <= 0.0) pt = 0.01;
+
+  long stopsLvl = (long)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL);
+  long freezeLvl = (long)SymbolInfoInteger(sym, SYMBOL_TRADE_FREEZE_LEVEL);
+
+  // Add a small buffer to avoid edge cases at exact boundary.
+  long bufPts = 5;
+  long minPts = (long)MathMax((double)stopsLvl, (double)freezeLvl) + bufPts;
+  double minDist = (double)minPts * pt;
+
+  double bid = tk.bid;
+  double ask = tk.ask;
+
+  if(ot == ORDER_TYPE_BUY) {
+    // SL must be below bid; TP above ask.
+    double slMax = MathMin(bid - minDist, entry - pt);
+    double tpMin = MathMax(ask + minDist, entry + pt);
+
+    if(sl >= slMax) sl = slMax;
+    if(tp <= tpMin) tp = tpMin;
+
+    // Final sanity
+    if(!(sl < entry && sl < bid && tp > entry && tp > ask)) return false;
+  } else if(ot == ORDER_TYPE_SELL) {
+    // SL must be above ask; TP below bid.
+    double slMin = MathMax(ask + minDist, entry + pt);
+    double tpMax = MathMin(bid - minDist, entry - pt);
+
+    if(sl <= slMin) sl = slMin;
+    if(tp >= tpMax) tp = tpMax;
+
+    if(!(sl > entry && sl > ask && tp < entry && tp < bid)) return false;
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
 bool ModifyStopsWithRetries(const string sym, ulong ticket, double sl, double tp) {
   bool ok=false;
   for(int attempt=1; attempt<=3; attempt++) {
@@ -643,6 +689,15 @@ bool ExecuteSignal(const string json) {
   double tp = sigTp;
   if(tp <= 0 || (ot==ORDER_TYPE_BUY && tp <= entry) || (ot==ORDER_TYPE_SELL && tp >= entry))
     tp = (ot == ORDER_TYPE_BUY) ? (entry + (RR * risk)) : (entry - (RR * risk));
+
+  // Clamp SL/TP to broker min distance to reduce invalid stops.
+  if(!ClampStopsToBroker(sym, ot, entry, sl, tp)) {
+    if(InpDebugTrade) Print("SKIP/FAIL: could not clamp stops to broker rules. id=", id, " entry=", DoubleToString(entry,digits), " sl=", DoubleToString(sl,digits), " tp=", DoubleToString(tp,digits));
+    trade.PositionClose(ticket);
+    g_lastOpenMs = 0;
+    g_lastSignalId = id;
+    return false;
+  }
 
   sl = NormalizeDouble(sl, digits);
   tp = NormalizeDouble(tp, digits);
