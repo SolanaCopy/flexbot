@@ -2834,9 +2834,10 @@ function _loadMascotCache() {
   const isImage = (f) => /\.(png|jpg|jpeg|webp)$/i.test(f);
   const win = files.filter((f) => isImage(f) && /^mascot_win/i.test(f)).map((f) => path.join(dir, f));
   const loss = files.filter((f) => isImage(f) && /^mascot_loss/i.test(f)).map((f) => path.join(dir, f));
-  const legacy = path.join(dir, "mascot.jpg");
+  const legacyPng = path.join(dir, "mascot.png");
+  const legacyJpg = path.join(dir, "mascot.jpg");
 
-  _mascotCache = { win, loss, legacy };
+  _mascotCache = { win, loss, legacyPng, legacyJpg };
   return _mascotCache;
 }
 let _lastMascotPick = { win: null, loss: null };
@@ -2852,8 +2853,9 @@ function getMascotDataUri({ outcome, result }) {
   const key = isWin ? "win" : "loss";
 
   if (!pool || pool.length === 0) {
-    // fallback to legacy mascot.jpg if variants aren't present
-    pool = [cache.legacy];
+    // Fallback to legacy mascot.png (preferred, supports transparency), else mascot.jpg
+    const fb = fs.existsSync(cache.legacyPng) ? cache.legacyPng : cache.legacyJpg;
+    pool = [fb];
   }
 
   let chosen = pool[0];
