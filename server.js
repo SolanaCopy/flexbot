@@ -1043,6 +1043,7 @@ app.post("/signal/closed", async (req, res) => {
     const signal_id = body?.signal_id ? String(body.signal_id) : "";
     const outcome = body?.outcome != null ? String(body.outcome) : null;
     const result = body?.result != null ? String(body.result) : null;
+    const closedDirection = body?.direction != null ? String(body.direction).toUpperCase() : null;
     const closedAtMsRaw = body?.closed_at_ms != null ? Number(body.closed_at_ms) : Date.now();
     const closed_at_ms = Number.isFinite(closedAtMsRaw) ? closedAtMsRaw : Date.now();
 
@@ -1083,6 +1084,22 @@ app.post("/signal/closed", async (req, res) => {
         await tgEditMessageText({ chatId: openChatId, messageId: openMsgId, text: editedText });
       } catch {
         // ignore edit failures
+      }
+    }
+
+    // If EA includes direction on close and it differs from stored direction, correct it.
+    if (closedDirection && ["BUY", "SELL"].includes(closedDirection) && sig?.direction != null) {
+      const storedDir2 = String(sig.direction).toUpperCase();
+      if (storedDir2 && storedDir2 !== closedDirection) {
+        try {
+          await db.execute({
+            sql: "UPDATE signals SET direction=? WHERE id=?",
+            args: [closedDirection, signal_id],
+          });
+          sig.direction = closedDirection;
+        } catch {
+          // best effort
+        }
       }
     }
 
@@ -1365,6 +1382,7 @@ app.post("/signal/executed", async (req, res) => {
     const signal_id = body?.signal_id ? String(body.signal_id) : "";
     const ticket = body?.ticket != null ? String(body.ticket) : null;
     const fill_price = body?.fill_price != null ? Number(body.fill_price) : null;
+    const execDirection = body?.direction != null ? String(body.direction).toUpperCase() : null;
 
     const okModRaw = body?.ok_mod ?? body?.okMod ?? body?.okmod;
     const ok_mod = okModRaw === true || okModRaw === 1 || okModRaw === "1" || okModRaw === "true";
@@ -1400,6 +1418,23 @@ app.post("/signal/executed", async (req, res) => {
     });
     const sig = sigRow.rows?.[0] || null;
     const sym = sig?.symbol != null ? String(sig.symbol).toUpperCase() : null;
+
+    // If EA reports the executed direction and it differs from stored direction, correct it.
+    if (execDirection && ["BUY", "SELL"].includes(execDirection) && sig?.direction != null) {
+      const storedDir = String(sig.direction).toUpperCase();
+      if (storedDir && storedDir !== execDirection) {
+        try {
+          await db.execute({
+            sql: "UPDATE signals SET direction=? WHERE id=?",
+            args: [execDirection, signal_id],
+          });
+          // keep local copy consistent for this request
+          sig.direction = execDirection;
+        } catch {
+          // best effort
+        }
+      }
+    }
 
     if (sym) {
       // Update EA cooldown state only when EA confirms success.
