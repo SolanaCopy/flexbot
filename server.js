@@ -1315,6 +1315,45 @@ app.get("/debug/signal", async (req, res) => {
   }
 });
 
+// GET /debug/signal/ref?ref=775571e5&secret=...
+// Lookup by the last 8 chars shown on the card ("Ref XXXXXXXX"). Returns up to a few matches.
+app.get("/debug/signal/ref", async (req, res) => {
+  try {
+    const secret = (req.query.secret != null ? String(req.query.secret) : "").trim();
+    const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET) : "";
+    if (!expected || secret !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    const ref = req.query.ref != null ? String(req.query.ref).trim() : "";
+    if (!ref || ref.length < 4) return res.status(400).json({ ok: false, error: "bad_ref" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const like = `%${ref}`;
+    const rows = await db.execute({
+      sql: "SELECT * FROM signals WHERE id LIKE ? ORDER BY created_at_ms DESC LIMIT 5",
+      args: [like],
+    });
+
+    const list = rows.rows || [];
+
+    // Also attach exec rows when unique.
+    let exec = null;
+    if (list.length === 1) {
+      const id = String(list[0].id);
+      const exRow = await db.execute({
+        sql: "SELECT signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json FROM signal_exec WHERE signal_id=? LIMIT 1",
+        args: [id],
+      });
+      exec = exRow.rows?.[0] || null;
+    }
+
+    return res.json({ ok: true, ref, matches: list.length, signals: list, exec });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "debug_failed", message: String(e?.message || e) });
+  }
+});
+
 // POST /signal/executed
 // Body (JSON): { signal_id, ticket, fill_price, time?:string|ms, ok_mod?:boolean|0|1 }
 // NOTE: We only start server-side cooldown + Telegram posting when ok_mod is true (EA confirms it actually placed/modified).
