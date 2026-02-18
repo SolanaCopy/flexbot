@@ -1215,13 +1215,48 @@ app.post("/signal/closed", async (req, res) => {
     const closedText = formatSignalClosedText(closedPayload);
 
     // Try PNG card first, fallback to text.
+    // Add a human-style recap line on SL hits (rotate variants).
+    const slVariants = [
+      "Stoploss geraakt. Dat hoort bij het plan. Risk managed, door naar de volgende.",
+      "SL hit. Alles volgens plan, risico onder controle. We blijven consistent.",
+      "Stoploss gepakt. Geen emotie, gewoon business. Volgende kans komt.",
+      "Stoploss hit. Risico gecontroleerd, proces intact.",
+      "SL gepakt. Kapitaal beschermd, focus blijft scherp.",
+      "Stoploss. Dat is onderdeel van het spel. Geen stress.",
+      "Eentje tegen ons. Structuur blijft staan.",
+      "SL hit team. Alles volgens plan — we wachten op de volgende kans.",
+      "Stoploss geraakt. Risk managed. We pakken de volgende samen.",
+      "Verlies hoort erbij. We blijven bouwen.",
+      "Verlies genomen binnen de regels. Alles onder controle.",
+      "SL hit. Daily risk veilig.",
+      "SL geraakt, regels gevolgd. Dat is wat telt.",
+      "Kapitaal eerst, winst volgt.",
+      "Stoploss is geen fout, het is bescherming. Door naar de volgende.",
+      "SL hit. Dit is waarom we risk management hebben.",
+      "Wij volgen regels, niet gevoelens.",
+      "Dit is waarom we met vaste risk werken.",
+      "SL voorkomt grote schade. Zonder SL geen lange termijn.",
+      "Controle over risico = controle over emotie. Drawdown gecontroleerd.",
+    ];
+
+    const out2 = String(outcome || "").toLowerCase();
+    const isSl2 = out2.includes("sl");
+    const slMsg = (() => {
+      if (!isSl2) return null;
+      const seed = `${signal_id}:${closed_at_ms}`;
+      let h = 0;
+      for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+      const idx = Math.abs(h) % slVariants.length;
+      return slVariants[idx];
+    })();
+
     try {
       const svg = createClosedCardSvg(closedPayload);
       const pngBuf = renderSvgToPngBuffer(svg);
-      const caption = `✅ CLOSED (#${signal_id})`;
+      const caption = slMsg ? `❌ ${slMsg}` : `✅ CLOSED (#${signal_id})`;
       await tgSendPhoto({ chatId, photo: pngBuf, caption });
     } catch {
-      await tgSendMessage({ chatId, text: closedText });
+      await tgSendMessage({ chatId, text: slMsg ? `❌ ${slMsg}\n\n${closedText}` : closedText });
     }
 
     // 3) TP streak message (based on closed-card outcome)
