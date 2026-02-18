@@ -310,6 +310,9 @@ let ffCache = { ts: 0, events: [] };
 // Calendar changes slowly; cache more aggressively to avoid 429s.
 const FF_CACHE_MS = 60 * 60 * 1000; // 1 hour
 const NEWS_BLACKOUT_MIN_DEFAULT = 15;
+// Default no-signal window around high-impact news (minutes before AND after)
+// Set in Render env: NEWS_BLACKOUT_WINDOW_MIN=30
+const NEWS_BLACKOUT_WINDOW_MIN_DEFAULT = 30;
 
 // --- Timezone handling (MT5 server time) ---
 // Many brokers run MT5 server time on EET/EEST (UTC+2 / UTC+3). Default to Europe/Athens.
@@ -636,6 +639,36 @@ app.get("/signal/create", async (req, res) => {
     const m = marketBlockedNow();
     if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
 
+    // News blackout guard: block creating signals X minutes BEFORE and AFTER HIGH impact news.
+    // Configure in Render env:
+    // - NEWS_BLACKOUT_WINDOW_MIN=30
+    // - NEWS_BLACKOUT_CURRENCIES=USD (comma-separated)
+    try {
+      const wRaw = Number(process.env.NEWS_BLACKOUT_WINDOW_MIN || NEWS_BLACKOUT_WINDOW_MIN_DEFAULT);
+      const windowMin = Number.isFinite(wRaw) && wRaw > 0 ? wRaw : NEWS_BLACKOUT_WINDOW_MIN_DEFAULT;
+      const curList = String(process.env.NEWS_BLACKOUT_CURRENCIES || "USD")
+        .toUpperCase()
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const all = await getFfEvents();
+      const ev = all
+        .filter((e) => String(e.impact) === "high")
+        .filter((e) => (curList.length ? curList.includes(String(e.currency || "").toUpperCase()) : true));
+      const blk = computeBlackout(ev, Date.now(), windowMin);
+      if (blk.blackout) {
+        return res.status(409).json({
+          ok: false,
+          error: "news_blackout",
+          window_min: windowMin,
+          currencies: curList,
+          next_event: blk.next_event || null,
+        });
+      }
+    } catch {
+      // best-effort: if feed fails, don't block signal creation
+    }
+
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "";
     const direction = req.query.direction ? String(req.query.direction).toUpperCase() : "";
     const sl = Number(req.query.sl);
@@ -698,6 +731,36 @@ app.get("/signal/auto/create", async (req, res) => {
     // Market pause guard (NL time): block creating signals during 23:00–00:10 and weekends.
     const m = marketBlockedNow();
     if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
+
+    // News blackout guard: block creating signals X minutes BEFORE and AFTER HIGH impact news.
+    // Configure in Render env:
+    // - NEWS_BLACKOUT_WINDOW_MIN=30
+    // - NEWS_BLACKOUT_CURRENCIES=USD (comma-separated)
+    try {
+      const wRaw = Number(process.env.NEWS_BLACKOUT_WINDOW_MIN || NEWS_BLACKOUT_WINDOW_MIN_DEFAULT);
+      const windowMin = Number.isFinite(wRaw) && wRaw > 0 ? wRaw : NEWS_BLACKOUT_WINDOW_MIN_DEFAULT;
+      const curList = String(process.env.NEWS_BLACKOUT_CURRENCIES || "USD")
+        .toUpperCase()
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const all = await getFfEvents();
+      const ev = all
+        .filter((e) => String(e.impact) === "high")
+        .filter((e) => (curList.length ? curList.includes(String(e.currency || "").toUpperCase()) : true));
+      const blk = computeBlackout(ev, Date.now(), windowMin);
+      if (blk.blackout) {
+        return res.status(409).json({
+          ok: false,
+          error: "news_blackout",
+          window_min: windowMin,
+          currencies: curList,
+          next_event: blk.next_event || null,
+        });
+      }
+    } catch {
+      // best-effort: if feed fails, don't block signal creation
+    }
 
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "";
     const direction = req.query.direction ? String(req.query.direction).toUpperCase() : "";
@@ -857,6 +920,36 @@ app.post("/signal", async (req, res) => {
     // Market pause guard (NL time): block creating signals during 23:00–00:10 and weekends.
     const m = marketBlockedNow();
     if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
+
+    // News blackout guard: block creating signals X minutes BEFORE and AFTER HIGH impact news.
+    // Configure in Render env:
+    // - NEWS_BLACKOUT_WINDOW_MIN=30
+    // - NEWS_BLACKOUT_CURRENCIES=USD (comma-separated)
+    try {
+      const wRaw = Number(process.env.NEWS_BLACKOUT_WINDOW_MIN || NEWS_BLACKOUT_WINDOW_MIN_DEFAULT);
+      const windowMin = Number.isFinite(wRaw) && wRaw > 0 ? wRaw : NEWS_BLACKOUT_WINDOW_MIN_DEFAULT;
+      const curList = String(process.env.NEWS_BLACKOUT_CURRENCIES || "USD")
+        .toUpperCase()
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const all = await getFfEvents();
+      const ev = all
+        .filter((e) => String(e.impact) === "high")
+        .filter((e) => (curList.length ? curList.includes(String(e.currency || "").toUpperCase()) : true));
+      const blk = computeBlackout(ev, Date.now(), windowMin);
+      if (blk.blackout) {
+        return res.status(409).json({
+          ok: false,
+          error: "news_blackout",
+          window_min: windowMin,
+          currencies: curList,
+          next_event: blk.next_event || null,
+        });
+      }
+    } catch {
+      // best-effort: if feed fails, don't block signal creation
+    }
 
     let body = req.body;
     if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
