@@ -2672,18 +2672,24 @@ async function handleTelegramUpdate(req, res) {
     const t = String(text || "").toLowerCase();
     const wantsTrophy = t.includes("myfxbook") || t.includes("fxbook");
 
+    // Determine auto-reply intent early so we can allow certain keywords without requiring a '?' (boss request)
+    const auto = buildAutoReply(text);
+    const wantsNews = auto === "NEWS_CHECK";
+
     // For the owner: reply to ANY message (still with cooldown) so it feels responsive.
     // For others: only reply to questions/mentions to avoid spam.
-    // Exception: allow "myfxbook" keyword to return trophy list even without a question mark.
+    // Exceptions:
+    // - allow "myfxbook" keyword to return trophy list even without a question mark.
+    // - allow news keywords to always trigger the formatted news reply.
     const isQuestion = String(text).includes("?");
     const mentionsFlex = /\bflexbot\b|\bflex\b/i.test(String(text));
-    if (!isOwner && !wantsTrophy && !isQuestion && !mentionsFlex) return res.json({ ok: true });
+    if (!isOwner && !wantsTrophy && !wantsNews && !isQuestion && !mentionsFlex) return res.json({ ok: true });
 
     // Cooldown: per-user and per-group
     if (!tgCooldownOk(`u:${userId}`, isOwner ? 30 * 1000 : 10 * 60 * 1000)) return res.json({ ok: true });
     if (!tgCooldownOk(`g:${chatId}`, 2 * 60 * 1000)) return res.json({ ok: true });
 
-    let reply = buildAutoReply(text) || (isOwner ? "Yo" : null);
+    let reply = auto || (isOwner ? "Yo" : null);
     if (!reply) return res.json({ ok: true });
 
     // Trophy case (Myfxbook)
@@ -2796,7 +2802,7 @@ async function handleTelegramUpdate(req, res) {
       }
     }
 
-    // Data-driven news reply
+    // Data-driven news reply (boss format)
     if (reply === "NEWS_CHECK") {
       try {
         const all = await getFfEvents();
@@ -2810,7 +2816,18 @@ async function handleTelegramUpdate(req, res) {
         const t = String(text || "").toLowerCase();
         const wantsTomorrow = t.includes("morgen") || t.includes("tomorrow") || t.includes("tmr");
 
-        // YYYY-MM-DD for Europe/Amsterdam
+        const fmtDayLabel = (tsMs) => {
+          // Example: Vrijdag (vr 20 feb)
+          const d = new Date(tsMs);
+          const full = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", weekday: "long" }).format(d);
+          const wd = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", weekday: "short" }).format(d);
+          const day = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", day: "2-digit" }).format(d);
+          const mon = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", month: "short" }).format(d).replace(".", "");
+          const cap = full.charAt(0).toUpperCase() + full.slice(1);
+          return `${cap} (${wd} ${day} ${mon})`;
+        };
+
+        // YYYY-MM-DD bucket for Europe/Amsterdam
         const amsYmd = (tsMs) => {
           const parts = new Intl.DateTimeFormat("en-CA", {
             timeZone: "Europe/Amsterdam",
@@ -2822,6 +2839,7 @@ async function handleTelegramUpdate(req, res) {
           return `${get("year")}-${get("month")}-${get("day")}`;
         };
 
+        const ymdToday = amsYmd(now);
         const ymdTomorrow = amsYmd(now + 24 * 60 * 60 * 1000);
 
         const hi = all
@@ -2830,33 +2848,42 @@ async function handleTelegramUpdate(req, res) {
           .filter((e) => Number.isFinite(e.ts))
           .sort((a, b) => a.ts - b.ts);
 
-        if (wantsTomorrow) {
-          const tom = hi.filter((e) => amsYmd(e.ts) === ymdTomorrow).slice(0, 10);
-          if (!tom.length) {
-            reply = `Morgen (${ymdTomorrow}) geen HIGH news voor ${curList.join(",")} volgens de feed.`;
-          } else {
-            const lines = [`🟥 HIGH news morgen (${ymdTomorrow}) ${curList.join(",")}:`];
-            for (const e of tom) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
-            reply = lines.join("\n");
-          }
-        } else {
-          const upcoming = hi.filter((e) => e.ts >= now).slice(0, 5);
-          const recent = hi.filter((e) => e.ts < now && e.ts >= now - 3 * 60 * 60 * 1000).slice(-3);
+        let ymdPick = wantsTomorrow ? ymdTomorrow : ymdToday;
 
-          if (!upcoming.length && !recent.length) {
-            reply = `Volgens ForexFactory feed: geen HIGH news voor ${curList.join(",")} (nu/komende uren).`;
-          } else {
-            const lines = [];
-            if (recent.length) {
-              lines.push(`🟥 HIGH news (laatste 3u) ${curList.join(",")}:`);
-              for (const e of recent) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
-            }
-            if (upcoming.length) {
-              lines.push(`🟥 HIGH news (upcoming) ${curList.join(",")}:`);
-              for (const e of upcoming) lines.push(`• ${e.mt5_time || "?"} — ${e.currency} — ${e.title}`);
-            }
-            reply = lines.slice(0, 10).join("\n");
+        // If user didn't explicitly ask tomorrow, but today has no upcoming HIGH events, fall forward to tomorrow.
+        if (!wantsTomorrow) {
+          const todayUpcoming = hi.filter((e) => amsYmd(e.ts) === ymdToday && e.ts >= now);
+          if (!todayUpcoming.length) ymdPick = ymdTomorrow;
+        }
+
+        const list = hi
+          .filter((e) => amsYmd(e.ts) === ymdPick)
+          .filter((e) => wantsTomorrow ? true : (e.ts >= now - 5 * 60 * 1000))
+          .slice(0, 12);
+
+        if (!list.length) {
+          reply = `${fmtDayLabel(now)} Geen 🟥 HIGH news voor ${curList.join(", ")} volgens de feed.`;
+        } else {
+          const dayLabel = fmtDayLabel(list[0].ts);
+
+          // Combine same-time events into "A + B + C"
+          const byTime = new Map();
+          for (const e of list) {
+            const time = String(e.mt5_time || "?").trim();
+            const cur = String(e.currency || "").toUpperCase().trim();
+            const title = String(e.title || e.event || "").trim();
+            const key = `${time}__${cur}`;
+            const prev = byTime.get(key);
+            if (!prev) byTime.set(key, { time, cur, titles: [title].filter(Boolean) });
+            else prev.titles.push(title);
           }
+
+          const parts = [dayLabel];
+          for (const v of byTime.values()) {
+            const joined = v.titles.join(" + ");
+            parts.push(`🟥 ${v.time} ${joined} (${v.cur || curList[0] || "USD"})`);
+          }
+          reply = parts.join(" ");
         }
       } catch {
         reply = "Kon news feed niet lezen (tijdelijk).";
