@@ -964,7 +964,10 @@ app.post("/signal/manual/open", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
-    const id = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
+    const id =
+      body?.id && String(body.id).length > 8
+        ? String(body.id)
+        : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
     const nowMs = Date.now();
     const created_at_mt5 = formatMt5(nowMs);
 
