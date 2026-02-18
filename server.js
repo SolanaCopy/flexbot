@@ -3025,7 +3025,11 @@ function _loadMascotCache() {
   const legacyPng = path.join(dir, "mascot.png");
   const legacyJpg = path.join(dir, "mascot.jpg");
 
-  _mascotCache = { win, loss, legacyPng, legacyJpg };
+  // Optional: if present, ALWAYS use this transparent loss mascot on losses
+  // (Boss request: always show the astronaut overlay on loss cards)
+  const forceLossPng = path.join(dir, "mascot_loss_force.png");
+
+  _mascotCache = { win, loss, legacyPng, legacyJpg, forceLossPng };
   return _mascotCache;
 }
 let _lastMascotPick = { win: null, loss: null };
@@ -3036,6 +3040,17 @@ function getMascotDataUri({ outcome, result }) {
   const outcomeStr = String(outcome || "").toLowerCase();
   const resultStr = String(result || "").trim();
   const isWin = outcomeStr.includes("tp") || (resultStr && !resultStr.startsWith("-"));
+
+  // Boss request: always use the dedicated loss overlay if it exists.
+  if (!isWin && cache.forceLossPng && fs.existsSync(cache.forceLossPng)) {
+    try {
+      const buf = fs.readFileSync(cache.forceLossPng);
+      const mime = _guessMimeByExt(cache.forceLossPng);
+      return `data:${mime};base64,${buf.toString("base64")}`;
+    } catch {
+      // fall through to normal pool
+    }
+  }
 
   let pool = isWin ? cache.win : cache.loss;
   const key = isWin ? "win" : "loss";
