@@ -1197,39 +1197,81 @@ app.get("/signal/next", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
-    const rows = await db.execute({
-      sql:
-        "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5 " +
-        "FROM signals " +
-        "WHERE symbol=? AND status='new' AND created_at_ms >= ? " +
-        "ORDER BY created_at_ms ASC LIMIT 1",
-      args: [symbol, minCreatedAtMs],
-    });
+    // We may need to skip/cancel stale/invalid signals (e.g., SELL signal where current price already crossed below SL).
+    // To avoid the EA looping forever on an impossible signal, we cancel it server-side and try the next one.
+    const MAX_SKIP = 5;
+    for (let attempt = 0; attempt < MAX_SKIP; attempt++) {
+      const rows = await db.execute({
+        sql:
+          "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5 " +
+          "FROM signals " +
+          "WHERE symbol=? AND status='new' AND created_at_ms >= ? " +
+          "ORDER BY created_at_ms ASC LIMIT 1",
+        args: [symbol, minCreatedAtMs],
+      });
 
-    const r = rows.rows?.[0];
-    if (!r) return res.json({ ok: true, signal: null });
+      const r = rows.rows?.[0];
+      if (!r) return res.json({ ok: true, signal: null });
 
-    let tp = [];
-    try {
-      tp = JSON.parse(String(r.tp_json || "[]"));
-    } catch {
-      tp = [];
+      // If we have a fresh local price for this symbol, validate SL vs current price.
+      // If not available, serve the signal as-is (best effort).
+      let curMid = NaN;
+      try {
+        if (last && String(last.symbol || "").toUpperCase() === symbol) {
+          const age = last.ts != null ? Date.now() - Number(last.ts) : Infinity;
+          if (Number.isFinite(age) && age <= 10 * 60 * 1000) {
+            const bid = Number(last.bid);
+            const ask = Number(last.ask);
+            if (Number.isFinite(bid) && Number.isFinite(ask)) curMid = (bid + ask) / 2;
+          }
+        }
+      } catch {
+        curMid = NaN;
+      }
+
+      const dir = String(r.direction || "").toUpperCase();
+      const sl = Number(r.sl);
+      const slOk = Number.isFinite(sl) && sl > 0;
+
+      const invalidByPrice =
+        Number.isFinite(curMid) && slOk &&
+        ((dir === "SELL" && curMid >= sl) || (dir === "BUY" && curMid <= sl));
+
+      if (invalidByPrice) {
+        // Cancel signal so EA won't keep re-fetching it.
+        const nowMs2 = Date.now();
+        await db.execute({
+          sql: "UPDATE signals SET status='canceled', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+          args: [nowMs2, "CANCEL", `invalid_sl (cur=${curMid.toFixed(2)} sl=${sl})`, String(r.id)],
+        });
+        continue;
+      }
+
+      let tp = [];
+      try {
+        tp = JSON.parse(String(r.tp_json || "[]"));
+      } catch {
+        tp = [];
+      }
+
+      return res.json({
+        ok: true,
+        signal: {
+          id: String(r.id),
+          symbol: String(r.symbol),
+          direction: String(r.direction),
+          sl: Number(r.sl),
+          tp,
+          risk_pct: Number(r.risk_pct),
+          created_at_ms: Number(r.created_at_ms),
+          created_at: String(r.created_at_mt5),
+          comment: r.comment != null ? String(r.comment) : null,
+        },
+      });
     }
 
-    return res.json({
-      ok: true,
-      signal: {
-        id: String(r.id),
-        symbol: String(r.symbol),
-        direction: String(r.direction),
-        sl: Number(r.sl),
-        tp,
-        risk_pct: Number(r.risk_pct),
-        created_at_ms: Number(r.created_at_ms),
-        created_at: String(r.created_at_mt5),
-        comment: r.comment != null ? String(r.comment) : null,
-      },
-    });
+    // If we skipped too many, fail safe.
+    return res.json({ ok: true, signal: null, skipped: true });
   } catch {
     return res.status(500).json({ ok: false, error: "error" });
   }
