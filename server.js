@@ -913,9 +913,103 @@ app.get("/signal/auto/create", async (req, res) => {
   }
 });
 
+// POST /signal/manual/open
+// Auth: X-API-Key = EA_API_KEY
+// Body (JSON): { symbol:"XAUUSD", direction:"BUY"|"SELL", sl:number, tp:[..] or "tp":"a,b,c", risk_pct?:number, comment?:string, ticket?:string|number, fill_price?:number, time?:ms|string }
+// Purpose: when a manual trade is opened in MT5 while the EA is running, register it as a signal and post the OPEN teaser.
+app.post("/signal/manual/open", async (req, res) => {
+  try {
+    const apiKey = req.header("x-api-key");
+    const expectedKey = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
+    if (!expectedKey || !apiKey || String(apiKey) !== expectedKey) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+
+    // Market pause guard
+    const m = marketBlockedNow();
+    if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const symbol = body?.symbol ? String(body.symbol).toUpperCase() : "";
+    const direction = body?.direction ? String(body.direction).toUpperCase() : "";
+    const sl = Number(body?.sl);
+    let risk_pct = body?.risk_pct != null ? Number(body.risk_pct) : 1.0;
+    if (!Number.isFinite(risk_pct) || risk_pct <= 0) risk_pct = 1.0;
+
+    const comment = body?.comment != null ? String(body.comment) : "manual";
+
+    let tp = body?.tp;
+    if (typeof tp === "string") {
+      tp = tp
+        .split(",")
+        .map((x) => Number(String(x).trim()))
+        .filter((n) => Number.isFinite(n) && n > 0);
+    }
+    if (!Array.isArray(tp)) tp = [];
+
+    const ticket = body?.ticket != null ? String(body.ticket) : null;
+    const fill_price = body?.fill_price != null ? Number(body.fill_price) : null;
+
+    const tsMs = body?.time != null ? parseTimeToMs(body.time) : Date.now();
+    const executed_at_ms = Number.isFinite(tsMs) ? tsMs : Date.now();
+    const executed_at_mt5 = formatMt5(executed_at_ms);
+
+    if (!symbol || !["XAUUSD"].includes(symbol)) return res.status(400).json({ ok: false, error: "bad_symbol" });
+    if (!["BUY", "SELL"].includes(direction)) return res.status(400).json({ ok: false, error: "bad_direction" });
+    if (!Number.isFinite(sl) || sl <= 0) return res.status(400).json({ ok: false, error: "bad_sl" });
+    if (!tp.length) return res.status(400).json({ ok: false, error: "bad_tp" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const id = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
+    const nowMs = Date.now();
+    const created_at_mt5 = formatMt5(nowMs);
+
+    // Insert as already executed (trade is already open)
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      args: [id, symbol, direction, sl, JSON.stringify(tp), risk_pct, comment, "executed", nowMs, created_at_mt5],
+    });
+
+    // Record execution
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO signal_exec (signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json) VALUES (?,?,?,?,?,?)",
+      args: [id, ticket, Number.isFinite(fill_price) ? fill_price : null, executed_at_ms, executed_at_mt5, JSON.stringify(body)],
+    });
+
+    // Post Telegram OPEN teaser (same style as /signal/executed)
+    try {
+      const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+      const photoUrl = new URL(`${BASE_URL}/chart.png`);
+      photoUrl.searchParams.set("symbol", symbol);
+      photoUrl.searchParams.set("interval", "1m");
+      photoUrl.searchParams.set("hours", "3");
+
+      const caption = formatSignalCaption({ id, symbol, direction, riskPct: risk_pct, comment });
+      const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+      const mid = tgPosted?.result?.message_id;
+      if (mid != null) {
+        await db.execute({
+          sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
+          args: [String(chatId), Number(mid), String(id)],
+        });
+      }
+    } catch {
+      // best effort
+    }
+
+    return res.json({ ok: true, id, symbol, direction });
+  } catch {
+    return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
 // POST /signal
 // Body (JSON): { symbol:"XAUUSD", direction:"BUY"|"SELL", sl:number, tp:[..] or "tp":"a,b,c", risk_pct?:number, comment?:string }
-app.post("/signal", async (req, res) => {
+app.post("/signal", async (req, res) => { 
   try {
     // Market pause guard (NL time): block creating signals during 23:00–00:10 and weekends.
     const m = marketBlockedNow();
