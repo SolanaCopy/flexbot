@@ -3603,7 +3603,7 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
   const prettyNum = Number.isFinite(rawNum) ? Math.abs(rawNum).toFixed(2) : null;
   // Keep original reference format: big result lives inside the levels panel
   const resultBig = prettyNum ? `${prettyNum} USD` : String(resultStr);
-  const resultBigFont = fitFontByChars(resultBig, 72, 50, 12);
+  const resultBigFont = fitFontByChars(resultBig, 66, 46, 12);
   const resultColor = (String(resultStr).trim().startsWith("-") || isSl) ? "#ff4d4d" : "#22c55e";
 
   // Full-body mascot (best effort: we reuse the existing mascot data uri)
@@ -3693,7 +3693,7 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <text x="610" y="675" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
   <text x="970" y="675" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="800">${tp1 ?? "-"}</text>
 
-  <text x="610" y="790" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="380" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
+  <text x="610" y="790" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="360" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
 
 <!-- Footer -->
