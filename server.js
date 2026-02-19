@@ -3601,7 +3601,8 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
   // Match the reference: positive numbers show without '+'
   const rawNum = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
   const prettyNum = Number.isFinite(rawNum) ? Math.abs(rawNum).toFixed(2) : null;
-  const resultBig = prettyNum ? `${prettyNum} USD` : String(resultStr);
+  // Keep it compact so it never overflows on smaller screens
+  const resultBig = prettyNum ? `${prettyNum}` : String(resultStr);
   const resultColor = (String(resultStr).trim().startsWith("-") || isSl) ? "#ff4d4d" : "#22c55e";
 
   // Full-body mascot (best effort: we reuse the existing mascot data uri)
