@@ -1360,7 +1360,7 @@ app.post("/signal/closed", async (req, res) => {
     })();
 
     try {
-      const svg = createClosedCardSvgV2(closedPayload);
+      const svg = createClosedCardSvgV3(closedPayload);
       const pngBuf = renderSvgToPngBuffer(svg);
       const caption = slMsg ? `❌ ${slMsg}` : `✅ CLOSED (#${signal_id})`;
       await tgSendPhoto({ chatId, photo: pngBuf, caption });
@@ -3581,7 +3581,7 @@ function chunkString(s, n) {
 
 function fmtTsISO(ts = new Date()) { return ts.toISOString().slice(0, 19).replace("T", " "); }
 
-function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl, tp }) {
+function createClosedCardSvgV1({ id, symbol, direction, outcome, result, entry, sl, tp }) {
   const W = 1080;
   const H = 1080;
 
@@ -3704,8 +3704,8 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
 </svg>`;
 }
 
-// V2 card (user-provided layout)
-function createClosedCardSvgV2({ id, symbol, direction, outcome, result, entry, sl, tp }) {
+// V3 card (premium refresh)
+function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, sl, tp }) {
   const W = 1080;
   const H = 1080;
 
