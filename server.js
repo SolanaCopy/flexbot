@@ -334,6 +334,44 @@ async function isMainAccountLocked(symbol) {
   return { ok: true, locked: false, reason: fresh ? "no_open_position" : "stale_status" };
 }
 
+function globalOpenTradeLockEnabled() {
+  // Boss request: "Globaal" = only 1 open trade at a time (per symbol) across all connected accounts.
+  // Default: enabled. Disable by setting GLOBAL_OPEN_TRADE_LOCK=0/false/off.
+  const v = String(process.env.GLOBAL_OPEN_TRADE_LOCK || "1").toLowerCase();
+  return !["0", "false", "no", "off"].includes(v);
+}
+
+async function getAnyOpenSignalRow(db, symbol) {
+  if (!db) return null;
+  const sym = String(symbol || "").toUpperCase();
+  const rows = await db.execute({
+    sql:
+      "SELECT id,symbol,status,tg_open_chat_id,tg_open_message_id,created_at_ms FROM signals " +
+      "WHERE symbol=? AND status='executed' ORDER BY created_at_ms DESC LIMIT 1",
+    args: [sym],
+  });
+  return rows.rows?.[0] || null;
+}
+
+async function shouldSuppressOpenTeaserDueToGlobalLock({ db, symbol, chatId, currentSignalId }) {
+  if (!globalOpenTradeLockEnabled()) return { suppress: false, reason: "disabled" };
+  const open = await getAnyOpenSignalRow(db, symbol);
+  if (!open) return { suppress: false, reason: "no_open" };
+
+  const openId = open?.id != null ? String(open.id) : "";
+  if (openId && currentSignalId && openId === String(currentSignalId)) return { suppress: false, reason: "same_signal" };
+
+  // Only suppress if we already posted an OPEN teaser to that chat.
+  const openChat = open?.tg_open_chat_id != null ? String(open.tg_open_chat_id) : null;
+  const openMsg = open?.tg_open_message_id != null ? Number(open.tg_open_message_id) : null;
+  if (openChat && openMsg && String(openChat) === String(chatId)) {
+    return { suppress: true, reason: "global_open_trade_lock", locked_by: openId, locked_msg_id: openMsg };
+  }
+
+  // Even if the older open didn't have TG ids, we still consider it an open trade lock.
+  return { suppress: true, reason: "global_open_trade_lock", locked_by: openId };
+}
+
 // Debug helper (optional)
 // (moved) app.get("/ea/main/lock", async (req, res) => {
 //  try {
@@ -795,6 +833,14 @@ app.get("/signal/create", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
+    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while one is already open.
+    if (globalOpenTradeLockEnabled()) {
+      const open = await getAnyOpenSignalRow(db, symbol);
+      if (open?.id) {
+        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, locked_by: String(open.id) });
+      }
+    }
+
     const id = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random()
       .toString(16)
       .slice(2)}`;
@@ -887,6 +933,14 @@ app.get("/signal/auto/create", async (req, res) => {
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while one is already open.
+    if (globalOpenTradeLockEnabled()) {
+      const open = await getAnyOpenSignalRow(db, symbol);
+      if (open?.id) {
+        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, locked_by: String(open.id) });
+      }
+    }
 
     // --- EA position gate ---
     const gateEnabled = ["1", "true", "yes", "on"].includes(String(process.env.EA_GATE_ENABLED || "").toLowerCase());
@@ -1174,6 +1228,14 @@ app.post("/signal", async (req, res) => {
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while one is already open.
+    if (globalOpenTradeLockEnabled()) {
+      const open = await getAnyOpenSignalRow(db, symbol);
+      if (open?.id) {
+        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, locked_by: String(open.id) });
+      }
+    }
 
     // uuid-ish without dep
     const id =
@@ -1696,6 +1758,15 @@ app.post("/signal/executed", async (req, res) => {
 
         if (forceOpen || !openChatIdExisting || !openMsgIdExisting) {
           const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+
+          // Global lock (Boss: "Globaal"): if there is already an open trade signal for this symbol,
+          // suppress additional OPEN teasers to avoid group spam from multiple connected accounts.
+          const sup = await shouldSuppressOpenTeaserDueToGlobalLock({ db, symbol: sym, chatId, currentSignalId: signal_id });
+          if (sup.suppress) {
+            // best-effort: do nothing (trade is already open; teaser already posted or another account is leading)
+            return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, tg_open_suppressed: true, tg_open_reason: sup.reason, locked_by: sup.locked_by || null });
+          }
+
           const photoUrl = new URL(`${BASE_URL}/chart.png`);
           photoUrl.searchParams.set("symbol", sym);
           photoUrl.searchParams.set("interval", "1m");
