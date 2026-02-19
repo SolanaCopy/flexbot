@@ -3582,10 +3582,6 @@ function chunkString(s, n) {
 function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl, tp }) {
   const W = 1080;
   const H = 1080;
-  const accent = "#7c3aed";
-  // Darker / black theme (boss request)
-  const bg1 = "#000000";
-  const bg2 = "#060607";
 
   const sym = String(symbol || "").toUpperCase();
   const dir = String(direction || "").toUpperCase();
@@ -3595,75 +3591,110 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
 
   const outcomeStr = outcome || "-";
   const resultStr = result || "-";
-  const resultFont = fitFontByChars(resultStr, 78, 46, 13);
 
+  const isTp = String(outcomeStr).toLowerCase().includes("tp");
+  const isSl = String(outcomeStr).toLowerCase().includes("sl");
+
+  const accent = "#7c3aed";
+  const outcomeColor = isTp ? "#22c55e" : (isSl ? "#ff4d4d" : "#f59e0b");
+
+  // Match the reference: positive numbers show without '+'
+  const rawNum = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
+  const prettyNum = Number.isFinite(rawNum) ? Math.abs(rawNum).toFixed(2) : null;
+  const resultBig = prettyNum ? `${prettyNum} USD` : String(resultStr);
+  const resultColor = (String(resultStr).trim().startsWith("-") || isSl) ? "#ff4d4d" : "#22c55e";
+
+  // Full-body mascot (best effort: we reuse the existing mascot data uri)
   const mascotDataUri = getMascotDataUri({ outcome: outcomeStr, result: resultStr });
-  const idLines = chunkString(id, 22).slice(0, 3);
 
-  const outcomeColor = String(outcomeStr).toLowerCase().includes("tp") ? "#22c55e" : (String(outcomeStr).toLowerCase().includes("sl") ? "#ff4d4d" : "#f59e0b");
-  const resultColor = String(resultStr).trim().startsWith("-") ? "#ff4d4d" : "#22c55e";
+  const ref8 = String(id || "").slice(-8);
+  const ts = new Date().toISOString().slice(0, 19).replace("T", " ");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="${bg1}"/>
-    <stop offset="1" stop-color="${bg2}"/>
+    <stop offset="0" stop-color="#06010f"/>
+    <stop offset="0.55" stop-color="#13052a"/>
+    <stop offset="1" stop-color="#040006"/>
   </linearGradient>
-  <radialGradient id="glow" cx="30%" cy="35%" r="60%">
-    <stop offset="0" stop-color="${accent}" stop-opacity="0.42"/>
-    <stop offset="1" stop-color="${accent}" stop-opacity="0"/>
+
+  <radialGradient id="nebula" cx="55%" cy="35%" r="75%">
+    <stop offset="0" stop-color="#a855f7" stop-opacity="0.35"/>
+    <stop offset="0.45" stop-color="#7c3aed" stop-opacity="0.22"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0"/>
   </radialGradient>
+
+  <radialGradient id="ring" cx="50%" cy="50%" r="60%">
+    <stop offset="0" stop-color="#c084fc" stop-opacity="0.15"/>
+    <stop offset="0.7" stop-color="#7c3aed" stop-opacity="0.65"/>
+    <stop offset="1" stop-color="#7c3aed" stop-opacity="0"/>
+  </radialGradient>
+
   <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-    <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#000" flood-opacity="0.55"/>
+    <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.65"/>
   </filter>
+
   <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
     <feGaussianBlur stdDeviation="10" result="b"/>
-    <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.40 0" result="g"/>
+    <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.38 0" result="g"/>
     <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
   </filter>
-  <clipPath id="avatarClip"><circle cx="280" cy="420" r="200"/></clipPath>
+
+  <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="rgba(255,255,255,0.06)"/>
+    <stop offset="1" stop-color="rgba(255,255,255,0.03)"/>
+  </linearGradient>
 </defs>
 
+<!-- Background -->
 <rect width="${W}" height="${H}" fill="url(#bg)"/>
-<rect width="${W}" height="${H}" fill="url(#glow)"/>
+<rect width="${W}" height="${H}" fill="url(#nebula)"/>
 
-<rect x="40" y="40" width="1000" height="1000" rx="44" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.10)" stroke-width="2"/>
+<!-- Outer frame -->
+<rect x="42" y="42" width="996" height="996" rx="54" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
 
-<circle cx="280" cy="420" r="228" fill="${accent}" opacity="0.18"/>
-<circle cx="280" cy="420" r="212" fill="none" stroke="rgba(124,58,237,0.55)" stroke-width="6"/>
+<!-- Header strip (TRADE CLOSED) -->
+<path d="M140 88 H940 L900 128 H180 Z" fill="rgba(124,58,237,0.14)" stroke="rgba(124,58,237,0.35)" stroke-width="2"/>
+<text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="38" fill="rgba(255,255,255,0.82)" letter-spacing="6">TRADE CLOSED</text>
 
-${mascotDataUri ? `<g clip-path="url(#avatarClip)" filter="url(#shadow)">
-  <!-- Slightly smaller + centered so the avatar never "sticks out" past the ring -->
-  <image x="90" y="230" width="380" height="380" href="${mascotDataUri}" preserveAspectRatio="xMidYMid slice"/>
+<!-- Left ring -->
+<circle cx="310" cy="500" r="265" fill="url(#ring)"/>
+<circle cx="310" cy="500" r="240" fill="rgba(124,58,237,0.12)" stroke="rgba(192,132,252,0.55)" stroke-width="6"/>
+
+<!-- Mascot (full body best-effort) -->
+${mascotDataUri ? `<g filter="url(#shadow)">
+  <image x="130" y="260" width="360" height="520" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
-<text x="520" y="150" font-family="Inter,Segoe UI,Arial" font-size="44" fill="rgba(255,255,255,0.78)" letter-spacing="6">FLEXBOT</text>
-<text x="520" y="210" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="800">CLOSED</text>
+<!-- Right titles -->
+<text x="560" y="245" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.70)" letter-spacing="4">FLEXBOT</text>
+<text x="560" y="300" font-family="Inter,Segoe UI,Arial" font-size="42" fill="#fff" font-weight="800">${sym} ${dir}</text>
+<text x="560" y="350" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.70)">Outcome: <tspan fill="${outcomeColor}" font-weight="800">${outcomeStr}</tspan></text>
 
-<text x="520" y="290" font-family="Inter,Segoe UI,Arial" font-size="42" fill="rgba(255,255,255,0.9)" font-weight="700">${sym} ${dir}</text>
-<text x="520" y="340" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.70)">Outcome: <tspan fill="${outcomeColor}" font-weight="700">${outcomeStr}</tspan></text>
+<!-- Big result -->
+<text x="560" y="470" font-family="Inter,Segoe UI,Arial" font-size="86" fill="${resultColor}" font-weight="900" filter="url(#softGlow)">${resultBig}</text>
 
-<text x="520" y="470" font-family="Inter,Segoe UI,Arial" font-size="${resultFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="500" lengthAdjust="spacingAndGlyphs">${resultStr}</text>
+<!-- Levels panel -->
+<g filter="url(#shadow)">
+  <rect x="560" y="520" width="440" height="310" rx="26" fill="url(#panel)" stroke="rgba(255,255,255,0.14)"/>
 
-<g>
-  <rect x="520" y="540" width="480" height="300" rx="26" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.12)"/>
+  <line x1="560" y1="610" x2="1000" y2="610" stroke="rgba(255,255,255,0.10)"/>
+  <line x1="560" y1="700" x2="1000" y2="700" stroke="rgba(255,255,255,0.10)"/>
 
-  <text x="560" y="605" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.75)">Entry</text>
-  <text x="960" y="605" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="#fff" font-weight="700">${entry ?? "-"}</text>
+  <text x="610" y="585" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
+  <text x="970" y="585" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="800">${entry ?? "market"}</text>
 
-  <text x="560" y="675" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.75)">SL</text>
-  <text x="960" y="675" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="#fff" font-weight="700">${sl ?? "-"}</text>
+  <text x="610" y="675" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">SL</text>
+  <text x="970" y="675" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="800">${sl ?? "-"}</text>
 
-  <text x="560" y="745" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.75)">TP</text>
-  <text x="960" y="745" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="#fff" font-weight="700">${tp1 ?? "-"}</text>
+  <text x="610" y="765" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
+  <text x="970" y="765" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="800">${tp1 ?? "-"}</text>
 </g>
 
-<text x="80" y="980" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Ref</text>
-<text x="140" y="980" font-family="Consolas,Menlo,monospace" font-size="22" fill="rgba(255,255,255,0.55)">${String(id||"").slice(-8)}</text>
-
-<text x="80" y="1030" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Auto recap • after trade close</text>
-<text x="1000" y="1030" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">${new Date().toISOString().slice(0,19).replace("T"," ")}</text>
+<!-- Footer -->
+<text x="110" y="935" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Ref  ${ref8}</text>
+<text x="110" y="995" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.40)">Recap generated • after trade close • ${ts}</text>
 </svg>`;
 }
 
