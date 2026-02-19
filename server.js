@@ -335,10 +335,18 @@ async function isMainAccountLocked(symbol) {
 }
 
 function globalOpenTradeLockEnabled() {
-  // Boss request: "Globaal" = only 1 open trade at a time (per symbol) across all connected accounts.
+  // Boss request: "Globaal" = only 1 open trade at a time (per symbol).
   // Default: enabled. Disable by setting GLOBAL_OPEN_TRADE_LOCK=0/false/off.
   const v = String(process.env.GLOBAL_OPEN_TRADE_LOCK || "1").toLowerCase();
   return !["0", "false", "no", "off"].includes(v);
+}
+
+function openTradeLockMode() {
+  // Which source defines "already open"?
+  // - "main" (default): ONLY the main account status (ea_positions) can lock.
+  // - "any": any executed signal in DB locks.
+  const m = String(process.env.OPEN_TRADE_LOCK_MODE || "main").toLowerCase();
+  return m === "any" ? "any" : "main";
 }
 
 async function getAnyOpenSignalRow(db, symbol) {
@@ -353,23 +361,39 @@ async function getAnyOpenSignalRow(db, symbol) {
   return rows.rows?.[0] || null;
 }
 
-async function shouldSuppressOpenTeaserDueToGlobalLock({ db, symbol, chatId, currentSignalId }) {
-  if (!globalOpenTradeLockEnabled()) return { suppress: false, reason: "disabled" };
-  const open = await getAnyOpenSignalRow(db, symbol);
-  if (!open) return { suppress: false, reason: "no_open" };
+async function isOpenTradeLocked({ db, symbol }) {
+  if (!globalOpenTradeLockEnabled()) return { ok: true, locked: false, reason: "disabled" };
 
+  const mode = openTradeLockMode();
+  if (mode === "main") {
+    const r = await isMainAccountLocked(symbol);
+    if (!r.ok) return { ok: false, locked: false, reason: r.reason || "main_status_error" };
+    if (r.locked) return { ok: true, locked: true, reason: "main_open_position_lock" };
+    return { ok: true, locked: false, reason: r.reason || "not_locked" };
+  }
+
+  // mode === "any"
+  const open = await getAnyOpenSignalRow(db, symbol);
+  if (open?.id) return { ok: true, locked: true, reason: "db_open_signal_lock", locked_by: String(open.id) };
+  return { ok: true, locked: false, reason: "no_open" };
+}
+
+async function shouldSuppressOpenTeaserDueToGlobalLock({ db, symbol, chatId, currentSignalId }) {
+  const lk = await isOpenTradeLocked({ db, symbol });
+  if (!lk.locked) return { suppress: false, reason: lk.reason };
+
+  // If DB already has a different open signal with a TG message in this chat, suppress.
+  const open = await getAnyOpenSignalRow(db, symbol);
   const openId = open?.id != null ? String(open.id) : "";
   if (openId && currentSignalId && openId === String(currentSignalId)) return { suppress: false, reason: "same_signal" };
 
-  // Only suppress if we already posted an OPEN teaser to that chat.
   const openChat = open?.tg_open_chat_id != null ? String(open.tg_open_chat_id) : null;
   const openMsg = open?.tg_open_message_id != null ? Number(open.tg_open_message_id) : null;
   if (openChat && openMsg && String(openChat) === String(chatId)) {
-    return { suppress: true, reason: "global_open_trade_lock", locked_by: openId, locked_msg_id: openMsg };
+    return { suppress: true, reason: lk.reason, locked_by: openId || lk.locked_by || null, locked_msg_id: openMsg };
   }
 
-  // Even if the older open didn't have TG ids, we still consider it an open trade lock.
-  return { suppress: true, reason: "global_open_trade_lock", locked_by: openId };
+  return { suppress: true, reason: lk.reason, locked_by: openId || lk.locked_by || null };
 }
 
 // Debug helper (optional)
@@ -833,12 +857,14 @@ app.get("/signal/create", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
-    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while one is already open.
-    if (globalOpenTradeLockEnabled()) {
-      const open = await getAnyOpenSignalRow(db, symbol);
-      if (open?.id) {
-        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, locked_by: String(open.id) });
+    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while MAIN account has an open position.
+    // (or, if OPEN_TRADE_LOCK_MODE=any, while any executed signal exists)
+    {
+      const lk = await isOpenTradeLocked({ db, symbol });
+      if (lk.locked) {
+        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, reason: lk.reason, locked_by: lk.locked_by || null });
       }
+      // If main status is not configured / stale, we don't lock (fail-open).
     }
 
     const id = `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}-${Math.random()
@@ -934,12 +960,14 @@ app.get("/signal/auto/create", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
-    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while one is already open.
-    if (globalOpenTradeLockEnabled()) {
-      const open = await getAnyOpenSignalRow(db, symbol);
-      if (open?.id) {
-        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, locked_by: String(open.id) });
+    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while MAIN account has an open position.
+    // (or, if OPEN_TRADE_LOCK_MODE=any, while any executed signal exists)
+    {
+      const lk = await isOpenTradeLocked({ db, symbol });
+      if (lk.locked) {
+        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, reason: lk.reason, locked_by: lk.locked_by || null });
       }
+      // If main status is not configured / stale, we don't lock (fail-open).
     }
 
     // --- EA position gate ---
@@ -1229,12 +1257,14 @@ app.post("/signal", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
-    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while one is already open.
-    if (globalOpenTradeLockEnabled()) {
-      const open = await getAnyOpenSignalRow(db, symbol);
-      if (open?.id) {
-        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, locked_by: String(open.id) });
+    // Global open-trade lock (Boss: "Globaal"): block creating any new signal while MAIN account has an open position.
+    // (or, if OPEN_TRADE_LOCK_MODE=any, while any executed signal exists)
+    {
+      const lk = await isOpenTradeLocked({ db, symbol });
+      if (lk.locked) {
+        return res.status(409).json({ ok: false, error: "open_trade_lock", symbol, reason: lk.reason, locked_by: lk.locked_by || null });
       }
+      // If main status is not configured / stale, we don't lock (fail-open).
     }
 
     // uuid-ish without dep
