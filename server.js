@@ -55,6 +55,106 @@ function marketBlockedNow(tsMs = Date.now()) {
   return { blocked: false, reason: null };
 }
 
+// ---- Risk helpers (equity daily-loss + consecutive-loss + trend regime) ----
+function dayKeyInTz(tz = "Europe/Prague", tsMs = Date.now()) {
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+  return fmt.format(new Date(tsMs));
+}
+
+function readJsonFileSafe(fp, fallback) {
+  try {
+    const raw = fs.readFileSync(fp, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFileSafe(fp, obj) {
+  try {
+    const dir = path.dirname(fp);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(fp, JSON.stringify(obj, null, 2), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ema(values, period) {
+  if (!Array.isArray(values) || values.length === 0) return NaN;
+  const p = Math.max(1, Math.floor(period));
+  const k = 2 / (p + 1);
+  let e = values[0];
+  for (let i = 1; i < values.length; i++) e = values[i] * k + e * (1 - k);
+  return e;
+}
+
+function trendBiasFromCandles(candles, fast = 20, slow = 50) {
+  if (!Array.isArray(candles) || candles.length < slow + 2) return { ok: false, bias: "none" };
+  const closes = candles.map((c) => Number(c.close)).filter((x) => Number.isFinite(x));
+  if (closes.length < slow + 2) return { ok: false, bias: "none" };
+  const eFast = ema(closes.slice(-Math.max(fast * 3, slow + 2)), fast);
+  const eSlow = ema(closes.slice(-Math.max(slow * 3, slow + 2)), slow);
+  if (!Number.isFinite(eFast) || !Number.isFinite(eSlow)) return { ok: false, bias: "none" };
+  if (eFast > eSlow) return { ok: true, bias: "BUY" };
+  if (eFast < eSlow) return { ok: true, bias: "SELL" };
+  return { ok: true, bias: "none" };
+}
+
+function riskStatePath(kind, symbol) {
+  const sym = String(symbol || "XAUUSD").toUpperCase();
+  return path.join(__dirname, "state", `${kind}-${sym}.json`);
+}
+
+function getAndUpdateDailyEquityStart({ symbol, tz, equityUsd }) {
+  const dayKey = dayKeyInTz(tz);
+  const fp = riskStatePath("risk-day", symbol);
+  const st = readJsonFileSafe(fp, { dayKey: "", tz, startEquity: null, updatedAtMs: 0 });
+  if (st.dayKey !== dayKey || !Number.isFinite(Number(st.startEquity)) || Number(st.startEquity) <= 0) {
+    const next = { dayKey, tz, startEquity: equityUsd, updatedAtMs: Date.now() };
+    writeJsonFileSafe(fp, next);
+    return next;
+  }
+  st.updatedAtMs = Date.now();
+  writeJsonFileSafe(fp, st);
+  return st;
+}
+
+function getConsecutiveLosses({ symbol, tz }) {
+  const dayKey = dayKeyInTz(tz);
+  const fp = riskStatePath("consec", symbol);
+  const st = readJsonFileSafe(fp, { dayKey: "", tz, losses: 0, lastSignalId: "" });
+  if (st.dayKey !== dayKey) {
+    const next = { dayKey, tz, losses: 0, lastSignalId: "" };
+    writeJsonFileSafe(fp, next);
+    return next;
+  }
+  return st;
+}
+
+function bumpConsecutiveLosses({ symbol, tz, signalId, outcome }) {
+  const fp = riskStatePath("consec", symbol);
+  const dayKey = dayKeyInTz(tz);
+  const st = readJsonFileSafe(fp, { dayKey, tz, losses: 0, lastSignalId: "" });
+  if (st.dayKey !== dayKey) {
+    st.dayKey = dayKey;
+    st.tz = tz;
+    st.losses = 0;
+    st.lastSignalId = "";
+  }
+  if (signalId && st.lastSignalId === signalId) return st;
+
+  const out = String(outcome || "").toLowerCase();
+  const isTp = out.includes("tp");
+  const isSl = out.includes("sl");
+  if (isSl) st.losses = Math.max(0, Number(st.losses) || 0) + 1;
+  else if (isTp) st.losses = 0;
+  st.lastSignalId = String(signalId || "");
+  writeJsonFileSafe(fp, st);
+  return st;
+}
+
 // Optional persistence (Turso/libSQL). Enable by setting TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in env.
 let libsqlClient = null;
 async function getDb() {
@@ -1153,6 +1253,7 @@ app.post("/signal/closed", async (req, res) => {
       sql: "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,tg_open_chat_id,tg_open_message_id FROM signals WHERE id=? LIMIT 1",
       args: [signal_id],
     });
+    const dbSymbol = sigRow.rows?.[0]?.symbol != null ? String(sigRow.rows[0].symbol) : "XAUUSD";
     const sig = sigRow.rows?.[0] || null;
     if (!sig) return res.status(404).json({ ok: false, error: "signal_not_found" });
 
@@ -1166,6 +1267,14 @@ app.post("/signal/closed", async (req, res) => {
     const entry = exRow.rows?.[0]?.fill_price != null ? Number(exRow.rows[0].fill_price) : null;
 
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+
+    // Update consecutive-loss counter (used by autoScalpRunHandler guard)
+    try {
+      const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
+      bumpConsecutiveLosses({ symbol: dbSymbol, tz: riskTz, signalId: signal_id, outcome });
+    } catch {
+      // ignore
+    }
 
     // 1) Edit the original OPEN teaser (best effort)
     const openChatId = sig.tg_open_chat_id != null ? String(sig.tg_open_chat_id) : null;
@@ -3588,6 +3697,14 @@ async function autoScalpRunHandler(req, res) {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
     const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 15;
 
+    // Risk/strategy env
+    const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
+    const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 3.8);
+    const maxDailyLossPct = Number.isFinite(maxDailyLossPctRaw) && maxDailyLossPctRaw > 0 ? maxDailyLossPctRaw : 3.8;
+    const maxConsecLossRaw = Number(process.env.MAX_CONSEC_LOSSES || 3);
+    const maxConsecLosses = Number.isFinite(maxConsecLossRaw) && maxConsecLossRaw > 0 ? Math.floor(maxConsecLossRaw) : 3;
+    const strictTrendOnly = String(process.env.STRICT_TREND_ONLY || "1").trim() !== "0";
+
     // 0) market close guard
     const m = marketBlockedNow();
     if (m.blocked) return res.json({ ok: true, acted: false, reason: m.reason });
@@ -3629,7 +3746,15 @@ async function autoScalpRunHandler(req, res) {
     const entry = Number(last12[last12.length - 1].close);
 
     const mid = (rangeHigh + rangeLow) / 2;
-    const direction = entry >= mid ? "SELL" : "BUY";
+    let direction = entry >= mid ? "SELL" : "BUY";
+
+    // Strict trend-only: only trade in the direction of the 5m EMA bias
+    if (strictTrendOnly) {
+      const biasR = trendBiasFromCandles(arr, 20, 50);
+      if (!biasR.ok || biasR.bias === "none") return res.json({ ok: true, acted: false, reason: "no_trend_bias" });
+      if (biasR.bias !== direction) return res.json({ ok: true, acted: false, reason: "trend_only_block", bias: biasR.bias, proposed: direction });
+      direction = biasR.bias;
+    }
 
     // Risk model: generate SL/TP for an assumed lotsize (default 1.00) so that
     // the trade risks ~1% of equity (FTMO-style), using a simple XAUUSD value model.
@@ -3672,6 +3797,23 @@ async function autoScalpRunHandler(req, res) {
     if (!Number.isFinite(equityUsd)) {
       const eqEnv = Number(process.env.AUTO_SCALP_EQUITY_USD || 100000);
       equityUsd = Number.isFinite(eqEnv) && eqEnv > 0 ? eqEnv : 100000;
+    }
+
+    // Daily equity-loss guard (equity snapshot at 00:00 in RISK_TZ)
+    const dayState = getAndUpdateDailyEquityStart({ symbol, tz: riskTz, equityUsd });
+    const startEq = Number(dayState?.startEquity);
+    if (Number.isFinite(startEq) && startEq > 0) {
+      const ddPct = ((startEq - equityUsd) / startEq) * 100.0;
+      if (Number.isFinite(ddPct) && ddPct >= maxDailyLossPct) {
+        return res.json({ ok: true, acted: false, reason: "daily_loss_limit", dd_pct: Number(ddPct.toFixed(2)), max_daily_loss_pct: maxDailyLossPct });
+      }
+    }
+
+    // Consecutive-loss guard (tracked from /signal/closed outcomes)
+    const consec = getConsecutiveLosses({ symbol, tz: riskTz });
+    const losses = Number(consec?.losses || 0);
+    if (Number.isFinite(losses) && losses >= maxConsecLosses) {
+      return res.json({ ok: true, acted: false, reason: "max_consecutive_losses", losses, max_consecutive_losses: maxConsecLosses });
     }
 
     // Risk for auto scalp signals (default 1%); also respect SIGNAL_MAX_RISK_PCT.
