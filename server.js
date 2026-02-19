@@ -3758,10 +3758,10 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     <stop offset="0.5" stop-color="#a1a1aa" stop-opacity="0.06"/>
     <stop offset="1" stop-color="#000" stop-opacity="0"/>
   </radialGradient>
-  <radialGradient id="ring" cx="50%" cy="50%" r="60%">
-    <stop offset="0" stop-color="#f4f4f5" stop-opacity="0.10"/>
-    <stop offset="0.7" stop-color="#d4d4d8" stop-opacity="0.55"/>
-    <stop offset="1" stop-color="#d4d4d8" stop-opacity="0"/>
+  <radialGradient id="spot" cx="30%" cy="50%" r="55%">
+    <stop offset="0" stop-color="#d4d4d8" stop-opacity="0.12"/>
+    <stop offset="0.55" stop-color="#a1a1aa" stop-opacity="0.06"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0"/>
   </radialGradient>
   <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
     <stop offset="0" stop-color="rgba(255,255,255,0.08)"/>
@@ -3785,9 +3785,8 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 <path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">TRADE CLOSED</text>
 
-<!-- Left ring + mascot -->
-<circle cx="${ringCx}" cy="${ringCy}" r="275" fill="url(#ring)"/>
-<circle cx="${ringCx}" cy="${ringCy}" r="246" fill="rgba(255,255,255,0.04)" stroke="rgba(212,212,216,0.45)" stroke-width="6"/>
+<!-- Left mascot (no ring) -->
+<ellipse cx="${ringCx}" cy="${ringCy}" rx="360" ry="360" fill="url(#spot)"/>
 ${mascotDataUri ? `<g filter="url(#shadow)">
   <image x="120" y="290" width="400" height="460" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
