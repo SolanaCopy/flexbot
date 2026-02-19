@@ -3600,10 +3600,10 @@ function createClosedCardSvg({ id, symbol, direction, outcome, result, entry, sl
 
   // Match the reference: positive numbers show without '+'
   const rawNum = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
-  const prettyNum = Number.isFinite(rawNum) ? Math.abs(rawNum).toFixed(2) : null;
-  // Keep it compact so it never overflows on smaller screens
-  const resultBig = prettyNum ? `${prettyNum} USD` : String(resultStr);
-  const resultBigFont = fitFontByChars(resultBig, 80, 54, 11);
+  const prettyNum = Number.isFinite(rawNum) ? rawNum.toFixed(2) : null;
+  // Surprise layout: big line is number only; "USD" is shown in the levels panel (never overflows).
+  const resultBig = prettyNum != null ? `${prettyNum}` : String(resultStr);
+  const resultBigFont = fitFontByChars(resultBig, 92, 64, 8);
   const resultColor = (String(resultStr).trim().startsWith("-") || isSl) ? "#ff4d4d" : "#22c55e";
 
   // Full-body mascot (best effort: we reuse the existing mascot data uri)
@@ -3675,11 +3675,14 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
 <text x="560" y="350" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.70)">Outcome: <tspan fill="${outcomeColor}" font-weight="800">${outcomeStr}</tspan></text>
 
 <!-- Big result -->
-<text x="540" y="470" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="480" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
+<text x="560" y="470" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="520" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 
 <!-- Levels panel -->
 <g filter="url(#shadow)">
   <rect x="560" y="520" width="440" height="310" rx="26" fill="url(#panel)" stroke="rgba(255,255,255,0.14)"/>
+
+  <!-- Currency label -->
+  <text x="970" y="560" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.55)" letter-spacing="2">USD</text>
 
   <line x1="560" y1="610" x2="1000" y2="610" stroke="rgba(255,255,255,0.10)"/>
   <line x1="560" y1="700" x2="1000" y2="700" stroke="rgba(255,255,255,0.10)"/>
