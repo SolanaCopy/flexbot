@@ -3693,7 +3693,7 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <text x="610" y="675" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
   <text x="970" y="675" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="800">${tp1 ?? "-"}</text>
 
-  <text x="610" y="790" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="360" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
+  <text x="600" y="790" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="340" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
 
 <!-- Footer -->
