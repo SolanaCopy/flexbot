@@ -97,9 +97,7 @@ function trendBiasFromCandles(candles, fast = 20, slow = 50) {
   const eFast = ema(closes.slice(-Math.max(fast * 3, slow + 2)), fast);
   const eSlow = ema(closes.slice(-Math.max(slow * 3, slow + 2)), slow);
   if (!Number.isFinite(eFast) || !Number.isFinite(eSlow)) return { ok: false, bias: "none" };
-  if (eFast > eSlow) return { ok: true, bias: "BUY" };
-  if (eFast < eSlow) return { ok: true, bias: "SELL" };
-  return { ok: true, bias: "none" };
+  return { ok: true, bias: eFast >= eSlow ? "BUY" : "SELL" };
 }
 
 function riskStatePath(kind, symbol) {
@@ -3959,7 +3957,6 @@ async function autoScalpRunHandler(req, res) {
     const maxDailyLossPct = Number.isFinite(maxDailyLossPctRaw) && maxDailyLossPctRaw > 0 ? maxDailyLossPctRaw : 3.8;
     const maxConsecLossRaw = Number(process.env.MAX_CONSEC_LOSSES || 3);
     const maxConsecLosses = Number.isFinite(maxConsecLossRaw) && maxConsecLossRaw > 0 ? Math.floor(maxConsecLossRaw) : 3;
-    const strictTrendOnly = String(process.env.STRICT_TREND_ONLY || "1").trim() !== "0";
 
     // 0) market close guard
     const m = marketBlockedNow();
@@ -4001,16 +3998,10 @@ async function autoScalpRunHandler(req, res) {
     const rangeLow = Math.min(...last12.map((c) => Number(c.low)));
     const entry = Number(last12[last12.length - 1].close);
 
-    const mid = (rangeHigh + rangeLow) / 2;
-    let direction = entry >= mid ? "SELL" : "BUY";
+    const biasR = trendBiasFromCandles(arr, 20, 50);
+    if (!biasR.ok) return res.json({ ok: true, acted: false, reason: "no_trend_bias" });
+    const direction = biasR.bias;
 
-    // Strict trend-only: only trade in the direction of the 5m EMA bias
-    if (strictTrendOnly) {
-      const biasR = trendBiasFromCandles(arr, 20, 50);
-      if (!biasR.ok || biasR.bias === "none") return res.json({ ok: true, acted: false, reason: "no_trend_bias" });
-      if (biasR.bias !== direction) return res.json({ ok: true, acted: false, reason: "trend_only_block", bias: biasR.bias, proposed: direction });
-      direction = biasR.bias;
-    }
 
     // Risk model: generate SL/TP for an assumed lotsize (default 1.00) so that
     // the trade risks ~1% of equity (FTMO-style), using a simple XAUUSD value model.
