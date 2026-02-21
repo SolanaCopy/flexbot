@@ -1170,6 +1170,7 @@ app.post("/signal/manual/open", async (req, res) => {
       photoUrl.searchParams.set("symbol", symbol);
       photoUrl.searchParams.set("interval", "1m");
       photoUrl.searchParams.set("hours", "3");
+      photoUrl.searchParams.set("ref", String(id).slice(-8));
 
       const caption = formatSignalCaption({ id, symbol, direction, riskPct: risk_pct, comment });
       const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
@@ -1802,6 +1803,7 @@ app.post("/signal/executed", async (req, res) => {
           photoUrl.searchParams.set("symbol", sym);
           photoUrl.searchParams.set("interval", "1m");
           photoUrl.searchParams.set("hours", "3");
+          photoUrl.searchParams.set("ref", String(signal_id).slice(-8));
           // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
 
           const dir = sig?.direction != null ? String(sig.direction).toUpperCase() : null;
@@ -2524,6 +2526,8 @@ app.post("/seed", (req, res) => {
 // TradingView-ish chart rendering (png/jpg) + green/red candles
 async function renderChart(req, res, format /* "png" | "jpg" */) {
   const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
+  const refRaw = req.query.ref != null ? String(req.query.ref) : "";
+  const ref = refRaw.trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(-12);
 
   // interval can be 1m/5m/15m for direct stores. For longer ranges use ?hours=...
   const requestedInterval = req.query.interval ? String(req.query.interval) : "15m";
@@ -2829,7 +2833,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         plugins: {
           title: {
             display: true,
-            text: `${symbol} • ${chosenInterval}${spanMs ? ` • ${Math.round(spanMs / 3600000)}h` : ""} • MT5`,
+            text: `${symbol} • ${chosenInterval}${spanMs ? ` • ${Math.round(spanMs / 3600000)}h` : ""} • MT5${ref ? ` • Ref ${ref}` : ""}`,
             color: "rgba(255,255,255,0.98)",
             align: "center",
             font: { size: 30, weight: "900" },
@@ -3555,7 +3559,7 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
   const shortRef = ref ? ref.slice(-8) : "";
 
   return (
-    `🚨 LIVE SIGNAL OPEN${shortRef ? ` (#${shortRef})` : ""}\n` +
+    `🚨 LIVE SIGNAL OPEN${shortRef ? ` (Ref ${shortRef})` : ""}\n` +
     `${kind}: ${sym} ${dir}\n` +
     `\n` +
     `Full entry/SL/TP + updates = MEMBERS ONLY\n` +
