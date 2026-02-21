@@ -2630,7 +2630,8 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   let chosenIntervalMs = null;
 
   if (spanMs) {
-    const targetMax = 480;
+    // For multi-day ranges, keep point count smaller to avoid QuickChart payload/render limits.
+    const targetMax = spanMs >= 24 * 60 * 60 * 1000 ? 240 : 480;
     for (const c of candidates) {
       const need = Math.ceil(spanMs / c.ms);
       if (need <= targetMax) {
