@@ -1452,7 +1452,10 @@ app.post("/signal/closed", async (req, res) => {
     try {
       const svg = createClosedCardSvgV3(closedPayload);
       const pngBuf = renderSvgToPngBuffer(svg);
-      const caption = slMsg ? `❌ ${slMsg}` : `✅ CLOSED (#${signal_id})`;
+      // Caption should be short; avoid full internal IDs in public posts.
+      const ref8 = String(signal_id || "").slice(-8);
+      const outLabel = String(outcome || "CLOSED");
+      const caption = slMsg ? `❌ ${slMsg}` : `✅ ${outLabel}${ref8 ? ` (Ref ${ref8})` : ""}`;
       await tgSendPhoto({ chatId, photo: pngBuf, caption });
     } catch {
       await tgSendMessage({ chatId, text: slMsg ? `❌ ${slMsg}\n\n${closedText}` : closedText });
