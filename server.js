@@ -2733,11 +2733,17 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
   // QuickChart/Chart.js time-scale renders in UTC/local. To force MT5 server-time labels,
   // we render the X axis as category labels ourselves.
+  const longLabels =
+    (spanMs != null && Number.isFinite(spanMs) && spanMs >= 24 * 60 * 60 * 1000) ||
+    (chosenIntervalMs != null && Number.isFinite(chosenIntervalMs) && candles.length * chosenIntervalMs >= 24 * 60 * 60 * 1000);
+
   const labels = candles.map((c) => {
     const ms = Date.parse(c.start);
     const mt5 = Number.isFinite(ms) ? formatMt5(ms) : String(c.start);
-    // keep labels compact: HH:MM
-    return mt5.slice(11, 16);
+
+    // HH:MM for short ranges; include MM-DD for multi-day charts to prevent duplicate category labels.
+    if (!mt5 || String(mt5).length < 16) return String(c.start);
+    return longLabels ? String(mt5).slice(5, 16) : String(mt5).slice(11, 16);
   });
 
   const data = candles.map((c, i) => ({
