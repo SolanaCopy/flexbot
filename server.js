@@ -3589,15 +3589,16 @@ function _loadMascotCache() {
   const isTransparentPreferred = (f) => /\.(png|webp)$/i.test(f);
 
   // Prefer transparent formats (png/webp). Only fall back to jpg/jpeg if no transparent variants exist.
+  // Keep ordering stable so round-robin rotation is deterministic.
   let win = files.filter((f) => isImage(f) && /^mascot_win/i.test(f));
   const winT = win.filter(isTransparentPreferred);
   if (winT.length) win = winT;
-  win = win.map((f) => path.join(dir, f));
+  win = win.map((f) => path.join(dir, f)).sort((a, b) => a.localeCompare(b));
 
   let loss = files.filter((f) => isImage(f) && /^mascot_loss/i.test(f));
   const lossT = loss.filter(isTransparentPreferred);
   if (lossT.length) loss = lossT;
-  loss = loss.map((f) => path.join(dir, f));
+  loss = loss.map((f) => path.join(dir, f)).sort((a, b) => a.localeCompare(b));
   const legacyPng = path.join(dir, "mascot.png");
   const legacyJpg = path.join(dir, "mascot.jpg");
 
@@ -3609,6 +3610,44 @@ function _loadMascotCache() {
   return _mascotCache;
 }
 let _lastMascotPick = { win: null, loss: null };
+
+// Round-robin mascot rotation (WIN only), persisted in /state so it survives restarts.
+function _mascotRrStatePath(key) {
+  return path.join(__dirname, "state", `mascot-rr-${String(key || "default")}.json`);
+}
+function _pickRoundRobin(pool, key) {
+  if (!Array.isArray(pool) || pool.length === 0) return null;
+
+  const fp = _mascotRrStatePath(key);
+  const poolSig = pool.map((p) => path.basename(p)).join("|");
+  const st = readJsonFileSafe(fp, { idx: 0, last: null, poolSig: "", updatedAtMs: 0 });
+
+  let idx = Number(st?.idx);
+  if (!Number.isFinite(idx)) idx = 0;
+
+  // If the pool changed (added/removed/reordered), keep the index in-range.
+  if (st?.poolSig !== poolSig) idx = idx % pool.length;
+
+  idx = ((idx % pool.length) + pool.length) % pool.length;
+  let chosen = pool[idx];
+
+  // Extra safety: avoid consecutive repeats even if pool changes.
+  if (pool.length > 1 && st?.last && chosen === st.last) {
+    idx = (idx + 1) % pool.length;
+    chosen = pool[idx];
+  }
+
+  const next = {
+    idx: pool.length > 0 ? ((idx + 1) % pool.length) : 0,
+    last: chosen,
+    poolSig,
+    updatedAtMs: Date.now(),
+  };
+  writeJsonFileSafe(fp, next);
+
+  return chosen;
+}
+
 function getMascotDataUri({ outcome, result }) {
   const cache = _loadMascotCache();
 
@@ -3641,8 +3680,12 @@ function getMascotDataUri({ outcome, result }) {
   try {
     if (pool.length <= 1) {
       chosen = pool[0];
+    } else if (isWin) {
+      // Boss request: WIN mascot must rotate round-robin (no random, no repeats).
+      const rr = _pickRoundRobin(pool, "win");
+      chosen = rr || pool[0];
     } else {
-      // Pick random, but avoid repeating the same image twice in a row.
+      // Loss: keep random, but avoid repeating the same image twice in a row.
       const last = _lastMascotPick[key];
       let attempt = 0;
       do {
