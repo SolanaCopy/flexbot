@@ -787,6 +787,29 @@ function formatNewsText(events, currency) {
 
 // --- Signals API (market entries) ---
 
+async function globalCooldownGate({ db, symbol }) {
+  const cdMinRaw = Number(process.env.GLOBAL_COOLDOWN_MIN || 0);
+  const cdMin = Number.isFinite(cdMinRaw) && cdMinRaw > 0 ? cdMinRaw : 0;
+  if (cdMin <= 0) return { active: false, cooldown_min: 0, until_ms: 0, last_created_at_ms: 0 };
+
+  const rows = await db.execute({
+    sql: "SELECT created_at_ms FROM signals WHERE symbol=? ORDER BY created_at_ms DESC LIMIT 1",
+    args: [symbol],
+  });
+  const lastMsRaw = rows.rows?.[0]?.created_at_ms;
+  const lastCreatedAtMs = lastMsRaw != null ? Number(lastMsRaw) : 0;
+  if (!Number.isFinite(lastCreatedAtMs) || lastCreatedAtMs <= 0) {
+    return { active: false, cooldown_min: cdMin, until_ms: 0, last_created_at_ms: 0 };
+  }
+
+  const untilMs = lastCreatedAtMs + cdMin * 60 * 1000;
+  const nowMs = Date.now();
+  if (nowMs < untilMs) {
+    return { active: true, cooldown_min: cdMin, until_ms: untilMs, last_created_at_ms: lastCreatedAtMs };
+  }
+  return { active: false, cooldown_min: cdMin, until_ms: untilMs, last_created_at_ms: lastCreatedAtMs };
+}
+
 // GET /signal/create?secret=...&symbol=XAUUSD&direction=BUY&sl=...&tp=...&risk_pct=0.5&comment=...
 // NOTE: This is designed for bot/web_fetch usage (no POST needed). Keep secret in Render env: SIGNAL_SECRET.
 app.get("/signal/create", async (req, res) => {
@@ -854,6 +877,23 @@ app.get("/signal/create", async (req, res) => {
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // Global cooldown gate: block creating ANY new signal until GLOBAL_COOLDOWN_MIN has elapsed
+    // since the last created signal (per symbol). This ensures cooldown is identical for ALL accounts.
+    {
+      const cd = await globalCooldownGate({ db, symbol });
+      if (cd.active) {
+        return res.status(409).json({
+          ok: false,
+          error: "cooldown_active",
+          symbol,
+          cooldown_min: cd.cooldown_min,
+          last_created_at_ms: cd.last_created_at_ms,
+          until_ms: cd.until_ms,
+          until: cd.until_ms ? formatMt5(cd.until_ms) : null,
+        });
+      }
+    }
 
     // Global open-trade lock (Boss: "Globaal"): block creating any new signal while MAIN account has an open position.
     // (or, if OPEN_TRADE_LOCK_MODE=any, while any executed signal exists)
@@ -957,6 +997,23 @@ app.get("/signal/auto/create", async (req, res) => {
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // Global cooldown gate: block creating ANY new signal until GLOBAL_COOLDOWN_MIN has elapsed
+    // since the last created signal (per symbol). This ensures cooldown is identical for ALL accounts.
+    {
+      const cd = await globalCooldownGate({ db, symbol });
+      if (cd.active) {
+        return res.status(409).json({
+          ok: false,
+          error: "cooldown_active",
+          symbol,
+          cooldown_min: cd.cooldown_min,
+          last_created_at_ms: cd.last_created_at_ms,
+          until_ms: cd.until_ms,
+          until: cd.until_ms ? formatMt5(cd.until_ms) : null,
+        });
+      }
+    }
 
     // Global open-trade lock (Boss: "Globaal"): block creating any new signal while MAIN account has an open position.
     // (or, if OPEN_TRADE_LOCK_MODE=any, while any executed signal exists)
@@ -1254,6 +1311,23 @@ app.post("/signal", async (req, res) => {
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // Global cooldown gate: block creating ANY new signal until GLOBAL_COOLDOWN_MIN has elapsed
+    // since the last created signal (per symbol). This ensures cooldown is identical for ALL accounts.
+    {
+      const cd = await globalCooldownGate({ db, symbol });
+      if (cd.active) {
+        return res.status(409).json({
+          ok: false,
+          error: "cooldown_active",
+          symbol,
+          cooldown_min: cd.cooldown_min,
+          last_created_at_ms: cd.last_created_at_ms,
+          until_ms: cd.until_ms,
+          until: cd.until_ms ? formatMt5(cd.until_ms) : null,
+        });
+      }
+    }
 
     // Global open-trade lock (Boss: "Globaal"): block creating any new signal while MAIN account has an open position.
     // (or, if OPEN_TRADE_LOCK_MODE=any, while any executed signal exists)
