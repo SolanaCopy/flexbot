@@ -7,6 +7,23 @@ const crypto = require("crypto");
 // On Render you can set PUBLIC_BASE_URL=https://flexbot-qpf2.onrender.com
 const BASE_URL = (process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").trim();
 
+// --- Master broadcast gate (prevents other EA instances from posting to your Telegram group) ---
+// Configure in Render env:
+// - MASTER_LOGIN=1521125881
+// - MASTER_SERVER=FTMO-Demo2
+function isMasterBroadcaster(body) {
+  const login = String(body?.account_login ?? "").trim();
+  const server = String(body?.server ?? "").trim();
+  const masterLogin = String(process.env.MASTER_LOGIN ?? "").trim();
+  const masterServer = String(process.env.MASTER_SERVER ?? "").trim();
+
+  // Fail-closed: if not configured or EA didn't send account info, never broadcast.
+  if (!masterLogin || !masterServer) return false;
+  if (!login || !server) return false;
+
+  return login === masterLogin && server === masterServer;
+}
+
 // Market close guard (NL time). Goal: avoid opening new trades near 23:00 NL close,
 // especially on Friday to prevent weekend-hanging positions.
 // Defaults:
@@ -1334,25 +1351,27 @@ app.post("/signal/manual/open", async (req, res) => {
       ],
     });
 
-    // Post Telegram OPEN teaser (same style as /signal/executed)
-    try {
-      const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
-      const photoUrl = new URL(`${BASE_URL}/chart.png`);
-      photoUrl.searchParams.set("symbol", symbol);
-      photoUrl.searchParams.set("interval", "1m");
-      photoUrl.searchParams.set("hours", "3");
+    // Post Telegram OPEN teaser (same style as /signal/executed) — master only
+    if (isMasterBroadcaster(body)) {
+      try {
+        const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+        const photoUrl = new URL(`${BASE_URL}/chart.png`);
+        photoUrl.searchParams.set("symbol", symbol);
+        photoUrl.searchParams.set("interval", "1m");
+        photoUrl.searchParams.set("hours", "3");
 
-      const caption = formatSignalCaption({ id, symbol, direction, riskPct: risk_pct, comment });
-      const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
-      const mid = tgPosted?.result?.message_id;
-      if (mid != null) {
-        await db.execute({
-          sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
-          args: [String(chatId), Number(mid), String(id)],
-        });
+        const caption = formatSignalCaption({ id, symbol, direction, riskPct: risk_pct, comment });
+        const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+        const mid = tgPosted?.result?.message_id;
+        if (mid != null) {
+          await db.execute({
+            sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
+            args: [String(chatId), Number(mid), String(id)],
+          });
+        }
+      } catch {
+        // best effort
       }
-    } catch {
-      // best effort
     }
 
     return res.json({ ok: true, id, symbol, direction });
@@ -1545,6 +1564,7 @@ app.post("/signal/closed", async (req, res) => {
     const entry = exRow.rows?.[0]?.fill_price != null ? Number(exRow.rows[0].fill_price) : null;
 
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    const canBroadcast = isMasterBroadcaster(body);
 
     // De-dupe CLOSED posting across multiple EA accounts.
     // Only one request should do Telegram side-effects (edit open + post closed card + streak).
@@ -1569,7 +1589,7 @@ app.post("/signal/closed", async (req, res) => {
     // 1) Edit the original OPEN teaser (best effort)
     const openChatId = sig.tg_open_chat_id != null ? String(sig.tg_open_chat_id) : null;
     const openMsgId = sig.tg_open_message_id != null ? Number(sig.tg_open_message_id) : null;
-    if (openChatId && openMsgId) {
+    if (canBroadcast && openChatId && openMsgId) {
       const editedText =
         `✅ SIGNAL CLOSED (#${signal_id})\n` +
         `${String(sig.symbol).toUpperCase()} ${String(sig.direction).toUpperCase()}\n` +
@@ -1649,71 +1669,74 @@ app.post("/signal/closed", async (req, res) => {
       return slVariants[idx];
     })();
 
-    try {
-      const svg = createClosedCardSvgV3(closedPayload);
-      const pngBuf = renderSvgToPngBuffer(svg);
-      // Caption should be short; avoid full internal IDs in public posts.
-      const ref8 = String(signal_id || "").slice(-8);
-      const outLabel = String(outcome || "CLOSED");
-      const caption = slMsg ? `❌ ${slMsg}` : `✅ ${outLabel}${ref8 ? ` (Ref ${ref8})` : ""}`;
-      await tgSendPhoto({ chatId, photo: pngBuf, caption });
-    } catch {
-      await tgSendMessage({ chatId, text: slMsg ? `❌ ${slMsg}\n\n${closedText}` : closedText });
-    }
+    if (canBroadcast) {
+      try {
+        const svg = createClosedCardSvgV3(closedPayload);
+        const pngBuf = renderSvgToPngBuffer(svg);
+        // Caption should be short; avoid full internal IDs in public posts.
+        const ref8 = String(signal_id || "").slice(-8);
+        const outLabel = String(outcome || "CLOSED");
+        const caption = slMsg ? `❌ ${slMsg}` : `✅ ${outLabel}${ref8 ? ` (Ref ${ref8})` : ""}`;
+        await tgSendPhoto({ chatId, photo: pngBuf, caption });
+      } catch {
+        await tgSendMessage({ chatId, text: slMsg ? `❌ ${slMsg}\n\n${closedText}` : closedText });
+      }
 
-    // 3) TP streak message (persistent; safe across restarts / multiple instances)
-    try {
-      const sym2 = String(sig.symbol || "XAUUSD").toUpperCase();
+      // 3) TP streak message (persistent; safe across restarts / multiple instances)
+      try {
+        const sym2 = String(sig.symbol || "XAUUSD").toUpperCase();
 
-      const out = String(outcome || "").toLowerCase();
-      const rawNum = Number(String(result || "").replace(/[^0-9.+-]/g, ""));
-      const hasNum = Number.isFinite(rawNum);
+        const out = String(outcome || "").toLowerCase();
+        const rawNum = Number(String(result || "").replace(/[^0-9.+-]/g, ""));
+        const hasNum = Number.isFinite(rawNum);
 
-      // Treat TP as either explicit "tp" outcome OR positive numeric result (more robust)
-      const isTp = out.includes("tp") || (hasNum && rawNum > 0);
-      const isSl = out.includes("sl") || (hasNum && rawNum < 0);
+        // Treat TP as either explicit "tp" outcome OR positive numeric result (more robust)
+        const isTp = out.includes("tp") || (hasNum && rawNum > 0);
+        const isSl = out.includes("sl") || (hasNum && rawNum < 0);
 
-      // Load current state from DB
-      const stRow = await db.execute({
-        sql: "SELECT streak,last_signal_id FROM tp_streak WHERE symbol=? LIMIT 1",
-        args: [sym2],
-      });
-      const curStreak = stRow.rows?.[0]?.streak != null ? Number(stRow.rows[0].streak) : 0;
-      const lastSignalId = stRow.rows?.[0]?.last_signal_id != null ? String(stRow.rows[0].last_signal_id) : "";
-
-      // de-dupe per signal
-      if (String(lastSignalId) !== String(signal_id)) {
-        let next = Number.isFinite(curStreak) ? Math.max(0, curStreak) : 0;
-        if (isTp) next = next + 1;
-        else if (isSl) next = 0;
-
-        await db.execute({
-          sql: "INSERT OR REPLACE INTO tp_streak (symbol,streak,last_signal_id,updated_at_ms) VALUES (?,?,?,?)",
-          args: [sym2, next, String(signal_id), Date.now()],
+        // Load current state from DB
+        const stRow = await db.execute({
+          sql: "SELECT streak,last_signal_id FROM tp_streak WHERE symbol=? LIMIT 1",
+          args: [sym2],
         });
+        const curStreak = stRow.rows?.[0]?.streak != null ? Number(stRow.rows[0].streak) : 0;
+        const lastSignalId = stRow.rows?.[0]?.last_signal_id != null ? String(stRow.rows[0].last_signal_id) : "";
 
-        if (isTp && next === 1) {
-          await tgSendMessage({ chatId, text: "✅ TP geraakt — netjes.\nhttps://www.fxflexbot.com/" });
-        } else if (isTp && next === 2) {
-          const bannerPath = path.join(__dirname, "assets", "streak_tp2.png");
-          if (fs.existsSync(bannerPath)) {
-            const buf = fs.readFileSync(bannerPath);
-            await tgSendPhoto({ chatId, photo: buf, caption: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
-          } else {
-            await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
-          }
-        } else if (isTp && next === 3) {
-          const bannerPath = path.join(__dirname, "assets", "streak_tp3.png");
-          if (fs.existsSync(bannerPath)) {
-            const buf = fs.readFileSync(bannerPath);
-            await tgSendPhoto({ chatId, photo: buf, caption: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
-          } else {
-            await tgSendMessage({ chatId, text: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
+        // de-dupe per signal
+        if (String(lastSignalId) !== String(signal_id)) {
+          let next = Number.isFinite(curStreak) ? Math.max(0, curStreak) : 0;
+          if (isTp) next = next + 1;
+          else if (isSl) next = 0;
+
+          await db.execute({
+            sql: "INSERT OR REPLACE INTO tp_streak (symbol,streak,last_signal_id,updated_at_ms) VALUES (?,?,?,?)",
+            args: [sym2, next, String(signal_id), Date.now()],
+          });
+
+          if (isTp && next === 1) {
+            await tgSendMessage({ chatId, text: "✅ TP geraakt — netjes.\nhttps://www.fxflexbot.com/" });
+          } else if (isTp && next === 2) {
+            // Send streak-2 VIDEO (Boss request)
+            const videoPath = path.join(__dirname, "assets", "streak_tp2.mp4");
+            if (fs.existsSync(videoPath)) {
+              const buf = fs.readFileSync(videoPath);
+              await tgSendVideo({ chatId, video: buf, caption: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
+            } else {
+              await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
+            }
+          } else if (isTp && next === 3) {
+            const bannerPath = path.join(__dirname, "assets", "streak_tp3.png");
+            if (fs.existsSync(bannerPath)) {
+              const buf = fs.readFileSync(bannerPath);
+              await tgSendPhoto({ chatId, photo: buf, caption: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
+            } else {
+              await tgSendMessage({ chatId, text: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
+            }
           }
         }
+      } catch {
+        // best-effort
       }
-    } catch {
-      // best-effort
     }
 
     // Update DB
@@ -1722,7 +1745,7 @@ app.post("/signal/closed", async (req, res) => {
       args: [closed_at_ms, outcome, result, signal_id],
     });
 
-    return res.json({ ok: true, signal_id, posted: true });
+    return res.json({ ok: true, signal_id, posted: canBroadcast });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "signal_closed_failed", message: String(e?.message || e) });
   }
@@ -2018,44 +2041,47 @@ app.post("/signal/executed", async (req, res) => {
 
         if (forceOpen || !openChatIdExisting || !openMsgIdExisting) {
           const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+          const canBroadcast = isMasterBroadcaster(body);
 
-          // Global lock (Boss: "Globaal"): if there is already an open trade signal for this symbol,
-          // suppress additional OPEN teasers to avoid group spam from multiple connected accounts.
-          const sup = await shouldSuppressOpenTeaserDueToGlobalLock({ db, symbol: sym, chatId, currentSignalId: signal_id });
-          if (sup.suppress) {
-            // best-effort: do nothing (trade is already open; teaser already posted or another account is leading)
-            return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, tg_open_suppressed: true, tg_open_reason: sup.reason, locked_by: sup.locked_by || null });
-          }
-
-          const photoUrl = new URL(`${BASE_URL}/chart.png`);
-          photoUrl.searchParams.set("symbol", sym);
-          photoUrl.searchParams.set("interval", "1m");
-          photoUrl.searchParams.set("hours", "3");
-          // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
-
-          const dir = sig?.direction != null ? String(sig.direction).toUpperCase() : null;
-          const riskPct = sig?.risk_pct != null ? Number(sig.risk_pct) : 1.0;
-          const comment = sig?.comment != null ? String(sig.comment) : null;
-
-          if (dir && ["BUY", "SELL"].includes(dir)) {
-            // Hard de-dupe across multiple EA accounts: only 1 request may post the OPEN teaser.
-            const claim = await claimSignalPostOnce({ db, signalId: signal_id, kind: "tg_open" });
-            if (!claim.claimed) {
-              return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, tg_open_dedup: true });
+          if (canBroadcast) {
+            // Global lock (Boss: "Globaal"): if there is already an open trade signal for this symbol,
+            // suppress additional OPEN teasers to avoid group spam from multiple connected accounts.
+            const sup = await shouldSuppressOpenTeaserDueToGlobalLock({ db, symbol: sym, chatId, currentSignalId: signal_id });
+            if (sup.suppress) {
+              // best-effort: do nothing (trade is already open; teaser already posted or another account is leading)
+              return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, tg_open_suppressed: true, tg_open_reason: sup.reason, locked_by: sup.locked_by || null });
             }
 
-            try {
-              const caption = formatSignalCaption({ id: signal_id, symbol: sym, direction: dir, riskPct, comment });
-              const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
-              const mid = tgPosted?.result?.message_id;
-              if (mid != null) {
-                await db.execute({
-                  sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
-                  args: [String(chatId), Number(mid), String(signal_id)],
-                });
+            const photoUrl = new URL(`${BASE_URL}/chart.png`);
+            photoUrl.searchParams.set("symbol", sym);
+            photoUrl.searchParams.set("interval", "1m");
+            photoUrl.searchParams.set("hours", "3");
+            // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
+
+            const dir = sig?.direction != null ? String(sig.direction).toUpperCase() : null;
+            const riskPct = sig?.risk_pct != null ? Number(sig.risk_pct) : 1.0;
+            const comment = sig?.comment != null ? String(sig.comment) : null;
+
+            if (dir && ["BUY", "SELL"].includes(dir)) {
+              // Hard de-dupe across multiple EA accounts: only 1 request may post the OPEN teaser.
+              const claim = await claimSignalPostOnce({ db, signalId: signal_id, kind: "tg_open" });
+              if (!claim.claimed) {
+                return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, tg_open_dedup: true });
               }
-            } catch {
-              // best effort; execution state must not fail due to Telegram
+
+              try {
+                const caption = formatSignalCaption({ id: signal_id, symbol: sym, direction: dir, riskPct, comment });
+                const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+                const mid = tgPosted?.result?.message_id;
+                if (mid != null) {
+                  await db.execute({
+                    sql: "UPDATE signals SET tg_open_chat_id=?, tg_open_message_id=? WHERE id=?",
+                    args: [String(chatId), Number(mid), String(signal_id)],
+                  });
+                }
+              } catch {
+                // best effort; execution state must not fail due to Telegram
+              }
             }
           }
         }
