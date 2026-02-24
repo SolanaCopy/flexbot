@@ -242,6 +242,34 @@ async function getDb() {
     ")"
   );
 
+  // NEW: per-account executions (broadcast support)
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS signal_exec2 (" +
+      "signal_id TEXT NOT NULL," +
+      "account_login TEXT NOT NULL," +
+      "server TEXT NOT NULL," +
+      "ticket TEXT," +
+      "fill_price REAL," +
+      "filled_at_ms INTEGER," +
+      "filled_at_mt5 TEXT," +
+      "ok_mod INTEGER DEFAULT 0," +
+      "raw_json TEXT," +
+      "PRIMARY KEY (signal_id, account_login, server)" +
+    ")"
+  );
+  await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_exec2_signal ON signal_exec2(signal_id)");
+  await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_exec2_account ON signal_exec2(account_login, server)");
+
+  // Best-effort migration from legacy table (safe to ignore failures)
+  try {
+    await libsqlClient.execute(
+      "INSERT OR IGNORE INTO signal_exec2 (signal_id,account_login,server,ticket,fill_price,filled_at_ms,filled_at_mt5,ok_mod,raw_json) " +
+        "SELECT signal_id,'legacy','legacy',ticket,fill_price,filled_at_ms,filled_at_mt5,1,raw_json FROM signal_exec"
+    );
+  } catch {
+    // ignore
+  }
+
   await libsqlClient.execute(
     "CREATE INDEX IF NOT EXISTS idx_signals_symbol_created ON signals(symbol, created_at_ms DESC)"
   );
@@ -353,7 +381,7 @@ async function getAnyOpenSignalRow(db, symbol) {
   const rows = await db.execute({
     sql:
       "SELECT id,symbol,status,tg_open_chat_id,tg_open_message_id,created_at_ms FROM signals " +
-      "WHERE symbol=? AND status='executed' ORDER BY created_at_ms DESC LIMIT 1",
+      "WHERE symbol=? AND status IN ('active') ORDER BY created_at_ms DESC LIMIT 1", 
     args: [sym],
   });
   return rows.rows?.[0] || null;
@@ -1425,7 +1453,7 @@ app.post("/signal/closed", async (req, res) => {
     try { tp = JSON.parse(String(sig.tp_json || "[]")); } catch { tp = []; }
 
     const exRow = await db.execute({
-      sql: "SELECT fill_price FROM signal_exec WHERE signal_id=? LIMIT 1",
+      sql: "SELECT fill_price FROM signal_exec2 WHERE signal_id=? AND ok_mod=1 ORDER BY filled_at_ms ASC LIMIT 1",
       args: [signal_id],
     });
     const entry = exRow.rows?.[0]?.fill_price != null ? Number(exRow.rows[0].fill_price) : null;
@@ -1607,6 +1635,13 @@ app.get("/signal/next", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
 
+    // NEW: identify requester account (required for broadcast)
+    const account_login = req.query.account_login != null ? String(req.query.account_login).trim() : "";
+    const server = req.query.server != null ? String(req.query.server).trim() : "";
+    if (!account_login || !server) {
+      return res.status(400).json({ ok: false, error: "missing_account_identity" });
+    }
+
     const sinceRaw = req.query.since_ms != null ? String(req.query.since_ms) : null;
     const sinceMs = sinceRaw && /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : 0;
     const sinceMsSafe = Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : 0;
@@ -1630,9 +1665,16 @@ app.get("/signal/next", async (req, res) => {
         sql:
           "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5 " +
           "FROM signals " +
-          "WHERE symbol=? AND status='new' AND created_at_ms >= ? " +
+          "WHERE symbol=? AND status IN ('new','active') AND created_at_ms >= ? " +
+          "AND NOT EXISTS (" +
+          "  SELECT 1 FROM signal_exec2 e " +
+          "  WHERE e.signal_id = signals.id " +
+          "    AND e.account_login = ? " +
+          "    AND e.server = ? " +
+          "    AND e.ok_mod = 1" +
+          ") " +
           "ORDER BY created_at_ms ASC LIMIT 1",
-        args: [symbol, minCreatedAtMs],
+        args: [symbol, minCreatedAtMs, account_login, server],
       });
 
       const r = rows.rows?.[0];
@@ -1723,7 +1765,7 @@ app.get("/debug/signal", async (req, res) => {
     const sig = sigRow.rows?.[0] || null;
 
     const exRow = await db.execute({
-      sql: "SELECT signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json FROM signal_exec WHERE signal_id=? LIMIT 1",
+      sql: "SELECT signal_id,account_login,server,ticket,fill_price,filled_at_ms,filled_at_mt5,ok_mod,raw_json FROM signal_exec2 WHERE signal_id=? ORDER BY filled_at_ms ASC LIMIT 1",
       args: [id],
     });
     const ex = exRow.rows?.[0] || null;
@@ -1767,7 +1809,7 @@ app.get("/debug/signal/ref", async (req, res) => {
     if (list.length === 1) {
       const id = String(list[0].id);
       const exRow = await db.execute({
-        sql: "SELECT signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json FROM signal_exec WHERE signal_id=? LIMIT 1",
+        sql: "SELECT signal_id,account_login,server,ticket,fill_price,filled_at_ms,filled_at_mt5,ok_mod,raw_json FROM signal_exec2 WHERE signal_id=? ORDER BY filled_at_ms ASC LIMIT 1",
         args: [id],
       });
       exec = exRow.rows?.[0] || null;
@@ -1792,6 +1834,13 @@ app.post("/signal/executed", async (req, res) => {
     const fill_price = body?.fill_price != null ? Number(body.fill_price) : null;
     const execDirection = body?.direction != null ? String(body.direction).toUpperCase() : null;
 
+    // NEW: which account executed it (broadcast support)
+    const account_login = body?.account_login != null ? String(body.account_login).trim() : "";
+    const server = body?.server != null ? String(body.server).trim() : "";
+    if (!account_login || !server) {
+      return res.status(400).json({ ok: false, error: "missing_account_identity" });
+    }
+
     const okModRaw = body?.ok_mod ?? body?.okMod ?? body?.okmod;
     const ok_mod = okModRaw === true || okModRaw === 1 || okModRaw === "1" || okModRaw === "true";
 
@@ -1804,17 +1853,26 @@ app.post("/signal/executed", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
-    // Always record execution callback so the same signal isn't re-processed.
+    // NEW: record per-account execution callback (broadcast support)
     await db.execute({
-      sql: "INSERT OR REPLACE INTO signal_exec (signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json) VALUES (?,?,?,?,?,?)",
-      args: [signal_id, ticket, fill_price, executed_at_ms, executed_at_mt5, JSON.stringify(body)],
+      sql: "INSERT OR REPLACE INTO signal_exec2 (signal_id,account_login,server,ticket,fill_price,filled_at_ms,filled_at_mt5,ok_mod,raw_json) VALUES (?,?,?,?,?,?,?,?,?)",
+      args: [
+        signal_id,
+        account_login,
+        server,
+        ticket,
+        fill_price,
+        executed_at_ms,
+        executed_at_mt5,
+        ok_mod ? 1 : 0,
+        JSON.stringify(body),
+      ],
     });
 
-    // Mark executed as soon as we receive an execution callback.
-    // This prevents the same signal from being served repeatedly from /signal/next.
-    // Telegram posting + cooldown can still be gated by ok_mod unless FORCE_TG_OPEN_ON_EXEC is enabled.
+    // IMPORTANT: keep signal available for OTHER accounts until they execute too.
+    // Use status='active' to represent "open / in-flight".
     await db.execute({
-      sql: "UPDATE signals SET status='executed' WHERE id=?",
+      sql: "UPDATE signals SET status='active' WHERE id=?",
       args: [signal_id],
     });
 
@@ -1901,7 +1959,7 @@ app.post("/signal/executed", async (req, res) => {
       }
     }
 
-    return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod });
+    return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, account_login, server });
   } catch {
     return res.status(400).json({ ok: false, error: "bad_json" });
   }
@@ -1930,9 +1988,9 @@ app.get("/ea/cooldown/status", async (req, res) => {
       const latest = await db.execute({
         sql:
           "SELECT se.filled_at_ms AS filled_at_ms " +
-          "FROM signal_exec se JOIN signals s ON s.id = se.signal_id " +
-          "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL " +
-          "ORDER BY se.filled_at_ms DESC LIMIT 1",
+          "FROM signal_exec2 se JOIN signals s ON s.id = se.signal_id " +
+          "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL AND se.ok_mod=1 " +
+          "ORDER BY se.filled_at_ms DESC LIMIT 1", 
         args: [symbol],
       });
       refMs = latest.rows?.[0]?.filled_at_ms != null ? Number(latest.rows[0].filled_at_ms) : NaN;
@@ -2016,8 +2074,8 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
     const latest = await db.execute({
       sql:
         "SELECT se.filled_at_ms AS filled_at_ms " +
-        "FROM signal_exec se JOIN signals s ON s.id = se.signal_id " +
-        "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL " +
+        "FROM signal_exec2 se JOIN signals s ON s.id = se.signal_id " +
+        "WHERE s.symbol=? AND se.filled_at_ms IS NOT NULL AND se.ok_mod=1 " +
         "ORDER BY se.filled_at_ms DESC LIMIT 1",
       args: [symbol],
     });
