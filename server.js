@@ -1302,16 +1302,26 @@ app.post("/signal/manual/open", async (req, res) => {
     const nowMs = Date.now();
     const created_at_mt5 = formatMt5(nowMs);
 
-    // Insert as already executed (trade is already open)
+    // Insert as active (trade is already open)
     await db.execute({
       sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      args: [id, symbol, direction, sl, JSON.stringify(tp), risk_pct, comment, "executed", nowMs, created_at_mt5],
+      args: [id, symbol, direction, sl, JSON.stringify(tp), risk_pct, comment, "active", nowMs, created_at_mt5],
     });
 
-    // Record execution
+    // Record execution (legacy/manual)
     await db.execute({
-      sql: "INSERT OR REPLACE INTO signal_exec (signal_id,ticket,fill_price,filled_at_ms,filled_at_mt5,raw_json) VALUES (?,?,?,?,?,?)",
-      args: [id, ticket, Number.isFinite(fill_price) ? fill_price : null, executed_at_ms, executed_at_mt5, JSON.stringify(body)],
+      sql: "INSERT OR REPLACE INTO signal_exec2 (signal_id,account_login,server,ticket,fill_price,filled_at_ms,filled_at_mt5,ok_mod,raw_json) VALUES (?,?,?,?,?,?,?,?,?)",
+      args: [
+        id,
+        "legacy",
+        "legacy",
+        ticket,
+        Number.isFinite(fill_price) ? fill_price : null,
+        executed_at_ms,
+        executed_at_mt5,
+        1,
+        JSON.stringify(body),
+      ],
     });
 
     // Post Telegram OPEN teaser (same style as /signal/executed)
