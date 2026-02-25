@@ -4088,6 +4088,12 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const ringCx = 320;
   const ringCy = 520;
 
+  // Boss: make mascot bigger on the left
+  const mascotX = 60;
+  const mascotY = 250;
+  const mascotW = 520;
+  const mascotH = 620;
+
   const panelX = 560;
   const panelY = 420;
   const panelW = 460;
@@ -4134,9 +4140,9 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">TRADE CLOSED</text>
 
 <!-- Left mascot (no ring) -->
-<ellipse cx="${ringCx}" cy="${ringCy}" rx="360" ry="360" fill="url(#spot)"/>
+<ellipse cx="${ringCx}" cy="${ringCy}" rx="400" ry="400" fill="url(#spot)"/>
 ${mascotDataUri ? `<g filter="url(#shadow)">
-  <image x="120" y="290" width="400" height="460" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet"/>
+  <image x="${mascotX}" y="${mascotY}" width="${mascotW}" height="${mascotH}" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
 <!-- Right titles -->
