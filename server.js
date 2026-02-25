@@ -4176,7 +4176,7 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
 
 <!-- Footer -->
 <text x="${pad}" y="996" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.42)">Recap generated • after trade close • ${ts}</text>
-<text x="${W - pad}" y="996" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">Ref ${ref8}</text>
+<text x="${W - pad - 24}" y="1012" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">Ref ${ref8}</text>
 </svg>`;
 }
 
