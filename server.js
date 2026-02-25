@@ -4094,10 +4094,14 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const mascotW = 840;
   const mascotH = 940;
 
+  // Right-side levels panel stays on the right.
   const panelX = 560;
   const panelY = 420;
   const panelW = 460;
   const panelH = 420;
+
+  // Boss: move title block (FLEXBOT / SYMBOL DIR / Outcome) to the LEFT.
+  const titleX = 110;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
@@ -4145,10 +4149,10 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <image x="${mascotX}" y="${mascotY}" width="${mascotW}" height="${mascotH}" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
-<!-- Right titles -->
-<text x="${panelX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
-<text x="${panelX}" y="310" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${sym} ${dir}</text>
-<text x="${panelX}" y="365" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
+<!-- Title block (left) -->
+<text x="${titleX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
+<text x="${titleX}" y="310" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${sym} ${dir}</text>
+<text x="${titleX}" y="365" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
 
 <!-- Levels panel -->
 <g filter="url(#shadow)">
