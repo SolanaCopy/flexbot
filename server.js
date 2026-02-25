@@ -2026,6 +2026,61 @@ app.post("/signal/executed", async (req, res) => {
   }
 });
 
+// POST /signal/reject
+// Header: X-API-Key: <EA_API_KEY>
+// Body (JSON): { signal_id:string, reason?:string, meta?:object }
+// Purpose: let EA permanently skip impossible signals (e.g. invalid SL) so /signal/next won't keep returning them.
+app.post("/signal/reject", async (req, res) => {
+  try {
+    const apiKey = req.header("x-api-key");
+    const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
+    if (!expected || !apiKey || String(apiKey) !== expected) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const signal_id = body?.signal_id ? String(body.signal_id) : "";
+    const reason = body?.reason != null ? String(body.reason) : "rejected";
+    const meta = body?.meta != null ? body.meta : null;
+    if (!signal_id) return res.status(400).json({ ok: false, error: "bad_signal_id" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const nowMs = Date.now();
+    await db.execute({
+      sql: "UPDATE signals SET status='rejected', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+      args: [nowMs, "REJECT", reason, signal_id],
+    });
+
+    // best-effort: store meta into signal_exec2 for debugging (as a non-ok_mod row)
+    try {
+      await db.execute({
+        sql: "INSERT OR REPLACE INTO signal_exec2 (signal_id,account_login,server,ticket,fill_price,filled_at_ms,filled_at_mt5,ok_mod,raw_json) VALUES (?,?,?,?,?,?,?,?,?)",
+        args: [
+          signal_id,
+          "reject",
+          "reject",
+          null,
+          null,
+          nowMs,
+          formatMt5(nowMs),
+          0,
+          JSON.stringify({ kind: "reject", reason, meta }),
+        ],
+      });
+    } catch {
+      // ignore
+    }
+
+    return res.json({ ok: true, signal_id, status: "rejected" });
+  } catch {
+    return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
 // GET /ea/cooldown/status?symbol=XAUUSD&cooldown_min=15
 // Returns remaining time based on last executed trade.
 app.get("/ea/cooldown/status", async (req, res) => {
