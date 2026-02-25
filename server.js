@@ -4106,7 +4106,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   // Add entries like: "mascot_win_custom8.png": { x:-180, y:420, w:820, h:920 }
   const mascotOverrides = {
     // win
-    "mascot_win_custom1.png": { x: -110 },
+    "mascot_win_custom1.png": { x: -110, w: 900, h: 1000 },
     // loss
     // "mascot_loss_force.png": { x: -160, y: 400, w: 840, h: 940 },
   };
