@@ -4196,6 +4196,9 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
     // Custom6: smaller
     "mascot_win_custom6.png": { x: -200, y: 360, w: 680, h: 760 },
+
+    // Custom7: a bit more to the right
+    "mascot_win_custom7.png": { x: -120 },
     // loss
     // "mascot_loss_force.png": { x: -160, y: 400, w: 840, h: 940 },
   };
