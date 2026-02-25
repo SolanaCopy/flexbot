@@ -59,11 +59,12 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   // Layout constants
   const pad = 56;
-  const ringCx = 320;
-  const ringCy = 520;
+  const ringCx = 300;
+  const ringCy = 760;
 
   const panelX = 560;
-  const panelY = 420;
+  const panelY = 220;
+  const titleX = 110;
   const panelW = 460;
   const panelH = 420;
 
@@ -108,15 +109,15 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">TRADE CLOSED</text>
 
 <!-- Left mascot (no ring) -->
-<ellipse cx="${ringCx}" cy="${ringCy}" rx="360" ry="360" fill="url(#spot)"/>
+<ellipse cx="${ringCx}" cy="${ringCy}" rx="420" ry="420" fill="url(#spot)"/>
 <g filter="url(#shadow)">
-  <image x="120" y="290" width="400" height="460" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet"/>
+  <image x="40" y="520" width="560" height="560" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>
 
-<!-- Right titles -->
-<text x="${panelX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
-<text x="${panelX}" y="310" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${sym} ${dir}</text>
-<text x="${panelX}" y="365" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
+<!-- Title block (left) -->
+<text x="${titleX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
+<text x="${titleX}" y="310" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${sym} ${dir}</text>
+<text x="${titleX}" y="365" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
 
 <!-- Levels panel -->
 <g filter="url(#shadow)">

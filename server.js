@@ -4190,7 +4190,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   // Layout constants
   const pad = 56;
   const ringCx = 300;
-  const ringCy = 520;
+  const ringCy = 760;
 
   // Default mascot placement (fallback)
   let mascotX = -160;
@@ -4218,7 +4218,8 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     // Custom7: a bit more to the right + smaller
     "mascot_win_custom7.png": { x: -120, w: 700, h: 800 },
     // loss
-    // "mascot_loss_force.png": { x: -160, y: 400, w: 840, h: 940 },
+    // Match the reference screenshot: smaller mascot bottom-left
+    "mascot_loss_force.png": { x: 40, y: 520, w: 560, h: 560 },
   };
   const ov = mascotOverrides[mascotName];
   let mascotFilter = null;
@@ -4291,7 +4292,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">TRADE CLOSED</text>
 
 <!-- Left mascot (no ring) -->
-<ellipse cx="${ringCx}" cy="${ringCy}" rx="480" ry="480" fill="url(#spot)"/>
+<ellipse cx="${ringCx}" cy="${ringCy}" rx="420" ry="420" fill="url(#spot)"/>
 ${mascotDataUri ? `<g filter="url(#shadow)">
   <image x="${mascotX}" y="${mascotY}" width="${mascotW}" height="${mascotH}" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet" ${mascotFilterAttr ? `filter="${mascotFilterAttr}"` : ``}/>
 </g>` : ``}
