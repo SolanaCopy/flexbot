@@ -3854,7 +3854,7 @@ function _pickRoundRobin(pool, key) {
   return chosen;
 }
 
-function getMascotDataUri({ outcome, result }) {
+function getMascotPick({ outcome, result }) {
   const cache = _loadMascotCache();
 
   // Determine win/loss using the same logic as the card colors
@@ -3867,7 +3867,7 @@ function getMascotDataUri({ outcome, result }) {
     try {
       const buf = fs.readFileSync(cache.forceLossPng);
       const mime = _guessMimeByExt(cache.forceLossPng);
-      return `data:${mime};base64,${buf.toString("base64")}`;
+      return { dataUri: `data:${mime};base64,${buf.toString("base64")}`, filePath: cache.forceLossPng, fileName: path.basename(cache.forceLossPng), isWin };
     } catch {
       // fall through to normal pool
     }
@@ -3907,10 +3907,15 @@ function getMascotDataUri({ outcome, result }) {
   try {
     const buf = fs.readFileSync(chosen);
     const mime = _guessMimeByExt(chosen);
-    return `data:${mime};base64,${buf.toString("base64")}`;
+    return { dataUri: `data:${mime};base64,${buf.toString("base64")}`, filePath: chosen, fileName: path.basename(chosen), isWin };
   } catch {
-    return null;
+    return { dataUri: null, filePath: null, fileName: null, isWin };
   }
+}
+
+// Back-compat helper
+function getMascotDataUri({ outcome, result }) {
+  return getMascotPick({ outcome, result })?.dataUri || null;
 }
 
 function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
@@ -4079,7 +4084,10 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const resultBig = prettyNum ? `${prettyNum} USD` : String(resultStr);
   const resultBigFont = fitFontByChars(resultBig, 74, 48, 12);
 
-  const mascotDataUri = getMascotDataUri({ outcome: outcomeStr, result: resultStr });
+  const mascotPick = getMascotPick({ outcome: outcomeStr, result: resultStr });
+  const mascotDataUri = mascotPick?.dataUri || null;
+  const mascotName = String(mascotPick?.fileName || "");
+
   const ref8 = (String(id || "").slice(-8) || "--------");
   const ts = fmtTsISO(new Date());
 
@@ -4088,11 +4096,28 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const ringCx = 300;
   const ringCy = 520;
 
-  // Boss: make mascot bigger + more left on the left
-  const mascotX = -160;
-  const mascotY = 400;
-  const mascotW = 840;
-  const mascotH = 940;
+  // Default mascot placement (fallback)
+  let mascotX = -160;
+  let mascotY = 400;
+  let mascotW = 840;
+  let mascotH = 940;
+
+  // Per-file overrides: tweak each mascot independently (offset + scale).
+  // Add entries like: "mascot_win_custom8.png": { x:-180, y:420, w:820, h:920 }
+  const mascotOverrides = {
+    // win
+    // "mascot_win_custom1.png": { x: -160, y: 400, w: 840, h: 940 },
+    // "mascot_win_custom8.png": { x: -160, y: 400, w: 840, h: 940 },
+    // loss
+    // "mascot_loss_force.png": { x: -160, y: 400, w: 840, h: 940 },
+  };
+  const ov = mascotOverrides[mascotName];
+  if (ov) {
+    if (ov.x != null) mascotX = Number(ov.x);
+    if (ov.y != null) mascotY = Number(ov.y);
+    if (ov.w != null) mascotW = Number(ov.w);
+    if (ov.h != null) mascotH = Number(ov.h);
+  }
 
   // Right-side levels panel stays on the right.
   const panelX = 560;
