@@ -4096,7 +4096,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   // Right-side levels panel stays on the right.
   const panelX = 560;
-  const panelY = 250;
+  const panelY = 220;
   const panelW = 460;
   const panelH = 420;
 
