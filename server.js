@@ -270,6 +270,16 @@ async function getDb() {
     // ignore
   }
 
+  // De-dupe posting side-effects (Telegram OPEN/CLOSED) across multiple EA accounts.
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS signal_posts (" +
+      "signal_id TEXT NOT NULL," +
+      "kind TEXT NOT NULL," +
+      "created_at_ms INTEGER NOT NULL," +
+      "PRIMARY KEY (signal_id, kind)" +
+    ")"
+  );
+
   await libsqlClient.execute(
     "CREATE INDEX IF NOT EXISTS idx_signals_symbol_created ON signals(symbol, created_at_ms DESC)"
   );
@@ -326,6 +336,39 @@ async function getDb() {
   );
 
   return libsqlClient;
+}
+
+async function claimSignalPostOnce({ db, signalId, kind }) {
+  if (!db || !signalId || !kind) return { ok: false, claimed: false };
+  const created_at_ms = Date.now();
+  try {
+    const r = await db.execute({
+      sql: "INSERT OR IGNORE INTO signal_posts (signal_id, kind, created_at_ms) VALUES (?,?,?)",
+      args: [String(signalId), String(kind), created_at_ms],
+    });
+    const rowsAffected = r?.rowsAffected != null ? Number(r.rowsAffected) : NaN;
+    if (Number.isFinite(rowsAffected)) return { ok: true, claimed: rowsAffected > 0 };
+  } catch {
+    // best effort (e.g. older DB without table) — fall through
+  }
+
+  // Fallback: best-effort select check (non-atomic, but avoids spam if insert path isn't available)
+  try {
+    const chk = await db.execute({
+      sql: "SELECT 1 AS ok FROM signal_posts WHERE signal_id=? AND kind=? LIMIT 1",
+      args: [String(signalId), String(kind)],
+    });
+    const exists = (chk?.rows || chk?.rowsAffected) ? (chk?.rows?.length || 0) > 0 : false;
+    if (exists) return { ok: true, claimed: false };
+
+    await db.execute({
+      sql: "INSERT OR IGNORE INTO signal_posts (signal_id, kind, created_at_ms) VALUES (?,?,?)",
+      args: [String(signalId), String(kind), created_at_ms],
+    });
+    return { ok: true, claimed: true };
+  } catch {
+    return { ok: false, claimed: false };
+  }
 }
 
 async function isMainAccountLocked(symbol) {
@@ -1460,6 +1503,18 @@ app.post("/signal/closed", async (req, res) => {
 
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
 
+    // De-dupe CLOSED posting across multiple EA accounts.
+    // Only one request should do Telegram side-effects (edit open + post closed card + streak).
+    const closeClaim = await claimSignalPostOnce({ db, signalId: signal_id, kind: "tg_closed" });
+    if (!closeClaim.claimed) {
+      // Still update DB metadata (idempotent) and return.
+      await db.execute({
+        sql: "UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+        args: [closed_at_ms, outcome, result, signal_id],
+      });
+      return res.json({ ok: true, signal_id, posted: false, dedup: true });
+    }
+
     // Update consecutive-loss counter (used by autoScalpRunHandler guard)
     try {
       const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
@@ -1941,6 +1996,12 @@ app.post("/signal/executed", async (req, res) => {
           const comment = sig?.comment != null ? String(sig.comment) : null;
 
           if (dir && ["BUY", "SELL"].includes(dir)) {
+            // Hard de-dupe across multiple EA accounts: only 1 request may post the OPEN teaser.
+            const claim = await claimSignalPostOnce({ db, signalId: signal_id, kind: "tg_open" });
+            if (!claim.claimed) {
+              return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, tg_open_dedup: true });
+            }
+
             try {
               const caption = formatSignalCaption({ id: signal_id, symbol: sym, direction: dir, riskPct, comment });
               const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
