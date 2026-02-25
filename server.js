@@ -4089,8 +4089,8 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const ringCy = 520;
 
   // Boss: make mascot bigger + more left on the left
-  const mascotX = -60;
-  const mascotY = 360;
+  const mascotX = -120;
+  const mascotY = 420;
   const mascotW = 760;
   const mascotH = 860;
 
