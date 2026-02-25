@@ -4159,6 +4159,18 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const W = 1080;
   const H = 1080;
 
+  // Optional: use Boss-provided LOSS template background (exact look)
+  const lossTplPath = path.join(__dirname, "assets", "loss_card_template.png");
+  const lossTplDataUri = (() => {
+    try {
+      if (!fs.existsSync(lossTplPath)) return null;
+      const buf = fs.readFileSync(lossTplPath);
+      return `data:image/png;base64,${buf.toString("base64")}`;
+    } catch {
+      return null;
+    }
+  })();
+
   const sym = String(symbol || "").toUpperCase();
   const dir = String(direction || "").toUpperCase();
 
@@ -4171,6 +4183,38 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const isTp = String(outcomeStr).toLowerCase().includes("tp");
   const isSl = String(outcomeStr).toLowerCase().includes("sl");
   const outcomeColor = isTp ? "#22c55e" : (isSl ? "#ff4d4d" : "#f59e0b");
+
+  // If it's a LOSS and we have the exact template, render on top of it.
+  if (isSl && lossTplDataUri) {
+    const titleX = 110;
+    const panelValX = 930;
+    const ref8t = (String(id || "").slice(-8) || "--------");
+    const entryStr = entry ?? "market";
+    const slStr = sl ?? "-";
+    const tpStr = tp1 ?? "-";
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  <image x="0" y="0" width="${W}" height="${H}" href="${lossTplDataUri}"/>
+
+  <!-- Mask old baked-in text (symbol/dir/outcome/ref) so we can render dynamic values -->
+  <rect x="70" y="190" width="520" height="220" rx="18" fill="rgba(0,0,0,0.35)"/>
+  <rect x="820" y="1010" width="250" height="60" rx="10" fill="rgba(0,0,0,0.35)"/>
+
+  <!-- Dynamic title block (left) -->
+  <text x="${titleX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
+  <text x="${titleX}" y="310" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${sym} ${dir}</text>
+  <text x="${titleX}" y="365" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
+
+  <!-- Dynamic panel values (right) -->
+  <text x="${panelValX}" y="314" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entryStr}</text>
+  <text x="${panelValX}" y="424" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${slStr}</text>
+  <text x="${panelValX}" y="534" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${tpStr}</text>
+
+  <!-- Ref -->
+  <text x="${W - 56}" y="1052" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.55)">Ref ${ref8t}</text>
+</svg>`;
+  }
 
   const rawNum = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
   const prettyNum = Number.isFinite(rawNum) ? Math.abs(rawNum).toFixed(2) : null;
