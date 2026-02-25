@@ -4199,8 +4199,10 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   <!-- Mask old baked-in text (symbol/dir/outcome/ref) so we can render dynamic values -->
   <!-- HARD mask: fully hide baked-in texts on the provided template -->
-  <rect x="40" y="150" width="680" height="340" rx="22" fill="#000"/>
-  <rect x="770" y="995" width="310" height="90" rx="14" fill="#000"/>
+  <!-- Covers: FLEXBOT + XAUUSD BUY + Outcome line -->
+  <rect x="0" y="120" width="760" height="380" rx="26" fill="rgba(0,0,0,0.92)"/>
+  <!-- Covers baked-in Ref -->
+  <rect x="720" y="985" width="360" height="110" rx="16" fill="rgba(0,0,0,0.92)"/>
 
   <!-- Dynamic title block (left) -->
   <text x="${titleX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
