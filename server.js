@@ -4186,28 +4186,17 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   // If it's a LOSS and we have the exact template, render on top of it.
   if (isSl && lossTplDataUri) {
-    const titleX = 110;
     const panelValX = 930;
     const ref8t = (String(id || "").slice(-8) || "--------");
     const entryStr = entry ?? "market";
     const slStr = sl ?? "-";
     const tpStr = tp1 ?? "-";
 
+    // IMPORTANT: template already contains FLEXBOT / XAUUSD BUY / Outcome text.
+    // So we do NOT redraw them (avoids double text like "XAUUSDBUYY").
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <image x="0" y="0" width="${W}" height="${H}" href="${lossTplDataUri}"/>
-
-  <!-- Mask old baked-in text (symbol/dir/outcome/ref) so we can render dynamic values -->
-  <!-- HARD mask: fully hide baked-in texts on the provided template -->
-  <!-- Covers: FLEXBOT + XAUUSD BUY + Outcome line -->
-  <rect x="0" y="120" width="760" height="380" rx="26" fill="rgba(0,0,0,0.92)"/>
-  <!-- Covers baked-in Ref -->
-  <rect x="720" y="985" width="360" height="110" rx="16" fill="rgba(0,0,0,0.92)"/>
-
-  <!-- Dynamic title block (left) -->
-  <text x="${titleX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
-  <text x="${titleX}" y="310" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${sym} ${dir}</text>
-  <text x="${titleX}" y="365" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
 
   <!-- Dynamic panel values (right) -->
   <text x="${panelValX}" y="314" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entryStr}</text>
@@ -4215,6 +4204,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   <text x="${panelValX}" y="534" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${tpStr}</text>
 
   <!-- Ref -->
+  <rect x="720" y="985" width="360" height="110" rx="16" fill="rgba(0,0,0,0.92)"/>
   <text x="${W - 56}" y="1052" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.55)">Ref ${ref8t}</text>
 </svg>`;
   }
