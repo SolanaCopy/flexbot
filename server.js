@@ -3793,7 +3793,10 @@ function _loadMascotCache() {
 
   // Prefer transparent formats (png/webp). Only fall back to jpg/jpeg if no transparent variants exist.
   // Keep ordering stable so round-robin rotation is deterministic.
+  // Boss: use the new "custom" win set if present.
   let win = files.filter((f) => isImage(f) && /^mascot_win/i.test(f));
+  const winCustom = win.filter((f) => /^mascot_win_custom/i.test(f));
+  if (winCustom.length) win = winCustom;
   const winT = win.filter(isTransparentPreferred);
   if (winT.length) win = winT;
   win = win.map((f) => path.join(dir, f)).sort((a, b) => a.localeCompare(b));
