@@ -4198,8 +4198,8 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   <image x="0" y="0" width="${W}" height="${H}" href="${lossTplDataUri}"/>
 
   <!-- Mask old baked-in text (symbol/dir/outcome/ref) so we can render dynamic values -->
-  <rect x="70" y="190" width="520" height="220" rx="18" fill="rgba(0,0,0,0.35)"/>
-  <rect x="820" y="1010" width="250" height="60" rx="10" fill="rgba(0,0,0,0.35)"/>
+  <rect x="70" y="180" width="560" height="250" rx="18" fill="rgba(0,0,0,0.82)"/>
+  <rect x="800" y="1005" width="280" height="70" rx="12" fill="rgba(0,0,0,0.82)"/>
 
   <!-- Dynamic title block (left) -->
   <text x="${titleX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
