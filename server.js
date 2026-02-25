@@ -4107,16 +4107,22 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const mascotOverrides = {
     // win
     "mascot_win_custom1.png": { x: -125, w: 900, h: 1000 },
+    // Custom2: make thobe look less "transparent" by boosting brightness/contrast a bit.
+    "mascot_win_custom2.png": { filter: "boost" },
     // loss
     // "mascot_loss_force.png": { x: -160, y: 400, w: 840, h: 940 },
   };
   const ov = mascotOverrides[mascotName];
+  let mascotFilter = null;
   if (ov) {
     if (ov.x != null) mascotX = Number(ov.x);
     if (ov.y != null) mascotY = Number(ov.y);
     if (ov.w != null) mascotW = Number(ov.w);
     if (ov.h != null) mascotH = Number(ov.h);
+    if (ov.filter != null) mascotFilter = String(ov.filter);
   }
+
+  const mascotFilterAttr = mascotFilter === "boost" ? "url(#mascotBoost)" : null;
 
   // Right-side levels panel stays on the right.
   const panelX = 560;
@@ -4157,6 +4163,15 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.38 0" result="g"/>
     <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
   </filter>
+
+  <!-- Per-mascot tweak: slight brightness/contrast boost (used by custom2 to avoid "see-through" whites) -->
+  <filter id="mascotBoost" color-interpolation-filters="sRGB">
+    <feComponentTransfer>
+      <feFuncR type="gamma" amplitude="1" exponent="0.92" offset="0"/>
+      <feFuncG type="gamma" amplitude="1" exponent="0.92" offset="0"/>
+      <feFuncB type="gamma" amplitude="1" exponent="0.92" offset="0"/>
+    </feComponentTransfer>
+  </filter>
 </defs>
 
 <rect width="${W}" height="${H}" fill="url(#bg)"/>
@@ -4170,7 +4185,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 <!-- Left mascot (no ring) -->
 <ellipse cx="${ringCx}" cy="${ringCy}" rx="480" ry="480" fill="url(#spot)"/>
 ${mascotDataUri ? `<g filter="url(#shadow)">
-  <image x="${mascotX}" y="${mascotY}" width="${mascotW}" height="${mascotH}" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet"/>
+  <image x="${mascotX}" y="${mascotY}" width="${mascotW}" height="${mascotH}" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet" ${mascotFilterAttr ? `filter="${mascotFilterAttr}"` : ``}/>
 </g>` : ``}
 
 <!-- Title block (left) -->
