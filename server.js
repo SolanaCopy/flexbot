@@ -4185,8 +4185,8 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const mascotOverrides = {
     // win
     "mascot_win_custom1.png": { x: -125, w: 900, h: 1000 },
-    // Custom2: make thobe look less "transparent" by boosting brightness/contrast a bit.
-    "mascot_win_custom2.png": { filter: "boost" },
+    // Custom2: slightly smaller + boost whites.
+    "mascot_win_custom2.png": { w: 800, h: 900, filter: "boost" },
     // loss
     // "mascot_loss_force.png": { x: -160, y: 400, w: 840, h: 940 },
   };
