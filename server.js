@@ -1066,6 +1066,29 @@ app.get("/signal/auto/create", async (req, res) => {
     if (!Number.isFinite(sl) || sl <= 0) return res.status(400).json({ ok: false, error: "bad_sl" });
     if (!tp.length) return res.status(400).json({ ok: false, error: "bad_tp" });
 
+    // Validate SL vs current market if we have a fresh local price snapshot.
+    let curMid = NaN;
+    try {
+      if (last && String(last.symbol || "").toUpperCase() === symbol) {
+        const age = last.ts != null ? Date.now() - Number(last.ts) : Infinity;
+        if (Number.isFinite(age) && age <= 10 * 60 * 1000) {
+          const bid = Number(last.bid);
+          const ask = Number(last.ask);
+          if (Number.isFinite(bid) && Number.isFinite(ask)) curMid = (bid + ask) / 2;
+        }
+      }
+    } catch {
+      curMid = NaN;
+    }
+    if (Number.isFinite(curMid)) {
+      const invalidByPrice =
+        (direction === "SELL" && curMid >= sl) ||
+        (direction === "BUY" && curMid <= sl);
+      if (invalidByPrice) {
+        return res.status(400).json({ ok: false, error: "invalid_sl_vs_price", direction, sl, cur: Number(curMid.toFixed(3)) });
+      }
+    }
+
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
