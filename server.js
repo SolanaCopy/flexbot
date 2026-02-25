@@ -3856,6 +3856,57 @@ async function tgSendPhoto({ chatId, photo, caption }) {
   return json;
 }
 
+async function tgSendVideo({ chatId, video, caption }) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
+  if (!chatId) throw new Error("missing_chatId");
+
+  const url = `https://api.telegram.org/bot${token}/sendVideo`;
+
+  // Telegram sendVideo supports:
+  // - video as file_id / URL (JSON)
+  // - video as multipart/form-data upload (Buffer/Uint8Array)
+  const isBinary =
+    (typeof Buffer !== "undefined" && Buffer.isBuffer(video)) ||
+    video instanceof Uint8Array;
+
+  let r;
+  if (isBinary) {
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    if (caption) form.append("caption", String(caption));
+
+    const buf = Buffer.isBuffer(video) ? video : Buffer.from(video);
+    const blob = new Blob([buf], { type: "video/mp4" });
+    form.append("video", blob, "streak_tp2.mp4");
+
+    r = await fetchFn(url, { method: "POST", body: form });
+  } else {
+    r = await fetchFn(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, video, caption }),
+    });
+  }
+
+  const text = await r.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = { ok: false, raw: text };
+  }
+
+  if (!r.ok || !json?.ok) {
+    const err = json?.description || json?.error || `telegram_http_${r.status}`;
+    const e = new Error(err);
+    e.details = json;
+    throw e;
+  }
+
+  return json;
+}
+
 async function fetchJson(url) {
   const r = await fetchFn(url);
   if (!r.ok) {
