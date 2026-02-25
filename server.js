@@ -335,6 +335,16 @@ async function getDb() {
     ")"
   );
 
+  // TP streak state (persistent across restarts / multiple instances)
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS tp_streak (" +
+      "symbol TEXT NOT NULL PRIMARY KEY," +
+      "streak INTEGER NOT NULL," +
+      "last_signal_id TEXT," +
+      "updated_at_ms INTEGER NOT NULL" +
+    ")"
+  );
+
   return libsqlClient;
 }
 
@@ -1651,40 +1661,40 @@ app.post("/signal/closed", async (req, res) => {
       await tgSendMessage({ chatId, text: slMsg ? `❌ ${slMsg}\n\n${closedText}` : closedText });
     }
 
-    // 3) TP streak message (based on closed-card outcome)
+    // 3) TP streak message (persistent; safe across restarts / multiple instances)
     try {
       const sym2 = String(sig.symbol || "XAUUSD").toUpperCase();
+
       const out = String(outcome || "").toLowerCase();
-      const isTp = out.includes("tp");
-      const isSl = out.includes("sl");
+      const rawNum = Number(String(result || "").replace(/[^0-9.+-]/g, ""));
+      const hasNum = Number.isFinite(rawNum);
 
-      const stateDir = path.join(__dirname, "state");
-      const fp = path.join(stateDir, `tp-streak-${sym2}.json`);
-      try { fs.mkdirSync(stateDir, { recursive: true }); } catch {}
+      // Treat TP as either explicit "tp" outcome OR positive numeric result (more robust)
+      const isTp = out.includes("tp") || (hasNum && rawNum > 0);
+      const isSl = out.includes("sl") || (hasNum && rawNum < 0);
 
-      let st = { streak: 0, lastSignalId: "" };
-      try {
-        const raw = fs.readFileSync(fp, "utf8");
-        const j = JSON.parse(raw);
-        st = { streak: Number(j?.streak || 0), lastSignalId: String(j?.lastSignalId || "") };
-      } catch {}
+      // Load current state from DB
+      const stRow = await db.execute({
+        sql: "SELECT streak,last_signal_id FROM tp_streak WHERE symbol=? LIMIT 1",
+        args: [sym2],
+      });
+      const curStreak = stRow.rows?.[0]?.streak != null ? Number(stRow.rows[0].streak) : 0;
+      const lastSignalId = stRow.rows?.[0]?.last_signal_id != null ? String(stRow.rows[0].last_signal_id) : "";
 
       // de-dupe per signal
-      if (st.lastSignalId !== signal_id) {
-        let next = st.streak;
-        if (isTp) next = Math.max(0, st.streak) + 1;
+      if (String(lastSignalId) !== String(signal_id)) {
+        let next = Number.isFinite(curStreak) ? Math.max(0, curStreak) : 0;
+        if (isTp) next = next + 1;
         else if (isSl) next = 0;
-        else next = st.streak; // no change on unknown outcomes
 
-        st = { streak: next, lastSignalId: signal_id };
-        try {
-          fs.writeFileSync(fp, JSON.stringify({ ...st, updatedAt: new Date().toISOString() }, null, 2), "utf8");
-        } catch {}
+        await db.execute({
+          sql: "INSERT OR REPLACE INTO tp_streak (symbol,streak,last_signal_id,updated_at_ms) VALUES (?,?,?,?)",
+          args: [sym2, next, String(signal_id), Date.now()],
+        });
 
         if (isTp && next === 1) {
           await tgSendMessage({ chatId, text: "✅ TP geraakt — netjes.\nhttps://www.fxflexbot.com/" });
         } else if (isTp && next === 2) {
-          // Send streak-2 banner image
           const bannerPath = path.join(__dirname, "assets", "streak_tp2.png");
           if (fs.existsSync(bannerPath)) {
             const buf = fs.readFileSync(bannerPath);
@@ -1693,7 +1703,6 @@ app.post("/signal/closed", async (req, res) => {
             await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
           }
         } else if (isTp && next === 3) {
-          // Send streak-3 banner image
           const bannerPath = path.join(__dirname, "assets", "streak_tp3.png");
           if (fs.existsSync(bannerPath)) {
             const buf = fs.readFileSync(bannerPath);
