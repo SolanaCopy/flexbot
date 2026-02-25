@@ -4130,8 +4130,7 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
 </g>
 
 <!-- Footer -->
-<text x="110" y="935" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.45)">Ref  ${ref8}</text>
-<text x="110" y="995" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.40)">Recap generated • after trade close • ${ts}</text>
+<text x="110" y="1008" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">Ref  ${ref8}</text>
 </svg>`;
 }
 
@@ -4303,8 +4302,7 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <text x="${panelX + 40}" y="${panelY + 370}" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" textLength="${panelW - 80}" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
 
-<!-- Footer (small, bottom-right) -->
-<text x="${W - pad - 24}" y="1046" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="16" fill="rgba(255,255,255,0.40)">Regenerated after trade close • ${ts}</text>
+<!-- Footer (bottom-right) -->
 <text x="${W - pad - 24}" y="1068" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="16" fill="rgba(255,255,255,0.55)">Ref ${ref8}</text>
 </svg>`;
 }
