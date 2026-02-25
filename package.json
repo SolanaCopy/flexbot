@@ -1,8 +1,1 @@
-{
-"name": "fxflexbot-price-api",
-"version": "1.0.0",
-"main": "server.js",
-"type": "commonjs",
-"scripts": { "start": "node server.js" },
-"dependencies": { "express": "^4.18.3", "@libsql/client": "^0.15.1", "@resvg/resvg-js": "^2.6.2" }
-}
+{"name":"fxflexbot-price-api","version":"1.0.0","main":"server.js","type":"commonjs","scripts":{"start":"node server.js"},"dependencies":{"@libsql/client":"^0.15.1","@resvg/resvg-js":"^2.6.2","express":"^4.18.3","jpeg-js":"^0.4.4","pngjs":"^7.0.0"}}
