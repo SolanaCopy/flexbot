@@ -2406,6 +2406,15 @@ app.post("/ea/status", async (req, res) => {
     const tickets = Array.isArray(body?.tickets) ? body.tickets.map((x) => String(x)) : [];
     const equity = body?.equity != null ? Number(body.equity) : null;
 
+    // Track daily start equity for PnL % calculations (Amsterdam day)
+    try {
+      if (Number.isFinite(equity) && equity > 0) {
+        getAndUpdateDailyEquityStart({ symbol, tz: "Europe/Amsterdam", equityUsd: equity });
+      }
+    } catch {
+      // ignore
+    }
+
     const tsMs = body?.time != null ? parseTimeToMs(body.time) : Date.now();
     const updated_at_ms = Number.isFinite(tsMs) ? tsMs : Date.now();
 
@@ -4984,29 +4993,92 @@ async function autoDailyRecapHandler(req, res) {
 
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
 
-    // Use Amsterdam start-of-day (matches trading/Telegram expectations better than server-local time).
+    // Use Amsterdam start-of-day (rollover expectation).
     const startMs = startOfDayMsInTz("Europe/Amsterdam");
-    const startMsSafe = Number.isFinite(startMs) ? startMs : (() => { const s = new Date(); s.setHours(0,0,0,0); return s.getTime(); })();
+    const startMsSafe = Number.isFinite(startMs)
+      ? startMs
+      : (() => {
+          const s = new Date();
+          s.setHours(0, 0, 0, 0);
+          return s.getTime();
+        })();
 
-    // Count ALL signals today (previous code limited to 5, which made counts wrong).
-    const qCount = await db.execute({
-      sql: "SELECT COUNT(1) AS n FROM signals WHERE symbol=? AND created_at_ms >= ?",
+    // Closed trades only.
+    const q = await db.execute({
+      sql:
+        "SELECT id,direction,close_outcome,close_result,closed_at_ms FROM signals " +
+        "WHERE symbol=? AND status='closed' AND closed_at_ms IS NOT NULL AND closed_at_ms >= ? " +
+        "ORDER BY closed_at_ms ASC",
       args: [symbol, startMsSafe],
     });
-    const n = qCount.rows?.[0]?.n != null ? Number(qCount.rows[0].n) : 0;
 
-    // Fetch last direction separately.
-    const qLast = await db.execute({
-      sql: "SELECT direction FROM signals WHERE symbol=? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 1",
-      args: [symbol, startMsSafe],
+    const rows = q.rows || [];
+
+    const parseUsd = (s) => {
+      const raw = String(s ?? "");
+      const n = Number(raw.replace(/[^0-9.+-]/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const items = rows.map((r) => {
+      const id = r.id != null ? String(r.id) : "";
+      const ref = id ? id.slice(-8) : "--------";
+      const dir = r.direction != null ? String(r.direction).toUpperCase() : "-";
+      const out = r.close_outcome != null ? String(r.close_outcome) : "-";
+      const resu = r.close_result != null ? String(r.close_result) : "-";
+      const usd = parseUsd(resu);
+      return { ref, dir, out, resu, usd };
     });
-    const lastDir = qLast.rows?.[0]?.direction != null ? String(qLast.rows[0].direction) : null;
 
-    const msg = n === 0
-      ? `#RECAP ${symbol}\nNo signals today.`
-      : `#RECAP ${symbol}\nSignals today: ${n}. Last: ${lastDir}.`;
-    await tgSendMessage({ chatId, text: msg });
-    return res.json({ ok: true, acted: true, n, lastDir, start_ms: startMsSafe });
+    const totalUsd = items.reduce((a, x) => a + (Number.isFinite(x.usd) ? x.usd : 0), 0);
+
+    // Percent: use stored daily start equity (written by /ea/status) if available.
+    let startEquity = null;
+    try {
+      const fp = riskStatePath("risk-day", symbol);
+      const st = readJsonFileSafe(fp, null);
+      if (st && Number.isFinite(Number(st.startEquity)) && Number(st.startEquity) > 0) {
+        startEquity = Number(st.startEquity);
+      }
+    } catch {
+      startEquity = null;
+    }
+    if (startEquity == null) {
+      const envEq = Number(process.env.DAILY_START_EQUITY_USD || process.env.START_EQUITY_USD || 0);
+      if (Number.isFinite(envEq) && envEq > 0) startEquity = envEq;
+    }
+
+    const pct = startEquity ? (totalUsd / startEquity) * 100 : null;
+
+    const sign = (n) => (n > 0 ? "+" : n < 0 ? "-" : "");
+    const fmtUsd = (n) => `${sign(n)}${Math.abs(n).toFixed(2)} USD`;
+    const fmtPct = (n) => `${sign(n)}${Math.abs(n).toFixed(2)}%`;
+
+    if (!items.length) {
+      await tgSendMessage({ chatId, text: `#RECAP ${symbol}\nNo closed trades today.` });
+      return res.json({ ok: true, acted: true, closed: 0, totalUsd: 0, start_ms: startMsSafe });
+    }
+
+    const header =
+      `#RECAP ${symbol}\n` +
+      `Closed trades: ${items.length}\n` +
+      `PnL: ${fmtUsd(totalUsd)}${pct != null ? ` (${fmtPct(pct)})` : ""}`;
+
+    const lines = items.map((x, i) => {
+      const outShort = String(x.out || "-").replace(/\s+/g, " ").trim();
+      const resShort = String(x.resu || "-").replace(/\s+/g, " ").trim();
+      return `${i + 1}) ${x.dir} | ${outShort} | ${resShort} | Ref ${x.ref}`;
+    });
+
+    // Telegram message size safety: chunk the list.
+    const chunkSize = 18;
+    for (let i = 0; i < lines.length; i += chunkSize) {
+      const chunk = lines.slice(i, i + chunkSize);
+      const prefix = i === 0 ? `${header}\n\n` : `#RECAP ${symbol} (cont)\n`;
+      await tgSendMessage({ chatId, text: prefix + chunk.join("\n") });
+    }
+
+    return res.json({ ok: true, acted: true, closed: items.length, totalUsd, pct, startEquity, start_ms: startMsSafe });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_daily_recap_failed", message: String(e?.message || e) });
   }
