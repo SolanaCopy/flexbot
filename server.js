@@ -17,8 +17,9 @@ function isMasterBroadcaster(body) {
   const masterLogin = String(process.env.MASTER_LOGIN ?? "").trim();
   const masterServer = String(process.env.MASTER_SERVER ?? "").trim();
 
-  // Fail-closed: if not configured or EA didn't send account info, never broadcast.
-  if (!masterLogin || !masterServer) return false;
+  // If not configured, allow broadcasting (older behavior). Use MASTER_LOGIN/MASTER_SERVER to pin posting to one account.
+  if (!masterLogin || !masterServer) return true;
+  // If configured but EA didn't send account info, deny.
   if (!login || !server) return false;
 
   return login === masterLogin && server === masterServer;
@@ -1369,8 +1370,17 @@ app.post("/signal/manual/open", async (req, res) => {
             args: [String(chatId), Number(mid), String(id)],
           });
         }
-      } catch {
-        // best effort
+      } catch (e) {
+        const msg = String(e?.message || e);
+        console.error("tg_open_manual_send_failed", msg);
+        // Fallback: at least send text, so the group still sees the OPEN.
+        try {
+          const chatId2 = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+          const caption2 = formatSignalCaption({ id, symbol, direction, riskPct: risk_pct, comment });
+          await tgSendMessage({ chatId: chatId2, text: caption2 });
+        } catch {
+          // best effort
+        }
       }
     }
 
@@ -1678,9 +1688,12 @@ app.post("/signal/closed", async (req, res) => {
         const outLabel = String(outcome || "CLOSED");
         const caption = slMsg ? `❌ ${slMsg}` : `✅ ${outLabel}${ref8 ? ` (Ref ${ref8})` : ""}`;
         await tgSendPhoto({ chatId, photo: pngBuf, caption });
-      } catch {
+      } catch (e) {
+        const msg = String(e?.message || e);
+        console.error("tg_closed_send_failed", msg, { signal_id, chatId });
         await tgSendMessage({ chatId, text: slMsg ? `❌ ${slMsg}\n\n${closedText}` : closedText });
       }
+    }
 
       // 3) TP streak message (persistent; safe across restarts / multiple instances)
       try {
@@ -2079,8 +2092,16 @@ app.post("/signal/executed", async (req, res) => {
                     args: [String(chatId), Number(mid), String(signal_id)],
                   });
                 }
-              } catch {
-                // best effort; execution state must not fail due to Telegram
+              } catch (e) {
+                const msg = String(e?.message || e);
+                console.error("tg_open_send_failed", msg, { signal_id, sym, chatId });
+                // Fallback: at least send a text notice so the group sees it.
+                try {
+                  const caption2 = formatSignalCaption({ id: signal_id, symbol: sym, direction: dir, riskPct, comment });
+                  await tgSendMessage({ chatId, text: caption2 });
+                } catch {
+                  // best effort
+                }
               }
             }
           }
