@@ -4291,6 +4291,14 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
 
 // V3 card (premium refresh)
 function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, sl, tp }) {
+  const fmtLevel = (v) => {
+    if (v == null) return "-";
+    if (typeof v === "string") return v;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "-";
+    // XAUUSD formatting: 2 decimals.
+    return n.toFixed(2);
+  };
   // Premium Glass V4 (clean, minimal)
   const W = 1080;
   const H = 1080;
@@ -4324,9 +4332,9 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   if (isSl && lossTplDataUri) {
     const panelValX = 930;
     const ref8t = (String(id || "").slice(-8) || "--------");
-    const entryStr = entry ?? "market";
-    const slStr = sl ?? "-";
-    const tpStr = tp1 ?? "-";
+    const entryStr = entry === "market" ? "market" : fmtLevel(entry);
+    const slStr = fmtLevel(sl);
+    const tpStr = fmtLevel(tp1);
 
     // IMPORTANT: template already contains FLEXBOT / XAUUSD BUY / Outcome text.
     // So we do NOT redraw them (avoids double text like "XAUUSDBUYY").
@@ -4484,13 +4492,13 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <line x1="${panelX}" y1="${panelY + 275}" x2="${panelX + panelW}" y2="${panelY + 275}" stroke="rgba(255,255,255,0.10)"/>
 
   <text x="${panelX + 48}" y="${panelY + 62}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 62}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry ?? "market"}</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 62}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry === "market" ? "market" : fmtLevel(entry)}</text>
 
   <text x="${panelX + 48}" y="${panelY + 152}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">SL</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 152}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${sl ?? "-"}</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 152}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(sl)}</text>
 
   <text x="${panelX + 48}" y="${panelY + 242}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 242}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${tp1 ?? "-"}</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 242}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(tp1)}</text>
 
   <text x="${panelX + 40}" y="${panelY + 370}" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" textLength="${panelW - 80}" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
