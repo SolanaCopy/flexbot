@@ -1737,10 +1737,11 @@ app.post("/signal/closed", async (req, res) => {
               await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
             }
           } else if (isTp && next === 3) {
-            const bannerPath = path.join(__dirname, "assets", "streak_tp3.png");
-            if (fs.existsSync(bannerPath)) {
-              const buf = fs.readFileSync(bannerPath);
-              await tgSendPhoto({ chatId, photo: buf, caption: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
+            // Send streak-3 VIDEO (Boss request)
+            const videoPath = path.join(__dirname, "assets", "streak_tp3.mp4");
+            if (fs.existsSync(videoPath)) {
+              const buf = fs.readFileSync(videoPath);
+              await tgSendVideo({ chatId, video: buf, caption: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
             } else {
               await tgSendMessage({ chatId, text: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
             }
