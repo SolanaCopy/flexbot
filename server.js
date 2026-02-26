@@ -5021,13 +5021,11 @@ async function autoDailyRecapHandler(req, res) {
     };
 
     const items = rows.map((r) => {
-      const id = r.id != null ? String(r.id) : "";
-      const ref = id ? id.slice(-8) : "--------";
       const dir = r.direction != null ? String(r.direction).toUpperCase() : "-";
       const out = r.close_outcome != null ? String(r.close_outcome) : "-";
       const resu = r.close_result != null ? String(r.close_result) : "-";
       const usd = parseUsd(resu);
-      return { ref, dir, out, resu, usd };
+      return { dir, out, resu, usd };
     });
 
     const totalUsd = items.reduce((a, x) => a + (Number.isFinite(x.usd) ? x.usd : 0), 0);
@@ -5067,11 +5065,12 @@ async function autoDailyRecapHandler(req, res) {
     const lines = items.map((x, i) => {
       const outShort = String(x.out || "-").replace(/\s+/g, " ").trim();
       const resShort = String(x.resu || "-").replace(/\s+/g, " ").trim();
-      return `${i + 1}) ${x.dir} | ${outShort} | ${resShort} | Ref ${x.ref}`;
+      // Keep it short: no Ref.
+      return `${i + 1}) ${x.dir} | ${outShort} | ${resShort}`;
     });
 
     // Telegram message size safety: chunk the list.
-    const chunkSize = 18;
+    const chunkSize = 25;
     for (let i = 0; i < lines.length; i += chunkSize) {
       const chunk = lines.slice(i, i + chunkSize);
       const prefix = i === 0 ? `${header}\n\n` : `#RECAP ${symbol} (cont)\n`;
