@@ -4500,7 +4500,7 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <text x="${panelX + 48}" y="${panelY + 182}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
   <text x="${panelX + panelW - 48}" y="${panelY + 182}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(tp1)}</text>
 
-  <text x="${panelX + 40}" y="${panelY + 370}" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" textLength="${panelW - 80}" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
+  <text x="${panelX + 40}" y="${panelY + 370}" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.4" paint-order="stroke" filter="url(#softGlow)" textLength="${panelW - 80}" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
 
 <!-- Footer (bottom-right) -->
