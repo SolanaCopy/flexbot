@@ -4343,9 +4343,9 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   <image x="0" y="0" width="${W}" height="${H}" href="${lossTplDataUri}"/>
 
   <!-- Dynamic panel values (right) -->
-  <text x="${panelValX}" y="294" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entryStr}</text>
-  <text x="${panelValX}" y="404" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${slStr}</text>
-  <text x="${panelValX}" y="514" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${tpStr}</text>
+  <text x="${panelValX}" y="274" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entryStr}</text>
+  <text x="${panelValX}" y="384" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${slStr}</text>
+  <text x="${panelValX}" y="494" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${tpStr}</text>
 
   <!-- Ref -->
   <rect x="720" y="985" width="360" height="110" rx="16" fill="rgba(0,0,0,0.92)"/>
@@ -4491,14 +4491,14 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <line x1="${panelX}" y1="${panelY + 185}" x2="${panelX + panelW}" y2="${panelY + 185}" stroke="rgba(255,255,255,0.10)"/>
   <line x1="${panelX}" y1="${panelY + 275}" x2="${panelX + panelW}" y2="${panelY + 275}" stroke="rgba(255,255,255,0.10)"/>
 
-  <text x="${panelX + 48}" y="${panelY + 42}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 42}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry === "market" ? "market" : fmtLevel(entry)}</text>
+  <text x="${panelX + 48}" y="${panelY + 22}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 22}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry === "market" ? "market" : fmtLevel(entry)}</text>
 
-  <text x="${panelX + 48}" y="${panelY + 132}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">SL</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 132}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(sl)}</text>
+  <text x="${panelX + 48}" y="${panelY + 112}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">SL</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 112}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(sl)}</text>
 
-  <text x="${panelX + 48}" y="${panelY + 222}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 222}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(tp1)}</text>
+  <text x="${panelX + 48}" y="${panelY + 202}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 202}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(tp1)}</text>
 
   <text x="${panelX + 40}" y="${panelY + 370}" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" textLength="${panelW - 80}" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
