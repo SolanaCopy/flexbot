@@ -4491,7 +4491,7 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <line x1="${panelX}" y1="${panelY + 185}" x2="${panelX + panelW}" y2="${panelY + 185}" stroke="rgba(255,255,255,0.10)"/>
   <line x1="${panelX}" y1="${panelY + 275}" x2="${panelX + panelW}" y2="${panelY + 275}" stroke="rgba(255,255,255,0.10)"/>
 
-  <text x="${panelX + 48}" y="${panelY + 62}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
+  <text x="${panelX + 48}" y="${panelY + 42}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
   <text x="${panelX + panelW - 48}" y="${panelY + 42}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry === "market" ? "market" : fmtLevel(entry)}</text>
 
   <text x="${panelX + 48}" y="${panelY + 132}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">SL</text>
