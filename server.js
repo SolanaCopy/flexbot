@@ -79,6 +79,44 @@ function dayKeyInTz(tz = "Europe/Prague", tsMs = Date.now()) {
   return fmt.format(new Date(tsMs));
 }
 
+// Start-of-day timestamp in a given IANA timezone (best-effort, DST-safe).
+// We compute YYYY-MM-DD in tz, then attach the tz offset at noon (same day) and build an ISO string.
+function startOfDayMsInTz(tz = "Europe/Amsterdam", tsMs = Date.now()) {
+  const d = new Date(tsMs);
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  const y = get("year");
+  const m = get("month");
+  const day = get("day");
+  if (!y || !m || !day) return NaN;
+
+  // Get offset for this local day (use noon local time to avoid DST edge at midnight).
+  const noonUtcGuess = Date.UTC(Number(y), Number(m) - 1, Number(day), 12, 0, 0);
+  const offParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    timeZoneName: "shortOffset",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(noonUtcGuess));
+  const off = offParts.find((p) => p.type === "timeZoneName")?.value || "GMT";
+  // off looks like "GMT+1" / "GMT+01:00" / "GMT-5".
+  const mOff = String(off).match(/^GMT([+-]\d{1,2})(?::?(\d{2}))?$/);
+  const hh = mOff ? mOff[1].padStart(3, mOff[1].startsWith("-") ? "-" : "+0") : "+00";
+  const mm = mOff && mOff[2] ? mOff[2] : "00";
+  const offset = `${hh}:${mm}`;
+
+  const iso = `${y}-${m}-${day}T00:00:00${offset}`;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
 function readJsonFileSafe(fp, fallback) {
   try {
     const raw = fs.readFileSync(fp, "utf8");
@@ -4937,20 +4975,30 @@ async function autoDailyRecapHandler(req, res) {
     }
 
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
 
-    const q = await db.execute({
-      sql: "SELECT id,direction,created_at_ms FROM signals WHERE symbol=? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 5",
-      args: [symbol, start.getTime()],
+    // Use Amsterdam start-of-day (matches trading/Telegram expectations better than server-local time).
+    const startMs = startOfDayMsInTz("Europe/Amsterdam");
+    const startMsSafe = Number.isFinite(startMs) ? startMs : (() => { const s = new Date(); s.setHours(0,0,0,0); return s.getTime(); })();
+
+    // Count ALL signals today (previous code limited to 5, which made counts wrong).
+    const qCount = await db.execute({
+      sql: "SELECT COUNT(1) AS n FROM signals WHERE symbol=? AND created_at_ms >= ?",
+      args: [symbol, startMsSafe],
     });
+    const n = qCount.rows?.[0]?.n != null ? Number(qCount.rows[0].n) : 0;
 
-    const n = q.rows?.length || 0;
-    const lastDir = n > 0 ? String(q.rows[0].direction) : null;
+    // Fetch last direction separately.
+    const qLast = await db.execute({
+      sql: "SELECT direction FROM signals WHERE symbol=? AND created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 1",
+      args: [symbol, startMsSafe],
+    });
+    const lastDir = qLast.rows?.[0]?.direction != null ? String(qLast.rows[0].direction) : null;
 
-    const msg = n === 0 ? "#RECAP XAUUSD\nNo signals today." : `#RECAP XAUUSD\nSignals today: ${n}. Last: ${lastDir}.`;
+    const msg = n === 0
+      ? `#RECAP ${symbol}\nNo signals today.`
+      : `#RECAP ${symbol}\nSignals today: ${n}. Last: ${lastDir}.`;
     await tgSendMessage({ chatId, text: msg });
-    return res.json({ ok: true, acted: true });
+    return res.json({ ok: true, acted: true, n, lastDir, start_ms: startMsSafe });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_daily_recap_failed", message: String(e?.message || e) });
   }
