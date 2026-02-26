@@ -1693,7 +1693,6 @@ app.post("/signal/closed", async (req, res) => {
         console.error("tg_closed_send_failed", msg, { signal_id, chatId });
         await tgSendMessage({ chatId, text: slMsg ? `❌ ${slMsg}\n\n${closedText}` : closedText });
       }
-    }
 
       // 3) TP streak message (persistent; safe across restarts / multiple instances)
       try {
