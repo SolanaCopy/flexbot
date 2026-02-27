@@ -4685,7 +4685,7 @@ ${sub ? `<text x="${pad + 10}" y="${titleY + 42}" font-family="Inter,Segoe UI,Ar
 
   ${pnlPct ? `<g>
     <rect x="${W - pad - 30 - 320}" y="${metaY + 230}" width="320" height="84" rx="26" fill="rgba(0,0,0,0)" stroke="${pnlColor}" stroke-opacity="0.95"/>
-    <text x="${W - pad - 30 - 160}" y="${metaY + 288}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="54" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.65)" stroke-width="3.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pnlPct}</text>
+    <text x="${W - pad - 30 - 160}" y="${metaY + 288}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="56" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pnlPct}</text>
   </g>` : ``}
 </g>
 
