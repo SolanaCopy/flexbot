@@ -4603,8 +4603,18 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 
       // Expected: "1) BUY" | "TP" | "+412.30 USD"
       const left = parts[0] || raw;
-      const out = parts[1] || "";
+      const outRaw = parts[1] || "";
       const res = parts[2] || "";
+
+      const normalizeOutcome = (v) => {
+        let s = String(v || "").trim();
+        const low = s.toLowerCase();
+        if (low === "sl hit" || low === "sl") return "SL";
+        if (low === "tp hit" || low === "tp") return "TP";
+        return s;
+      };
+
+      const out = normalizeOutcome(outRaw);
 
       const leftTxt = esc(left);
       const outTxt = esc(out);
