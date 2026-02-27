@@ -5231,7 +5231,10 @@ async function autoDailyRecapHandler(req, res) {
     }
 
     const lines = items.map((x, i) => {
-      const outShort = String(x.out || "-").replace(/\s+/g, " ").trim();
+      let outShort = String(x.out || "-").replace(/\s+/g, " ").trim();
+      // Shorten: "SL hit" -> "SL" (Boss request)
+      if (outShort.toLowerCase() === "sl hit") outShort = "SL";
+
       const resShort = String(x.resu || "-").replace(/\s+/g, " ").trim();
       return `${i + 1}) ${x.dir} | ${outShort} | ${resShort}`;
     });
