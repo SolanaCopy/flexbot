@@ -4634,7 +4634,7 @@ ${cornerDataUri ? `<g opacity="0.55">
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">DAILY RECAP</text>
 
 <text x="${pad + 250}" y="${titleY}" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">${esc(header)}</text>
-${sub ? `<text x="${pad}" y="${titleY + 42}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
+${sub ? `<text x="${pad + 10}" y="${titleY + 42}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
 
 <!-- Summary card -->
 <g filter="url(#shadow)">
