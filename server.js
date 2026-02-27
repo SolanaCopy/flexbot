@@ -4576,10 +4576,31 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+  const colorForLine = (t) => {
+    // If caller passed structured line: { text, color }
+    if (t && typeof t === "object") {
+      const c = t.color != null ? String(t.color) : null;
+      if (c) return c;
+      t = t.text != null ? String(t.text) : "";
+    }
+    const s = String(t || "");
+    // Look for explicit + / - in the USD number
+    if (s.includes("-")) return "#ff4d4d";
+    if (s.includes("+")) return "#22c55e";
+    return "rgba(255,255,255,0.92)";
+  };
+
+  const textForLine = (t) => {
+    if (t && typeof t === "object") return t.text != null ? String(t.text) : "";
+    return String(t || "");
+  };
+
   const linesSvg = showLines
     .map((t, i) => {
       const y = listY + i * lineH;
-      return `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.92)" style="font-variant-numeric: tabular-nums;">${esc(t)}</text>`;
+      const fill = colorForLine(t);
+      const txt = esc(textForLine(t));
+      return `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="${fill}" font-weight="800" style="font-variant-numeric: tabular-nums;">${txt}</text>`;
     })
     .join("\n");
 
