@@ -4561,7 +4561,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const header = `#RECAP ${sym}`;
   const sub = `${dayLabel || ""}`.trim();
 
-  const titleY = 188;
+  const titleY = 193;
   const metaY = 250;
 
   const listX = 90;
