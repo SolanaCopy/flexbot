@@ -4545,6 +4545,18 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const H = 1080;
   const pad = 56;
 
+  // Optional corner mascot (Boss request)
+  const cornerPath = path.join(__dirname, "assets", "recap_corner.jpg");
+  const cornerDataUri = (() => {
+    try {
+      if (!fs.existsSync(cornerPath)) return null;
+      const buf = fs.readFileSync(cornerPath);
+      return `data:image/jpeg;base64,${buf.toString("base64")}`;
+    } catch {
+      return null;
+    }
+  })();
+
   const sym = String(symbol || "XAUUSD").toUpperCase();
   const header = `#RECAP ${sym}`;
   const sub = `${dayLabel || ""}`.trim();
@@ -4611,6 +4623,11 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 <rect width="${W}" height="${H}" fill="url(#bg)"/>
 <rect width="${W}" height="${H}" fill="url(#glow)"/>
 <rect x="42" y="42" width="996" height="996" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
+
+<!-- Bottom-right corner mascot -->
+${cornerDataUri ? `<g opacity="0.22">
+  <image x="700" y="740" width="360" height="360" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
+</g>` : ``}
 
 <!-- Header -->
 <path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
