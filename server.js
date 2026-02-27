@@ -4549,32 +4549,35 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const header = `#RECAP ${sym}`;
   const sub = `${dayLabel || ""}`.trim();
 
-  const glassX = 42;
-  const glassY = 42;
-  const glassW = 996;
-  const glassH = 996;
-
-  const titleY = 120;
-  const metaY = 190;
+  const titleY = 188;
+  const metaY = 250;
 
   const listX = 90;
-  const listY = 310;
+  const listY = 470;
   const lineH = 44;
 
-  const pnlLine = totalPctStr ? `${totalUsdStr} (${totalPctStr})` : totalUsdStr;
   const pageLabel = pages && pages > 1 ? `Page ${page}/${pages}` : "";
 
   const safeLines = Array.isArray(lines) ? lines : [];
-  const maxLines = Math.floor((H - listY - 140) / lineH);
+  const maxLines = Math.floor((H - listY - 120) / lineH);
   const showLines = safeLines.slice(0, Math.max(0, maxLines));
+
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const linesSvg = showLines
     .map((t, i) => {
       const y = listY + i * lineH;
-      const txt = String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      return `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.92)">${txt}</text>`;
+      return `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.92)" style="font-variant-numeric: tabular-nums;">${esc(t)}</text>`;
     })
     .join("\n");
+
+  const pctPart = totalPctStr ? ` (${totalPctStr})` : "";
+  const isNeg = String(totalUsdStr || "").trim().startsWith("-");
+  const pnlColor = isNeg ? "#ff4d4d" : "#22c55e";
+
+  // Make PnL look premium: big number + subtle stroke.
+  const pnlBig = esc(String(totalUsdStr || "-"));
+  const pnlSmall = esc(String(totalPctStr || ""));
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
@@ -4584,6 +4587,11 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
     <stop offset="0.55" stop-color="#0b0b0d"/>
     <stop offset="1" stop-color="#000000"/>
   </linearGradient>
+  <radialGradient id="glow" cx="45%" cy="35%" r="75%">
+    <stop offset="0" stop-color="#d4d4d8" stop-opacity="0.10"/>
+    <stop offset="0.5" stop-color="#a1a1aa" stop-opacity="0.06"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0"/>
+  </radialGradient>
   <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
     <stop offset="0" stop-color="rgba(255,255,255,0.08)"/>
     <stop offset="1" stop-color="rgba(255,255,255,0.03)"/>
@@ -4591,27 +4599,39 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
     <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.65"/>
   </filter>
+  <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur stdDeviation="10" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.38 0" result="g"/>
+    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
 </defs>
 
 <rect width="${W}" height="${H}" fill="url(#bg)"/>
-<rect x="${glassX}" y="${glassY}" width="${glassW}" height="${glassH}" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
+<rect width="${W}" height="${H}" fill="url(#glow)"/>
+<rect x="42" y="42" width="996" height="996" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
 
 <!-- Header -->
 <path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">DAILY RECAP</text>
 
-<text x="${pad}" y="${titleY}" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">${header}</text>
-${sub ? `<text x="${pad}" y="${titleY + 44}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${sub}</text>` : ``}
+<text x="${pad}" y="${titleY}" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">${esc(header)}</text>
+${sub ? `<text x="${pad}" y="${titleY + 42}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
 
+<!-- Summary card -->
 <g filter="url(#shadow)">
-  <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="92" rx="22" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
-  <text x="${pad + 28}" y="${metaY + 56}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.85)">Closed trades: ${closedCount}</text>
-  <text x="${W - pad - 28}" y="${metaY + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.85)">PnL: ${pnlLine}</text>
+  <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="190" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
+
+  <text x="${pad + 30}" y="${metaY + 56}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)">Closed trades</text>
+  <text x="${pad + 30}" y="${metaY + 96}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
+
+  <text x="${W - pad - 30}" y="${metaY + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)">PnL</text>
+  <text x="${W - pad - 30}" y="${metaY + 118}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="68" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}</text>
+  ${pnlSmall ? `<text x="${W - pad - 30}" y="${metaY + 160}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)" style="font-variant-numeric: tabular-nums;">${pnlSmall}</text>` : ``}
 </g>
 
 ${linesSvg}
 
-${pageLabel ? `<text x="${W - pad}" y="${H - 30}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">${pageLabel}</text>` : ``}
+${pageLabel ? `<text x="${W - pad}" y="${H - 30}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">${esc(pageLabel)}</text>` : ``}
 </svg>`;
 }
 
@@ -5124,8 +5144,16 @@ async function autoDailyRecapHandler(req, res) {
     const pct = startEquity ? (totalUsd / startEquity) * 100 : null;
 
     const sign = (n) => (n > 0 ? "+" : n < 0 ? "-" : "");
-    const fmtUsd = (n) => `${sign(n)}${Math.abs(n).toFixed(2)} USD`;
-    const fmtPct = (n) => `${sign(n)}${Math.abs(n).toFixed(2)}%`;
+    const fmtNum = (n) => {
+      const v = Math.abs(Number(n) || 0);
+      try {
+        return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+      } catch {
+        return v.toFixed(2);
+      }
+    };
+    const fmtUsd = (n) => `${sign(n)}${fmtNum(n)} USD`;
+    const fmtPct = (n) => `${sign(n)}${fmtNum(n)}%`;
 
     if (!items.length) {
       await tgSendMessage({ chatId, text: `#RECAP ${symbol}\nNo closed trades today.` });
