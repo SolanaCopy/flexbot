@@ -4699,7 +4699,7 @@ ${cornerDataUri ? `<g opacity="0.75">
 </g>` : ``}
 
 <!-- Watermark -->
-<text x="${W / 2}" y="${H - 46}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.20)" letter-spacing="6">FLEXBOT</text>
+<text x="${pad}" y="${H - 46}" text-anchor="start" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.20)" letter-spacing="6">FLEXBOT</text>
 
 ${pageLabel ? `<text x="${W - pad}" y="${H - 30}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">${esc(pageLabel)}</text>` : ``}
 </svg>`;
