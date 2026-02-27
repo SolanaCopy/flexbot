@@ -4348,11 +4348,18 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     const prettyNumT = Number.isFinite(rawNumT) ? Math.abs(rawNumT).toFixed(2) : null;
     const lossText = prettyNumT ? `-${prettyNumT} USD` : String(resultStr);
 
-    // IMPORTANT: template already contains FLEXBOT / XAUUSD BUY / Outcome text.
-    // So we do NOT redraw them (avoids double text like "XAUUSDBUYY").
+    const symdir = `${sym} ${dir}`;
+
+    // Clean background: draw the dynamic title + outcome + values on top.
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <image x="0" y="0" width="${W}" height="${H}" href="${lossTplDataUri}"/>
+
+  <!-- Symbol + direction -->
+  <text x="110" y="320" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${symdir}</text>
+
+  <!-- Outcome (20px up) -->
+  <text x="110" y="375" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
 
   <!-- Dynamic panel values (right) -->
   <text x="${panelValX}" y="294" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entryStr}</text>
@@ -4361,7 +4368,6 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   <!-- PnL (loss) under TP -->
   <text x="930" y="560" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="40" fill="#ff4d4d" font-weight="1000" stroke="rgba(0,0,0,0.55)" stroke-width="1.8" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${lossText}</text>
-
 </svg>`;
   }
 
