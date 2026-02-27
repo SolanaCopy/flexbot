@@ -4345,6 +4345,11 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     const slStr = fmtLevel(sl);
     const tpStr = fmtLevel(tp1);
 
+    // Show PnL amount on loss template (Boss request: show how much loss the trade was)
+    const rawNumT = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
+    const prettyNumT = Number.isFinite(rawNumT) ? Math.abs(rawNumT).toFixed(2) : null;
+    const lossText = prettyNumT ? `-${prettyNumT} USD` : String(resultStr);
+
     // IMPORTANT: template already contains FLEXBOT / XAUUSD BUY / Outcome text.
     // So we do NOT redraw them (avoids double text like "XAUUSDBUYY").
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -4355,6 +4360,9 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   <text x="${panelValX}" y="294" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entryStr}</text>
   <text x="${panelValX}" y="379" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${slStr}</text>
   <text x="${panelValX}" y="474" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${tpStr}</text>
+
+  <!-- PnL (loss) -->
+  <text x="930" y="820" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="70" fill="#ff4d4d" font-weight="1000" stroke="rgba(0,0,0,0.55)" stroke-width="2.4" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${lossText}</text>
 
   <!-- Ref -->
   <rect x="720" y="985" width="360" height="110" rx="16" fill="rgba(0,0,0,0.92)"/>
