@@ -4646,10 +4646,6 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 <rect x="42" y="42" width="996" height="996" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
 
 <!-- Bottom-right corner mascot -->
-${cornerDataUri ? `<g opacity="0.55">
-  <image x="490" y="600" width="600" height="600" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
-</g>` : ``}
-
 <!-- Header -->
 <path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">DAILY RECAP</text>
@@ -4675,6 +4671,13 @@ ${sub ? `<text x="${pad + 10}" y="${titleY + 42}" font-family="Inter,Segoe UI,Ar
 </g>
 
 ${linesSvg}
+
+${linesSvg}
+
+<!-- Bottom-right corner mascot (overlay) -->
+${cornerDataUri ? `<g opacity="0.75">
+  <image x="490" y="600" width="600" height="600" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
+</g>` : ``}
 
 ${pageLabel ? `<text x="${W - pad}" y="${H - 30}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">${esc(pageLabel)}</text>` : ``}
 </svg>`;
