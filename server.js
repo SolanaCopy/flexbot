@@ -4493,7 +4493,7 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
 <!-- Title block (left) -->
 <text x="${titleX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
 <text x="${titleX}" y="310" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${sym} ${dir}</text>
-<text x="${titleX}" y="365" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
+<text x="${titleX}" y="345" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
 
 <!-- Levels panel -->
 <g filter="url(#shadow)">
