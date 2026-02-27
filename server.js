@@ -4565,7 +4565,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const metaY = 250;
 
   const listX = 90;
-  const listY = 470;
+  const listY = 520;
   const lineH = 44;
 
   const pageLabel = pages && pages > 1 ? `Page ${page}/${pages}` : "";
