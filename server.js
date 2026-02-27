@@ -4361,8 +4361,8 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   <text x="${panelValX}" y="379" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${slStr}</text>
   <text x="${panelValX}" y="474" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${tpStr}</text>
 
-  <!-- PnL (loss) -->
-  <text x="930" y="820" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="70" fill="#ff4d4d" font-weight="1000" stroke="rgba(0,0,0,0.55)" stroke-width="2.4" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${lossText}</text>
+  <!-- PnL (loss) under TP -->
+  <text x="930" y="560" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="40" fill="#ff4d4d" font-weight="1000" stroke="rgba(0,0,0,0.55)" stroke-width="1.8" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${lossText}</text>
 
   <!-- Ref -->
   <rect x="720" y="985" width="360" height="110" rx="16" fill="rgba(0,0,0,0.92)"/>
