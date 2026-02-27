@@ -4641,7 +4641,7 @@ ${sub ? `<text x="${pad}" y="${titleY + 42}" font-family="Inter,Segoe UI,Arial" 
   <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="190" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
 
   <text x="${pad + 30}" y="${metaY + 56}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)">Closed trades</text>
-  <text x="${pad + 30}" y="${metaY + 112}" font-family="Inter,Segoe UI,Arial" font-size="96" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
+  <text x="${pad + 30}" y="${metaY + 140}" font-family="Inter,Segoe UI,Arial" font-size="96" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
 
   <text x="${W - pad - 30}" y="${metaY + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)">PnL</text>
   <text x="${W - pad - 30}" y="${metaY + 118}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="72" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}</text>
