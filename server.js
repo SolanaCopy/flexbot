@@ -4625,7 +4625,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 <rect x="42" y="42" width="996" height="996" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
 
 <!-- Bottom-right corner mascot -->
-${cornerDataUri ? `<g opacity="0.35">
+${cornerDataUri ? `<g opacity="0.55">
   <image x="490" y="600" width="600" height="600" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
