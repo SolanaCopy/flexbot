@@ -4293,8 +4293,6 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <text x="600" y="790" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${resultColor}" font-weight="900" filter="url(#softGlow)" textLength="340" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
 
-<!-- Footer -->
-<text x="110" y="1008" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">Ref  ${ref8}</text>
 </svg>`;
 }
 
@@ -4517,8 +4515,6 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <text x="${panelX + 40}" y="${panelY + 370}" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.4" paint-order="stroke" filter="url(#softGlow)" textLength="${panelW - 80}" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
 
-<!-- Footer (bottom-right) -->
-<text x="${W - pad - 24}" y="1068" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="16" fill="rgba(255,255,255,0.55)">Ref ${ref8}</text>
 </svg>`;
 }
 
