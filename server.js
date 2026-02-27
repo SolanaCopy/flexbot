@@ -4129,9 +4129,19 @@ function getMascotPick({ outcome, result }) {
     if (pool.length <= 1) {
       chosen = pool[0];
     } else if (isWin) {
-      // Boss request: WIN mascot must rotate round-robin (no random, no repeats).
-      const rr = _pickRoundRobin(pool, "win");
-      chosen = rr || pool[0];
+      // Optional: force a specific WIN mascot (used for deterministic local previews).
+      // Accepts either a basename (e.g. mascot_win_custom4.png) or full path.
+      const forced = String(process?.env?.FLEXBOT_FORCE_WIN_MASCOT || "").trim();
+      const forcedBase = forced ? path.basename(forced) : "";
+      const forcedPick = forced ? (pool.find((p) => p === forced || path.basename(p) === forcedBase) || null) : null;
+
+      if (forcedPick) {
+        chosen = forcedPick;
+      } else {
+        // Boss request: WIN mascot must rotate round-robin (no random, no repeats).
+        const rr = _pickRoundRobin(pool, "win");
+        chosen = rr || pool[0];
+      }
     } else {
       // Loss: keep random, but avoid repeating the same image twice in a row.
       const last = _lastMascotPick[key];
@@ -4412,7 +4422,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     "mascot_win_custom5.png": { y: -200 },
 
     // Custom6: move further left + slightly smaller so it never covers the title block
-    "mascot_win_custom6.png": { x: -200, y: 520, w: 600, h: 680 },
+    "mascot_win_custom6.png": { x: 40, y: 520, w: 600, h: 680 },
 
     // Custom7: a bit more to the right + smaller
     "mascot_win_custom7.png": { x: -120, w: 700, h: 800 },
@@ -4509,14 +4519,14 @@ ${mascotDataUri ? `<g filter="url(#shadow)">
   <line x1="${panelX}" y1="${panelY + 185}" x2="${panelX + panelW}" y2="${panelY + 185}" stroke="rgba(255,255,255,0.10)"/>
   <line x1="${panelX}" y1="${panelY + 275}" x2="${panelX + panelW}" y2="${panelY + 275}" stroke="rgba(255,255,255,0.10)"/>
 
-  <text x="${panelX + 48}" y="${panelY + 2}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 42}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry === "market" ? "market" : fmtLevel(entry)}</text>
+  <text x="${panelX + 48}" y="${panelY + 70}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 70}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry === "market" ? "market" : fmtLevel(entry)}</text>
 
-  <text x="${panelX + 48}" y="${panelY + 92}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">SL</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 107}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(sl)}</text>
+  <text x="${panelX + 48}" y="${panelY + 160}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">SL</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 160}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(sl)}</text>
 
-  <text x="${panelX + 48}" y="${panelY + 182}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 182}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(tp1)}</text>
+  <text x="${panelX + 48}" y="${panelY + 250}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
+  <text x="${panelX + panelW - 48}" y="${panelY + 250}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(tp1)}</text>
 
   <text x="${panelX + 40}" y="${panelY + 370}" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.4" paint-order="stroke" filter="url(#softGlow)" textLength="${panelW - 80}" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
 </g>
