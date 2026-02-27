@@ -4626,7 +4626,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 
 <!-- Bottom-right corner mascot -->
 ${cornerDataUri ? `<g opacity="0.35">
-  <image x="700" y="740" width="360" height="360" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
+  <image x="580" y="660" width="480" height="480" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
 <!-- Header -->
