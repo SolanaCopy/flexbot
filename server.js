@@ -4600,7 +4600,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
       const y = listY + i * lineH;
       const fill = colorForLine(t);
       const txt = esc(textForLine(t));
-      return `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="${fill}" font-weight="800" style="font-variant-numeric: tabular-nums;">${txt}</text>`;
+      return `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${fill}" font-weight="800" style="font-variant-numeric: tabular-nums;">${txt}</text>`;
     })
     .join("\n");
 
