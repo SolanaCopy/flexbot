@@ -4364,9 +4364,6 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   <!-- PnL (loss) under TP -->
   <text x="930" y="560" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="40" fill="#ff4d4d" font-weight="1000" stroke="rgba(0,0,0,0.55)" stroke-width="1.8" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${lossText}</text>
 
-  <!-- Ref -->
-  <rect x="720" y="985" width="360" height="110" rx="16" fill="rgba(0,0,0,0.92)"/>
-  <text x="${W - 56}" y="1052" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.55)">Ref ${ref8t}</text>
 </svg>`;
   }
 
