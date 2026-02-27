@@ -4576,31 +4576,50 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-  const colorForLine = (t) => {
-    // If caller passed structured line: { text, color }
-    if (t && typeof t === "object") {
-      const c = t.color != null ? String(t.color) : null;
-      if (c) return c;
-      t = t.text != null ? String(t.text) : "";
-    }
-    const s = String(t || "");
-    // Look for explicit + / - in the USD number
-    if (s.includes("-")) return "#ff4d4d";
-    if (s.includes("+")) return "#22c55e";
-    return "rgba(255,255,255,0.92)";
-  };
-
   const textForLine = (t) => {
     if (t && typeof t === "object") return t.text != null ? String(t.text) : "";
     return String(t || "");
   };
 
+  const colorOutcome = (out) => {
+    const s = String(out || "").toLowerCase();
+    if (s.includes("tp")) return "#22c55e";
+    if (s.includes("sl")) return "#ff4d4d";
+    return "rgba(255,255,255,0.90)";
+  };
+
+  const colorPnl = (res) => {
+    const s = String(res || "");
+    if (s.includes("-")) return "#ff4d4d";
+    if (s.includes("+")) return "#22c55e";
+    return "rgba(255,255,255,0.92)";
+  };
+
   const linesSvg = showLines
     .map((t, i) => {
       const y = listY + i * lineH;
-      const fill = colorForLine(t);
-      const txt = esc(textForLine(t));
-      return `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${fill}" font-weight="800" style="font-variant-numeric: tabular-nums;">${txt}</text>`;
+      const raw = textForLine(t);
+      const parts = raw.split("|").map((x) => x.trim());
+
+      // Expected: "1) BUY" | "TP" | "+412.30 USD"
+      const left = parts[0] || raw;
+      const out = parts[1] || "";
+      const res = parts[2] || "";
+
+      const leftTxt = esc(left);
+      const outTxt = esc(out);
+      const resTxt = esc(res);
+
+      const outFill = colorOutcome(out);
+      const resFill = colorPnl(res);
+
+      return (
+        `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.94)" font-weight="800" style="font-variant-numeric: tabular-nums;">` +
+          `<tspan fill="rgba(255,255,255,0.94)">${leftTxt}</tspan>` +
+          (outTxt ? `<tspan fill="rgba(255,255,255,0.55)">  |  </tspan><tspan fill="${outFill}" font-weight="900">${outTxt}</tspan>` : ``) +
+          (resTxt ? `<tspan fill="rgba(255,255,255,0.55)">  |  </tspan><tspan fill="${resFill}" font-weight="900">${resTxt}</tspan>` : ``) +
+        `</text>`
+      );
     })
     .join("\n");
 
