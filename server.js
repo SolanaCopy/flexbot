@@ -4409,7 +4409,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     "mascot_win_custom7.png": { x: -120, w: 700, h: 800 },
     // loss
     // Match the reference screenshot: smaller mascot bottom-left
-    "mascot_loss_force.png": { x: 40, y: 590, w: 560, h: 560 },
+    "mascot_loss_force.png": { x: 40, y: 710, w: 560, h: 560 },
   };
   const ov = mascotOverrides[mascotName];
   let mascotFilter = null;
