@@ -4540,6 +4540,81 @@ function formatSignalClosedText({ id, symbol, direction, entry, sl, tp, outcome,
   );
 }
 
+function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, totalPctStr, lines, page, pages }) {
+  const W = 1080;
+  const H = 1080;
+  const pad = 56;
+
+  const sym = String(symbol || "XAUUSD").toUpperCase();
+  const header = `#RECAP ${sym}`;
+  const sub = `${dayLabel || ""}`.trim();
+
+  const glassX = 42;
+  const glassY = 42;
+  const glassW = 996;
+  const glassH = 996;
+
+  const titleY = 120;
+  const metaY = 190;
+
+  const listX = 90;
+  const listY = 310;
+  const lineH = 44;
+
+  const pnlLine = totalPctStr ? `${totalUsdStr} (${totalPctStr})` : totalUsdStr;
+  const pageLabel = pages && pages > 1 ? `Page ${page}/${pages}` : "";
+
+  const safeLines = Array.isArray(lines) ? lines : [];
+  const maxLines = Math.floor((H - listY - 140) / lineH);
+  const showLines = safeLines.slice(0, Math.max(0, maxLines));
+
+  const linesSvg = showLines
+    .map((t, i) => {
+      const y = listY + i * lineH;
+      const txt = String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.92)">${txt}</text>`;
+    })
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#000000"/>
+    <stop offset="0.55" stop-color="#0b0b0d"/>
+    <stop offset="1" stop-color="#000000"/>
+  </linearGradient>
+  <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="rgba(255,255,255,0.08)"/>
+    <stop offset="1" stop-color="rgba(255,255,255,0.03)"/>
+  </linearGradient>
+  <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+    <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.65"/>
+  </filter>
+</defs>
+
+<rect width="${W}" height="${H}" fill="url(#bg)"/>
+<rect x="${glassX}" y="${glassY}" width="${glassW}" height="${glassH}" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
+
+<!-- Header -->
+<path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
+<text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">DAILY RECAP</text>
+
+<text x="${pad}" y="${titleY}" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">${header}</text>
+${sub ? `<text x="${pad}" y="${titleY + 44}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${sub}</text>` : ``}
+
+<g filter="url(#shadow)">
+  <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="92" rx="22" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
+  <text x="${pad + 28}" y="${metaY + 56}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.85)">Closed trades: ${closedCount}</text>
+  <text x="${W - pad - 28}" y="${metaY + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.85)">PnL: ${pnlLine}</text>
+</g>
+
+${linesSvg}
+
+${pageLabel ? `<text x="${W - pad}" y="${H - 30}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="20" fill="rgba(255,255,255,0.55)">${pageLabel}</text>` : ``}
+</svg>`;
+}
+
 // POST /auto/scalp/run?symbol=XAUUSD
 // Fully server-side: blackout + cooldown + claim + create signal + post ONE telegram photo.
 async function autoScalpRunHandler(req, res) {
@@ -5057,27 +5132,44 @@ async function autoDailyRecapHandler(req, res) {
       return res.json({ ok: true, acted: true, closed: 0, totalUsd: 0, start_ms: startMsSafe });
     }
 
-    const header =
-      `#RECAP ${symbol}\n` +
-      `Closed trades: ${items.length}\n` +
-      `PnL: ${fmtUsd(totalUsd)}${pct != null ? ` (${fmtPct(pct)})` : ""}`;
-
     const lines = items.map((x, i) => {
       const outShort = String(x.out || "-").replace(/\s+/g, " ").trim();
       const resShort = String(x.resu || "-").replace(/\s+/g, " ").trim();
-      // Keep it short: no Ref.
       return `${i + 1}) ${x.dir} | ${outShort} | ${resShort}`;
     });
 
-    // Telegram message size safety: chunk the list.
-    const chunkSize = 25;
-    for (let i = 0; i < lines.length; i += chunkSize) {
-      const chunk = lines.slice(i, i + chunkSize);
-      const prefix = i === 0 ? `${header}\n\n` : `#RECAP ${symbol} (cont)\n`;
-      await tgSendMessage({ chatId, text: prefix + chunk.join("\n") });
+    const dayLabel = (() => {
+      try {
+        const dk = dayKeyInTz("Europe/Amsterdam");
+        return `Day: ${dk}`;
+      } catch {
+        return "";
+      }
+    })();
+
+    const totalUsdStr = fmtUsd(totalUsd);
+    const totalPctStr = pct != null ? fmtPct(pct) : null;
+
+    // Render recap as PNG pages.
+    const perPage = 16;
+    const pages = Math.max(1, Math.ceil(lines.length / perPage));
+    for (let p = 0; p < pages; p++) {
+      const chunk = lines.slice(p * perPage, (p + 1) * perPage);
+      const svg = createDailyRecapSvg({
+        symbol,
+        dayLabel,
+        closedCount: items.length,
+        totalUsdStr,
+        totalPctStr,
+        lines: chunk,
+        page: p + 1,
+        pages,
+      });
+      const pngBuf = renderSvgToPngBuffer(svg);
+      await tgSendPhoto({ chatId, photo: pngBuf, caption: p === 0 ? `#RECAP ${symbol}` : undefined });
     }
 
-    return res.json({ ok: true, acted: true, closed: items.length, totalUsd, pct, startEquity, start_ms: startMsSafe });
+    return res.json({ ok: true, acted: true, closed: items.length, totalUsd, pct, startEquity, start_ms: startMsSafe, pages });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_daily_recap_failed", message: String(e?.message || e) });
   }
