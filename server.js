@@ -4571,13 +4571,15 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
     })
     .join("\n");
 
-  const pctPart = totalPctStr ? ` (${totalPctStr})` : "";
   const isNeg = String(totalUsdStr || "").trim().startsWith("-");
   const pnlColor = isNeg ? "#ff4d4d" : "#22c55e";
 
-  // Make PnL look premium: big number + subtle stroke.
-  const pnlBig = esc(String(totalUsdStr || "-"));
-  const pnlSmall = esc(String(totalPctStr || ""));
+  // Split PnL into big numeric + small units, keep % clearly visible.
+  const usdRaw = String(totalUsdStr || "-");
+  const usdNum = usdRaw.replace(/\s*USD\s*/i, "").trim();
+  const pnlBig = esc(usdNum || "-");
+  const pnlUnits = "USD";
+  const pnlPct = totalPctStr ? esc(String(totalPctStr)) : "";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
@@ -4625,8 +4627,13 @@ ${sub ? `<text x="${pad}" y="${titleY + 42}" font-family="Inter,Segoe UI,Arial" 
   <text x="${pad + 30}" y="${metaY + 96}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
 
   <text x="${W - pad - 30}" y="${metaY + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)">PnL</text>
-  <text x="${W - pad - 30}" y="${metaY + 118}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="68" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}</text>
-  ${pnlSmall ? `<text x="${W - pad - 30}" y="${metaY + 160}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)" style="font-variant-numeric: tabular-nums;">${pnlSmall}</text>` : ``}
+  <text x="${W - pad - 30}" y="${metaY + 118}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="72" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}</text>
+  <text x="${W - pad - 30}" y="${metaY + 150}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.72)" letter-spacing="3">${pnlUnits}</text>
+
+  ${pnlPct ? `<g>
+    <rect x="${W - pad - 30 - 210}" y="${metaY + 156}" width="210" height="54" rx="18" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.14)"/>
+    <text x="${W - pad - 30 - 105}" y="${metaY + 192}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.92)" font-weight="900" style="font-variant-numeric: tabular-nums;">${pnlPct}</text>
+  </g>` : ``}
 </g>
 
 ${linesSvg}
