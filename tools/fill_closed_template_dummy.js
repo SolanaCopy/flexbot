@@ -39,8 +39,8 @@ const svg = `<?xml version="1.0" encoding="UTF-8"?>
   <!-- Symbol + direction -->
   <text x="110" y="320" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${symdir}</text>
 
-  <!-- Outcome -->
-  <text x="110" y="395" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcome}</tspan></text>
+  <!-- Outcome (20px up) -->
+  <text x="110" y="375" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcome}</tspan></text>
 
   <!-- Panel values (right) -->
   <text x="930" y="294" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry}</text>
