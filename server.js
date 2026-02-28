@@ -4875,7 +4875,7 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">WEEKLY RECAP</text>
 
 <!-- title removed -->
-${sub ? `<text x="540" y="220" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
+${sub ? `<text x="540" y="220" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.82)" font-weight="900" stroke="rgba(0,0,0,0.55)" stroke-width="1.6" paint-order="stroke">${esc(sub)}</text>` : ``}
 
 ${colsSvg}
 ${rowsSvg}
