@@ -4416,7 +4416,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     "mascot_win_custom2.png": { x: -60, w: 660, h: 760, filter: "boost" },
 
     // Custom4: a bit smaller
-    "mascot_win_custom4.png": { y: -80, w: 760, h: 860 },
+    "mascot_win_custom4.png": { x: -100, y: 480, w: 680, h: 780 },
 
     // Custom5: move up
     "mascot_win_custom5.png": { y: -200 },
