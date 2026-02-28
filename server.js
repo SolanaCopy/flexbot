@@ -4725,8 +4725,8 @@ ${sub ? `<text x="${pad + 10}" y="${titleY - 10}" font-family="Inter,Segoe UI,Ar
   <text x="${W / 2}" y="${metaY + 106}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="72" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="28" fill="rgba(255,255,255,0.72)" dx="12"> USD</tspan></text>
 
   ${pnlPct ? `<g>
-    <rect x="${W - pad - 30 - 320}" y="${metaY + 230}" width="320" height="84" rx="26" fill="rgba(0,0,0,0)" stroke="${pnlColor}" stroke-opacity="0.95"/>
-    <text x="${W - pad - 30 - 160}" y="${metaY + 288}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="56" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pnlPct}</text>
+    <rect x="${W - pad - 30 - 260}" y="${metaY + 36}" width="260" height="72" rx="24" fill="rgba(0,0,0,0)" stroke="${pnlColor}" stroke-opacity="0.95"/>
+    <text x="${W - pad - 30 - 130}" y="${metaY + 86}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pnlPct}</text>
   </g>` : ``}
 </g>
 
