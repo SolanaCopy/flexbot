@@ -4814,7 +4814,7 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
   const colsSvg = `
 <text x="${pad + 210}" y="${rowY0 - 14}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
 <text x="${W / 2}" y="${rowY0 - 14}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
-<text x="${W - pad - 54}" y="${rowY0 - 14}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Percent</text>
+<text x="${W - pad - 74}" y="${rowY0 - 14}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Percent</text>
 `;
 
   const rowsSvg = dayRows.slice(0, 5).map((d, i) => {
@@ -4834,7 +4834,7 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
 
   <text x="${W / 2}" y="${y + 60}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
 
-  ${pctStr ? `<text x="${W - pad - 54}" y="${y + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
+  ${pctStr ? `<text x="${W - pad - 74}" y="${y + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
 </g>`;
   }).join("\n");
 
