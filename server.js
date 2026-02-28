@@ -4748,6 +4748,19 @@ ${showCornerMascot ? `<g opacity="0.75">
   <image x="560" y="640" width="520" height="520" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
+<!-- Bottom-right mini logo (optional) -->
+${(() => {
+  try {
+    const p = path.join(__dirname, "assets", "recap_flexbot_logo.png");
+    if (!fs.existsSync(p)) return "";
+    const buf = fs.readFileSync(p);
+    const dataUri = `data:image/png;base64,${buf.toString("base64")}`;
+    return `<g opacity="0.90"><image x="${W - 56 - 260}" y="${H - 56 - 90}" width="260" height="90" href="${dataUri}" preserveAspectRatio="xMidYMid meet"/></g>`;
+  } catch {
+    return "";
+  }
+})()}
+
 <!-- Watermark -->
 <text x="${W / 2}" y="${H - 11}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="#ffffff" letter-spacing="7.5" font-weight="950" stroke="rgba(0,0,0,0.55)" stroke-width="1.4" paint-order="stroke">FLEXBOT</text>
 
