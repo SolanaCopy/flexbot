@@ -4822,8 +4822,8 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
   <text x="${pad + 210}" y="${y + 34}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
   <text x="${pad + 210}" y="${y + 68}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${trades}</text>
 
-  <text x="${pad + 420}" y="${y + 34}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
-  <text x="${pad + 420}" y="${y + 68}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
+  <text x="${pad + 460}" y="${y + 34}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
+  <text x="${pad + 460}" y="${y + 68}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
 
   ${pctStr ? `<text x="${W - pad - 34}" y="${y + 62}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
 </g>`;
