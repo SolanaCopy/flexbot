@@ -4440,7 +4440,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     "mascot_win_custom12.png": { x: -15, y: 390, w: 640, h: 740 },
 
     // Custom13: trophy astronaut
-    "mascot_win_custom13.png": { y: 320, w: 720, h: 820 },
+    "mascot_win_custom13.png": { x: -80, y: 320, w: 660, h: 760 },
 
     // loss
     // Match the reference screenshot: smaller mascot bottom-left
