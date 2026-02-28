@@ -4592,17 +4592,22 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const metaY = 220;
 
   const listX = 90;
-  const listY = 510;
-  const lineH = 40;
+  const listX2 = 590;
+  const listY = 490;
+  const lineH = 38;
 
   const pageLabel = pages && pages > 1 ? `Page ${page}/${pages}` : "";
 
   const safeLines = Array.isArray(lines) ? lines : [];
-  const maxLines = Math.floor((H - listY - 120) / lineH);
+
+  // Two-column mode when there are many trades (Boss request: keep it 1 page for 17 trades).
+  const twoCols = safeLines.length > 10;
+  const linesPerCol = twoCols ? 9 : 12;
+  const maxLines = twoCols ? (linesPerCol * 2) : linesPerCol;
   const showLines = safeLines.slice(0, Math.max(0, maxLines));
 
-  // If we have many trades, hide the corner mascot so the list stays clean.
-  const showCornerMascot = Boolean(cornerDataUri && showLines.length <= 10);
+  // When we need space, hide the corner mascot (keeps columns clean).
+  const showCornerMascot = Boolean(cornerDataUri && !twoCols);
 
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -4632,7 +4637,10 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 
   const linesSvg = showLines
     .map((t, i) => {
-      const y = listY + i * lineH;
+      const col = twoCols ? (i >= linesPerCol ? 1 : 0) : 0;
+      const row = twoCols ? (i % linesPerCol) : i;
+      const x = col === 1 ? listX2 : listX;
+      const y = listY + row * lineH;
       const raw = textForLine(t);
       const parts = raw.split("|").map((x) => x.trim());
 
@@ -4659,7 +4667,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
       const resFill = colorPnl(res, out);
 
       return (
-        `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.94)" font-weight="800" style="font-variant-numeric: tabular-nums;">` +
+        `<text x="${x}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.94)" font-weight="800" style="font-variant-numeric: tabular-nums;">` +
           `<tspan fill="rgba(255,255,255,0.94)">${leftTxt}</tspan>` +
           (outTxt ? `<tspan fill="rgba(255,255,255,0.55)">  |  </tspan><tspan fill="${outFill}" font-weight="900">${outTxt}</tspan>` : ``) +
           (resTxt ? `<tspan fill="rgba(255,255,255,0.55)">  |  </tspan><tspan fill="${resFill}" font-weight="900">${resTxt}</tspan>` : ``) +
@@ -5292,7 +5300,7 @@ async function autoDailyRecapHandler(req, res) {
 
     // Render recap as PNG pages.
     // Keep in sync with createDailyRecapSvg layout constants.
-    const perPage = Math.max(1, Math.floor((1080 - 510 - 120) / 40));
+    const perPage = lines.length > 10 ? 18 : 12;
     const pages = Math.max(1, Math.ceil(lines.length / perPage));
     for (let p = 0; p < pages; p++) {
       const chunk = lines.slice(p * perPage, (p + 1) * perPage);
