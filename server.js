@@ -4810,6 +4810,11 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
     return "rgba(255,255,255,0.92)";
   };
 
+  // Column labels (show once)
+  const colsSvg = `
+<text x="${pad + 210}" y="${rowY0 - 14}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
+`;
+
   const rowsSvg = dayRows.slice(0, 5).map((d, i) => {
     const y = rowY0 + i * rowH;
     const label = esc(d?.label ?? "-");
@@ -4823,7 +4828,6 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
   <rect x="${pad}" y="${y}" width="${W - pad * 2}" height="${rowRectH}" rx="22" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.10)"/>
   <text x="${pad + 34}" y="${y + 52}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${label}</text>
 
-  <text x="${pad + 210}" y="${y + 30}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
   <text x="${pad + 210}" y="${y + 60}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${trades}</text>
 
   <text x="${pad + 460}" y="${y + 30}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
@@ -4872,6 +4876,7 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
 <text x="540" y="210" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">WEEK ${esc(sym)}</text>
 ${sub ? `<text x="540" y="248" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
 
+${colsSvg}
 ${rowsSvg}
 
 <!-- Summary (under day rows) -->
