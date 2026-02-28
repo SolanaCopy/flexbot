@@ -4796,8 +4796,12 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
   const pnlColor = isNeg ? "#ff4d4d" : "#22c55e";
 
   const dayRows = Array.isArray(days) ? days : [];
-  const rowY0 = 420;
-  const rowH = 108;
+  const rowY0 = 340;
+  const rowH = 95;
+  const rowRectH = 82;
+
+  // Place the summary card UNDER the day rows (Boss request)
+  const summaryY = rowY0 + 5 * rowH + 10;
 
   const colorPnl = (usdStr) => {
     const s = String(usdStr || "");
@@ -4816,16 +4820,16 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
 
     return `
 <g>
-  <rect x="${pad}" y="${y}" width="${W - pad * 2}" height="90" rx="22" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.10)"/>
-  <text x="${pad + 34}" y="${y + 58}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${label}</text>
+  <rect x="${pad}" y="${y}" width="${W - pad * 2}" height="${rowRectH}" rx="22" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.10)"/>
+  <text x="${pad + 34}" y="${y + 52}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${label}</text>
 
-  <text x="${pad + 210}" y="${y + 34}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
-  <text x="${pad + 210}" y="${y + 68}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${trades}</text>
+  <text x="${pad + 210}" y="${y + 30}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
+  <text x="${pad + 210}" y="${y + 60}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${trades}</text>
 
-  <text x="${pad + 460}" y="${y + 34}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
-  <text x="${pad + 460}" y="${y + 68}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
+  <text x="${pad + 460}" y="${y + 30}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
+  <text x="${pad + 460}" y="${y + 60}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
 
-  ${pctStr ? `<text x="${W - pad - 34}" y="${y + 62}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
+  ${pctStr ? `<text x="${W - pad - 34}" y="${y + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
 </g>`;
   }).join("\n");
 
@@ -4868,20 +4872,20 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
 <text x="540" y="210" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">WEEK ${esc(sym)}</text>
 ${sub ? `<text x="540" y="248" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
 
-<!-- Summary -->
-<g filter="url(#shadow)">
-  <rect x="${pad}" y="290" width="${W - pad * 2}" height="110" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
-
-  <text x="${pad + 34}" y="332" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Trades</text>
-  <text x="${pad + 34}" y="382" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(totalTrades ?? "-"))}</text>
-
-  <text x="${W / 2}" y="332" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
-  <text x="${W / 2}" y="382" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="44" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
-
-  ${pctTxt ? `<text x="${W - pad - 34}" y="368" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="46" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctTxt}</text>` : ``}
-</g>
-
 ${rowsSvg}
+
+<!-- Summary (under day rows) -->
+<g filter="url(#shadow)">
+  <rect x="${pad}" y="${summaryY}" width="${W - pad * 2}" height="120" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
+
+  <text x="${pad + 34}" y="${summaryY + 44}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Trades</text>
+  <text x="${pad + 34}" y="${summaryY + 94}" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(totalTrades ?? "-"))}</text>
+
+  <text x="${W / 2}" y="${summaryY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
+  <text x="${W / 2}" y="${summaryY + 94}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="44" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
+
+  ${pctTxt ? `<text x="${W - pad - 34}" y="${summaryY + 80}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="46" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctTxt}</text>` : ``}
+</g>
 
 <text x="540" y="${H - 11}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="#ffffff" letter-spacing="7.5" font-weight="950" stroke="rgba(0,0,0,0.55)" stroke-width="1.4" paint-order="stroke">FLEXBOT</text>
 </svg>`;
