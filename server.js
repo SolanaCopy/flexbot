@@ -4825,7 +4825,7 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
   <text x="${W - pad - 420}" y="${y + 34}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
   <text x="${W - pad - 420}" y="${y + 68}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
 
-  ${pctStr ? `<text x="${W - pad - 94}" y="${y + 62}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
+  ${pctStr ? `<text x="${W - pad - 34}" y="${y + 62}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
 </g>`;
   }).join("\n");
 
@@ -4878,7 +4878,7 @@ ${sub ? `<text x="540" y="248" text-anchor="middle" font-family="Inter,Segoe UI,
   <text x="${W / 2}" y="332" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
   <text x="${W / 2}" y="372" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
 
-  ${pctTxt ? `<text x="${W - pad - 94}" y="368" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="46" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctTxt}</text>` : ``}
+  ${pctTxt ? `<text x="${W - pad - 34}" y="368" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="46" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctTxt}</text>` : ``}
 </g>
 
 ${rowsSvg}
