@@ -4666,12 +4666,16 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
       const outFill = colorOutcome(out);
       const resFill = colorPnl(res, out);
 
+      // Fixed columns so all numbers line up neatly.
+      const outX = x + 240;
+      const resX = twoCols
+        ? (col === 1 ? (W - pad) : (listX2 - 30))
+        : (W - pad);
+
       return (
-        `<text x="${x}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.94)" font-weight="800" style="font-variant-numeric: tabular-nums;">` +
-          `<tspan fill="rgba(255,255,255,0.94)">${leftTxt}</tspan>` +
-          (outTxt ? `<tspan fill="rgba(255,255,255,0.55)">  |  </tspan><tspan fill="${outFill}" font-weight="900">${outTxt}</tspan>` : ``) +
-          (resTxt ? `<tspan fill="rgba(255,255,255,0.55)">  |  </tspan><tspan fill="${resFill}" font-weight="900">${resTxt}</tspan>` : ``) +
-        `</text>`
+        `<text x="${x}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.94)" font-weight="800" style="font-variant-numeric: tabular-nums;">${leftTxt}</text>` +
+        (outTxt ? `<text x="${outX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="28" fill="${outFill}" font-weight="900" style="font-variant-numeric: tabular-nums;">${outTxt}</text>` : ``) +
+        (resTxt ? `<text x="${resX}" y="${y}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="28" fill="${resFill}" font-weight="900" style="font-variant-numeric: tabular-nums;">${resTxt}</text>` : ``)
       );
     })
     .join("\n");
