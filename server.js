@@ -4748,7 +4748,7 @@ ${showCornerMascot ? `<g opacity="0.75">
   <image x="560" y="640" width="520" height="520" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
-<!-- Bottom-right mini logo (optional) -->
+<!-- mini logo removed -->
 ${(() => {
   try {
     const p = path.join(__dirname, "assets", "recap_flexbot_logo.png");
