@@ -4735,7 +4735,7 @@ ${sub ? `<text x="${W / 2}" y="${titleY - 10}" text-anchor="middle" font-family=
   <text x="${pad + 60}" y="${metaY + 118}" font-family="Inter,Segoe UI,Arial" font-size="72" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
 
   <text x="${W / 2}" y="${metaY + 46}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
-  <text x="${W / 2}" y="${metaY + 104}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="58" fill="${pnlColor}" font-weight="1100" stroke="rgba(0,0,0,0.40)" stroke-width="2.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="22" fill="rgba(255,255,255,0.72)" dx="10"> USD</tspan></text>
+  <text x="${W / 2}" y="${metaY + 102}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="54" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="20" fill="rgba(255,255,255,0.72)" dx="10"> USD</tspan></text>
 
   ${pnlPct ? `<text x="${W - pad - 60}" y="${metaY + 92}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="52" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pnlPct}</text>` : ``}
 </g>
