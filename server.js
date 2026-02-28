@@ -4834,7 +4834,7 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
 
   <text x="${W / 2}" y="${y + 60}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
 
-  ${pctStr ? `<text x="${W - pad - 34}" y="${y + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
+  ${pctStr ? `<text x="${W - pad - 54}" y="${y + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
 </g>`;
   }).join("\n");
 
