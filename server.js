@@ -4721,8 +4721,8 @@ ${sub ? `<text x="${pad + 10}" y="${titleY - 10}" font-family="Inter,Segoe UI,Ar
   <text x="${pad + 30}" y="${metaY + 46}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Closed trades</text>
   <text x="${pad + 60}" y="${metaY + 118}" font-family="Inter,Segoe UI,Arial" font-size="72" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
 
-  <text x="${W - pad - 30}" y="${metaY + 46}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">PnL</text>
-  <text x="${W - pad - 30}" y="${metaY + 98}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="60" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="24" fill="rgba(255,255,255,0.72)" dx="12"> USD</tspan></text>
+  <text x="${W / 2}" y="${metaY + 46}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
+  <text x="${W / 2}" y="${metaY + 106}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="72" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="28" fill="rgba(255,255,255,0.72)" dx="12"> USD</tspan></text>
 
   ${pnlPct ? `<g>
     <rect x="${W - pad - 30 - 320}" y="${metaY + 230}" width="320" height="84" rx="26" fill="rgba(0,0,0,0)" stroke="${pnlColor}" stroke-opacity="0.95"/>
