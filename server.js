@@ -4783,6 +4783,110 @@ ${pageLabel ? `<text x="${W - pad}" y="${H - 30}" text-anchor="end" font-family=
 </svg>`;
 }
 
+function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, totalPctStr, days }) {
+  const W = 1080;
+  const H = 1080;
+  const pad = 56;
+
+  const sym = String(symbol || "XAUUSD").toUpperCase();
+  const sub = String(weekLabel || "").trim();
+
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const isNeg = String(totalUsdStr || "").trim().startsWith("-");
+  const pnlColor = isNeg ? "#ff4d4d" : "#22c55e";
+
+  const dayRows = Array.isArray(days) ? days : [];
+  const rowY0 = 420;
+  const rowH = 108;
+
+  const colorPnl = (usdStr) => {
+    const s = String(usdStr || "");
+    if (s.includes("-")) return "#ff4d4d";
+    if (s.includes("+")) return "#22c55e";
+    return "rgba(255,255,255,0.92)";
+  };
+
+  const rowsSvg = dayRows.slice(0, 5).map((d, i) => {
+    const y = rowY0 + i * rowH;
+    const label = esc(d?.label ?? "-");
+    const trades = esc(String(d?.trades ?? "-"));
+    const usdStr = esc(String(d?.usdStr ?? "-"));
+    const pctStr = esc(String(d?.pctStr ?? ""));
+    const usdFill = colorPnl(usdStr);
+
+    return `
+<g>
+  <rect x="${pad}" y="${y}" width="${W - pad * 2}" height="90" rx="22" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.10)"/>
+  <text x="${pad + 34}" y="${y + 58}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${label}</text>
+
+  <text x="${pad + 210}" y="${y + 34}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
+  <text x="${pad + 210}" y="${y + 68}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${trades}</text>
+
+  <text x="${W - pad - 340}" y="${y + 34}" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
+  <text x="${W - pad - 340}" y="${y + 68}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
+
+  ${pctStr ? `<text x="${W - pad - 34}" y="${y + 62}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="${usdFill}" font-weight="1000" stroke="rgba(0,0,0,0.60)" stroke-width="3.6" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ``}
+</g>`;
+  }).join("\n");
+
+  const pctTxt = totalPctStr ? esc(String(totalPctStr)) : "";
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#000000"/>
+    <stop offset="0.55" stop-color="#0b0b0d"/>
+    <stop offset="1" stop-color="#000000"/>
+  </linearGradient>
+  <radialGradient id="glow" cx="45%" cy="35%" r="75%">
+    <stop offset="0" stop-color="#d4d4d8" stop-opacity="0.10"/>
+    <stop offset="0.5" stop-color="#a1a1aa" stop-opacity="0.06"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="rgba(255,255,255,0.08)"/>
+    <stop offset="1" stop-color="rgba(255,255,255,0.03)"/>
+  </linearGradient>
+  <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+    <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.65"/>
+  </filter>
+  <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur stdDeviation="10" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.38 0" result="g"/>
+    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs>
+
+<rect width="${W}" height="${H}" fill="url(#bg)"/>
+<rect width="${W}" height="${H}" fill="url(#glow)"/>
+<rect x="42" y="42" width="996" height="996" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
+
+<path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
+<text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">WEEKLY RECAP</text>
+
+<text x="540" y="210" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">WEEK ${esc(sym)}</text>
+${sub ? `<text x="540" y="248" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
+
+<!-- Summary -->
+<g filter="url(#shadow)">
+  <rect x="${pad}" y="290" width="${W - pad * 2}" height="110" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
+
+  <text x="${pad + 34}" y="332" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Trades</text>
+  <text x="${pad + 34}" y="372" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(totalTrades ?? "-"))}</text>
+
+  <text x="${W / 2}" y="332" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
+  <text x="${W / 2}" y="372" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
+
+  ${pctTxt ? `<text x="${W - pad - 34}" y="368" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="46" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctTxt}</text>` : ``}
+</g>
+
+${rowsSvg}
+
+<text x="540" y="${H - 11}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="#ffffff" letter-spacing="7.5" font-weight="950" stroke="rgba(0,0,0,0.55)" stroke-width="1.4" paint-order="stroke">FLEXBOT</text>
+</svg>`;
+}
+
 // POST /auto/scalp/run?symbol=XAUUSD
 // Fully server-side: blackout + cooldown + claim + create signal + post ONE telegram photo.
 async function autoScalpRunHandler(req, res) {
