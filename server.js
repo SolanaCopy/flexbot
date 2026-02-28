@@ -4716,14 +4716,13 @@ ${sub ? `<text x="${pad + 10}" y="${titleY - 10}" font-family="Inter,Segoe UI,Ar
 
 <!-- Summary card -->
 <g filter="url(#shadow)">
-  <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="160" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
+  <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="140" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
 
-  <text x="${pad + 30}" y="${metaY + 52}" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.78)">Closed trades</text>
-  <text x="${pad + 60}" y="${metaY + 132}" font-family="Inter,Segoe UI,Arial" font-size="80" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
+  <text x="${pad + 30}" y="${metaY + 46}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Closed trades</text>
+  <text x="${pad + 60}" y="${metaY + 118}" font-family="Inter,Segoe UI,Arial" font-size="72" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
 
-  <text x="${W - pad - 30}" y="${metaY + 52}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.78)">PnL</text>
-  <text x="${W - pad - 30}" y="${metaY + 108}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="66" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}</text>
-  <text x="${W - pad - 30}" y="${metaY + 136}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.72)" letter-spacing="3">${pnlUnits}</text>
+  <text x="${W - pad - 30}" y="${metaY + 46}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">PnL</text>
+  <text x="${W - pad - 30}" y="${metaY + 98}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="60" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="24" fill="rgba(255,255,255,0.72)" dx="12"> USD</tspan></text>
 
   ${pnlPct ? `<g>
     <rect x="${W - pad - 30 - 320}" y="${metaY + 230}" width="320" height="84" rx="26" fill="rgba(0,0,0,0)" stroke="${pnlColor}" stroke-opacity="0.95"/>
