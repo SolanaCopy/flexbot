@@ -4884,8 +4884,8 @@ ${rowsSvg}
 <g filter="url(#shadow)">
   <rect x="${pad}" y="${summaryY}" width="${W - pad * 2}" height="120" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
 
-  <text x="${pad + 34}" y="${summaryY + 44}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Trades</text>
-  <text x="${pad + 34}" y="${summaryY + 94}" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(totalTrades ?? "-"))}</text>
+  <text x="${pad + 210}" y="${summaryY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total Trades</text>
+  <text x="${pad + 210}" y="${summaryY + 94}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(totalTrades ?? "-"))}</text>
 
   <text x="${W / 2}" y="${summaryY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
   <text x="${W / 2}" y="${summaryY + 94}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="44" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
