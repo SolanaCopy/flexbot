@@ -4873,7 +4873,7 @@ ${sub ? `<text x="540" y="248" text-anchor="middle" font-family="Inter,Segoe UI,
   <rect x="${pad}" y="290" width="${W - pad * 2}" height="110" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
 
   <text x="${pad + 34}" y="332" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Trades</text>
-  <text x="${pad + 34}" y="372" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(totalTrades ?? "-"))}</text>
+  <text x="${pad + 34}" y="382" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(totalTrades ?? "-"))}</text>
 
   <text x="${W / 2}" y="332" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
   <text x="${W / 2}" y="382" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="44" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
