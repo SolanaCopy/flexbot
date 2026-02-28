@@ -4615,10 +4615,15 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
     return "rgba(255,255,255,0.90)";
   };
 
-  const colorPnl = (res) => {
+  const colorPnl = (res, out) => {
     const s = String(res || "");
     if (s.includes("-")) return "#ff4d4d";
     if (s.includes("+")) return "#22c55e";
+
+    // If the result string has no sign, infer from outcome (TP = green).
+    const o = String(out || "").toLowerCase();
+    if (o.includes("tp")) return "#22c55e";
+
     return "rgba(255,255,255,0.92)";
   };
 
@@ -4648,7 +4653,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
       const resTxt = esc(res);
 
       const outFill = colorOutcome(out);
-      const resFill = colorPnl(res);
+      const resFill = colorPnl(res, out);
 
       return (
         `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.94)" font-weight="800" style="font-variant-numeric: tabular-nums;">` +
@@ -4725,8 +4730,6 @@ ${sub ? `<text x="${pad + 10}" y="${titleY + 42}" font-family="Inter,Segoe UI,Ar
     <text x="${W - pad - 30 - 160}" y="${metaY + 288}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="56" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pnlPct}</text>
   </g>` : ``}
 </g>
-
-${linesSvg}
 
 ${linesSvg}
 
