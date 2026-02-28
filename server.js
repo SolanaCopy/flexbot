@@ -4812,9 +4812,9 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
 
   // Column labels (show once)
   const colsSvg = `
-<text x="${pad + 210}" y="${rowY0 - 14}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
-<text x="${W / 2}" y="${rowY0 - 14}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
-<text x="${W - pad - 34}" y="${rowY0 - 14}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Percent</text>
+<text x="${pad + 190}" y="${rowY0 - 14}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Trades</text>
+<text x="${W / 2 - 20}" y="${rowY0 - 14}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">PnL</text>
+<text x="${W - pad - 54}" y="${rowY0 - 14}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.70)">Percent</text>
 `;
 
   const rowsSvg = dayRows.slice(0, 5).map((d, i) => {
