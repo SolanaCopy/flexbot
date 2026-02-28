@@ -4890,7 +4890,7 @@ ${rowsSvg}
   <text x="${W / 2}" y="${summaryY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
   <text x="${W / 2}" y="${summaryY + 94}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="44" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
 
-  ${pctTxt ? `<text x="${W - pad - 34}" y="${summaryY + 80}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="46" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctTxt}</text>` : ``}
+  ${pctTxt ? `<text x="${W - pad - 74}" y="${summaryY + 80}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="46" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctTxt}</text>` : ``}
 </g>
 
 <text x="540" y="${H - 11}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="#ffffff" letter-spacing="7.5" font-weight="950" stroke="rgba(0,0,0,0.55)" stroke-width="1.4" paint-order="stroke">FLEXBOT</text>
