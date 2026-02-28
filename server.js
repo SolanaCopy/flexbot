@@ -5471,6 +5471,142 @@ async function autoDailyRecapHandler(req, res) {
 app.post("/auto/daily/recap/run", autoDailyRecapHandler);
 app.get("/auto/daily/recap/run", autoDailyRecapHandler);
 
+// GET/POST /auto/weekly/recap/run (Mon–Fri mini overview, posts 1 PNG)
+async function autoWeeklyRecapHandler(req, res) {
+  try {
+    const db = await getDb();
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+
+    if (!db) {
+      await tgSendMessage({ chatId, text: "WEEKLY RECAP\nNo data." });
+      return res.json({ ok: true, acted: true, reason: "no_db" });
+    }
+
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+
+    // Range: Monday 00:00 → Friday 00:00 (Amsterdam). At Fri 00:00 this covers Mon–Thu closes.
+    const nowMs = Date.now();
+    const parts = inAmsterdamParts(nowMs);
+    const d = new Date(Date.UTC(parts.y, parts.m - 1, parts.d, 0, 0, 0, 0));
+    // JS: 0=Sun..6=Sat; we want Monday as 1
+    const dow = d.getUTCDay();
+    const mondayOffset = (dow + 6) % 7; // Mon->0, Tue->1, ... Sun->6
+    const monday = new Date(d);
+    monday.setUTCDate(d.getUTCDate() - mondayOffset);
+    const startMs = monday.getTime();
+    const endMs = startMs + 4 * 24 * 60 * 60 * 1000; // Fri 00:00
+
+    const q = await db.execute({
+      sql:
+        "SELECT direction,close_outcome,close_result,closed_at_ms FROM signals " +
+        "WHERE symbol=? AND status='closed' AND closed_at_ms IS NOT NULL AND closed_at_ms >= ? AND closed_at_ms < ? " +
+        "ORDER BY closed_at_ms ASC",
+      args: [symbol, startMs, endMs],
+    });
+
+    const rows = q.rows || [];
+
+    const parseUsd = (s) => {
+      const raw = String(s ?? "");
+      const n = Number(raw.replace(/[^0-9.+-]/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    // Use stored daily start equity (same as daily recap) for pct approximation.
+    let startEquity = null;
+    try {
+      const fp = riskStatePath("risk-day", symbol);
+      const st = readJsonFileSafe(fp, null);
+      if (st && Number.isFinite(Number(st.startEquity)) && Number(st.startEquity) > 0) {
+        startEquity = Number(st.startEquity);
+      }
+    } catch {
+      startEquity = null;
+    }
+    if (startEquity == null) {
+      const envEq = Number(process.env.DAILY_START_EQUITY_USD || process.env.START_EQUITY_USD || 0);
+      if (Number.isFinite(envEq) && envEq > 0) startEquity = envEq;
+    }
+
+    const sign = (n) => (n > 0 ? "+" : n < 0 ? "-" : "");
+    const fmtNum = (n) => {
+      const v = Math.abs(Number(n) || 0);
+      try {
+        return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+      } catch {
+        return v.toFixed(2);
+      }
+    };
+    const fmtUsd = (n) => `${sign(n)}${fmtNum(n)} USD`;
+    const fmtPct = (n) => `${sign(n)}${fmtNum(n)}%`;
+
+    const dayKey = (tsMs) => {
+      const p = inAmsterdamParts(tsMs);
+      return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`;
+    };
+
+    // Prepare buckets for Mon–Fri
+    const days = [];
+    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+    for (let i = 0; i < 5; i++) {
+      const t0 = startMs + i * 24 * 60 * 60 * 1000;
+      days.push({
+        label: labels[i],
+        key: dayKey(t0),
+        trades: 0,
+        usd: 0,
+      });
+    }
+
+    for (const r of rows) {
+      const ts = Number(r.closed_at_ms);
+      if (!Number.isFinite(ts)) continue;
+      const k = dayKey(ts);
+      const idx = days.findIndex((d) => d.key === k);
+      if (idx < 0) continue;
+      days[idx].trades += 1;
+      days[idx].usd += parseUsd(r.close_result);
+    }
+
+    const totalTrades = days.reduce((a, d) => a + d.trades, 0);
+    const totalUsd = days.reduce((a, d) => a + d.usd, 0);
+    const totalPct = startEquity ? (totalUsd / startEquity) * 100 : null;
+
+    const weekLabel = (() => {
+      const p0 = inAmsterdamParts(startMs);
+      const p1 = inAmsterdamParts(endMs - 1);
+      const a = `${p0.y}-${String(p0.m).padStart(2, "0")}-${String(p0.d).padStart(2, "0")}`;
+      const b = `${p1.y}-${String(p1.m).padStart(2, "0")}-${String(p1.d).padStart(2, "0")}`;
+      return `Week: ${a} → ${b}`;
+    })();
+
+    const dayOut = days.map((d) => ({
+      label: d.label,
+      trades: d.trades,
+      usdStr: d.trades ? fmtUsd(d.usd) : "0.00 USD",
+      pctStr: startEquity && d.trades ? fmtPct((d.usd / startEquity) * 100) : "",
+    }));
+
+    const svg = createWeeklyRecapSvg({
+      symbol,
+      weekLabel,
+      totalTrades,
+      totalUsdStr: fmtUsd(totalUsd),
+      totalPctStr: totalPct != null ? fmtPct(totalPct) : "",
+      days: dayOut,
+    });
+
+    const pngBuf = renderSvgToPngBuffer(svg);
+    await tgSendPhoto({ chatId, photo: pngBuf, caption: "WEEKLY RECAP" });
+
+    return res.json({ ok: true, acted: true, symbol, startMs, endMs, totalTrades, totalUsd, totalPct, startEquity });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_weekly_recap_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/weekly/recap/run", autoWeeklyRecapHandler);
+app.get("/auto/weekly/recap/run", autoWeeklyRecapHandler);
+
 app.get("/", (_, res) => res.send("ok"));
 
 app.get("/debug/persistence", async (req, res) => {
