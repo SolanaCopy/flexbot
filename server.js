@@ -4801,7 +4801,7 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
   const rowRectH = 82;
 
   // Place the summary card UNDER the day rows (Boss request)
-  const summaryY = rowY0 + 5 * rowH + 35;
+  const summaryY = rowY0 + 5 * rowH + 45;
 
   const colorPnl = (usdStr) => {
     const s = String(usdStr || "");
