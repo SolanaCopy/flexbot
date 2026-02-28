@@ -4439,6 +4439,9 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
     // Custom12: champagne astronaut
     "mascot_win_custom12.png": { x: -15, y: 390, w: 640, h: 740 },
 
+    // Custom13: trophy astronaut
+    "mascot_win_custom13.png": { y: 320, w: 720, h: 820 },
+
     // loss
     // Match the reference screenshot: smaller mascot bottom-left
     "mascot_loss_force.png": { x: 40, y: 710, w: 560, h: 560 },
