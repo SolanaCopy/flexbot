@@ -4796,7 +4796,7 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
   const pnlColor = isNeg ? "#ff4d4d" : "#22c55e";
 
   const dayRows = Array.isArray(days) ? days : [];
-  const rowY0 = 340;
+  const rowY0 = 320;
   const rowH = 95;
   const rowRectH = 82;
 
