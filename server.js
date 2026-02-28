@@ -4731,7 +4731,7 @@ ${linesSvg}
 
 <!-- Bottom-right corner mascot (overlay) -->
 ${cornerDataUri ? `<g opacity="0.75">
-  <image x="530" y="640" width="520" height="520" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
+  <image x="560" y="640" width="520" height="520" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
 <!-- Watermark -->
