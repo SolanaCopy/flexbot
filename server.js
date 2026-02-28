@@ -4592,8 +4592,8 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const metaY = 250;
 
   const listX = 90;
-  const listY = 560;
-  const lineH = 44;
+  const listY = 510;
+  const lineH = 40;
 
   const pageLabel = pages && pages > 1 ? `Page ${page}/${pages}` : "";
 
@@ -4656,7 +4656,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
       const resFill = colorPnl(res, out);
 
       return (
-        `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.94)" font-weight="800" style="font-variant-numeric: tabular-nums;">` +
+        `<text x="${listX}" y="${y}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.94)" font-weight="800" style="font-variant-numeric: tabular-nums;">` +
           `<tspan fill="rgba(255,255,255,0.94)">${leftTxt}</tspan>` +
           (outTxt ? `<tspan fill="rgba(255,255,255,0.55)">  |  </tspan><tspan fill="${outFill}" font-weight="900">${outTxt}</tspan>` : ``) +
           (resTxt ? `<tspan fill="rgba(255,255,255,0.55)">  |  </tspan><tspan fill="${resFill}" font-weight="900">${resTxt}</tspan>` : ``) +
@@ -4716,14 +4716,14 @@ ${sub ? `<text x="${pad + 10}" y="${titleY + 42}" font-family="Inter,Segoe UI,Ar
 
 <!-- Summary card -->
 <g filter="url(#shadow)">
-  <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="190" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
+  <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="160" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
 
-  <text x="${pad + 30}" y="${metaY + 56}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)">Closed trades</text>
-  <text x="${pad + 60}" y="${metaY + 150}" font-family="Inter,Segoe UI,Arial" font-size="96" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
+  <text x="${pad + 30}" y="${metaY + 52}" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.78)">Closed trades</text>
+  <text x="${pad + 60}" y="${metaY + 132}" font-family="Inter,Segoe UI,Arial" font-size="80" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
 
-  <text x="${W - pad - 30}" y="${metaY + 56}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.78)">PnL</text>
-  <text x="${W - pad - 30}" y="${metaY + 118}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="72" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}</text>
-  <text x="${W - pad - 30}" y="${metaY + 150}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.72)" letter-spacing="3">${pnlUnits}</text>
+  <text x="${W - pad - 30}" y="${metaY + 52}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.78)">PnL</text>
+  <text x="${W - pad - 30}" y="${metaY + 108}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="66" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.6" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}</text>
+  <text x="${W - pad - 30}" y="${metaY + 136}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="24" fill="rgba(255,255,255,0.72)" letter-spacing="3">${pnlUnits}</text>
 
   ${pnlPct ? `<g>
     <rect x="${W - pad - 30 - 320}" y="${metaY + 230}" width="320" height="84" rx="26" fill="rgba(0,0,0,0)" stroke="${pnlColor}" stroke-opacity="0.95"/>
