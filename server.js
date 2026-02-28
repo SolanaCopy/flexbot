@@ -4601,6 +4601,9 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const maxLines = Math.floor((H - listY - 120) / lineH);
   const showLines = safeLines.slice(0, Math.max(0, maxLines));
 
+  // If we have many trades, hide the corner mascot so the list stays clean.
+  const showCornerMascot = Boolean(cornerDataUri && showLines.length <= 10);
+
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const textForLine = (t) => {
@@ -4730,7 +4733,7 @@ ${sub ? `<text x="${pad + 10}" y="${titleY - 10}" font-family="Inter,Segoe UI,Ar
 ${linesSvg}
 
 <!-- Bottom-right corner mascot (overlay) -->
-${cornerDataUri ? `<g opacity="0.75">
+${showCornerMascot ? `<g opacity="0.75">
   <image x="560" y="640" width="520" height="520" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/>
 </g>` : ``}
 
@@ -5288,7 +5291,8 @@ async function autoDailyRecapHandler(req, res) {
     const totalPctStr = pct != null ? fmtPct(pct) : null;
 
     // Render recap as PNG pages.
-    const perPage = 16;
+    // Keep in sync with createDailyRecapSvg layout constants.
+    const perPage = Math.max(1, Math.floor((1080 - 510 - 120) / 40));
     const pages = Math.max(1, Math.ceil(lines.length / perPage));
     for (let p = 0; p < pages; p++) {
       const chunk = lines.slice(p * perPage, (p + 1) * perPage);
