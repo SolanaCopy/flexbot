@@ -4585,7 +4585,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   })();
 
   const sym = String(symbol || "XAUUSD").toUpperCase();
-  const header = `#RECAP ${sym}`;
+  const header = ``;
   const sub = `${dayLabel || ""}`.trim();
 
   const titleY = 193;
@@ -4711,8 +4711,8 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 <path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">DAILY RECAP</text>
 
-<text x="${pad + 250}" y="${titleY}" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">${esc(header)}</text>
-${sub ? `<text x="${pad + 10}" y="${titleY + 42}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
+${header ? `<text x="${pad + 250}" y="${titleY}" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">${esc(header)}</text>` : ``}
+${sub ? `<text x="${pad + 10}" y="${titleY - 10}" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)">${esc(sub)}</text>` : ``}
 
 <!-- Summary card -->
 <g filter="url(#shadow)">
