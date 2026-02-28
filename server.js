@@ -4876,7 +4876,7 @@ ${sub ? `<text x="540" y="248" text-anchor="middle" font-family="Inter,Segoe UI,
   <text x="${pad + 34}" y="372" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(totalTrades ?? "-"))}</text>
 
   <text x="${W / 2}" y="332" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
-  <text x="${W / 2}" y="372" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
+  <text x="${W / 2}" y="382" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${esc(String(totalUsdStr || "-"))}</text>
 
   ${pctTxt ? `<text x="${W - pad - 34}" y="368" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="46" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pctTxt}</text>` : ``}
 </g>
