@@ -4813,7 +4813,7 @@ function createTopTradesSvg({ symbol, dayLabel, items }) {
   <text x="${pad + 140}" y="${y + 40}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.70)">Direction</text>
   <text x="${pad + 140}" y="${y + 90}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#fff" font-weight="900">${dir}</text>
 
-  ${out ? `<text x="${pad + 380}" y="${y + 90}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#22c55e" font-weight="1000">${out}</text>` : ``}
+  ${out ? `<text x="${pad + 430}" y="${y + 90}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#22c55e" font-weight="1000">${out}</text>` : ``}
 
   <text x="${W - pad - 40}" y="${y + 82}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#22c55e" font-weight="1100" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
 </g>`;
