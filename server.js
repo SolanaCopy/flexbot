@@ -4783,6 +4783,85 @@ ${pageLabel ? `<text x="${W - pad}" y="${H - 30}" text-anchor="end" font-family=
 </svg>`;
 }
 
+function createTopTradesSvg({ symbol, dayLabel, items }) {
+  const W = 1080;
+  const H = 1080;
+  const pad = 56;
+
+  const sym = String(symbol || "XAUUSD").toUpperCase();
+  const sub = String(dayLabel || "").trim();
+
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const list = Array.isArray(items) ? items : [];
+
+  const rowY0 = 360;
+  const rowH = 150;
+
+  const cardSvg = list.slice(0, 3).map((it, i) => {
+    const y = rowY0 + i * rowH;
+    const rank = esc(String(it?.rank ?? (i + 1)));
+    const dir = esc(String(it?.dir ?? "-").toUpperCase());
+    const out = esc(String(it?.out ?? ""));
+    const usdStr = esc(String(it?.usdStr ?? "-"));
+
+    return `
+<g filter="url(#shadow)">
+  <rect x="${pad}" y="${y}" width="${W - pad * 2}" height="120" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
+  <text x="${pad + 40}" y="${y + 78}" font-family="Inter,Segoe UI,Arial" font-size="58" fill="#fff" font-weight="1000" style="font-variant-numeric: tabular-nums;">${rank}</text>
+
+  <text x="${pad + 140}" y="${y + 56}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.70)">Direction</text>
+  <text x="${pad + 140}" y="${y + 92}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#fff" font-weight="900">${dir}</text>
+
+  ${out ? `<text x="${pad + 330}" y="${y + 92}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#22c55e" font-weight="1000">${out}</text>` : ``}
+
+  <text x="${W - pad - 40}" y="${y + 82}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#22c55e" font-weight="1100" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
+</g>`;
+  }).join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#000000"/>
+    <stop offset="0.55" stop-color="#0b0b0d"/>
+    <stop offset="1" stop-color="#000000"/>
+  </linearGradient>
+  <radialGradient id="glow" cx="45%" cy="35%" r="75%">
+    <stop offset="0" stop-color="#d4d4d8" stop-opacity="0.10"/>
+    <stop offset="0.5" stop-color="#a1a1aa" stop-opacity="0.06"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="rgba(255,255,255,0.08)"/>
+    <stop offset="1" stop-color="rgba(255,255,255,0.03)"/>
+  </linearGradient>
+  <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+    <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.65"/>
+  </filter>
+  <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur stdDeviation="10" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.38 0" result="g"/>
+    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+</defs>
+
+<rect width="${W}" height="${H}" fill="url(#bg)"/>
+<rect width="${W}" height="${H}" fill="url(#glow)"/>
+<rect x="42" y="42" width="996" height="996" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
+
+<path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
+<text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">TOP TRADES</text>
+
+<text x="540" y="210" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">TOP 3 ${esc(sym)}</text>
+${sub ? `<text x="540" y="250" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.75)">${esc(sub)}</text>` : ``}
+
+${cardSvg}
+
+<text x="540" y="${H - 11}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="#ffffff" letter-spacing="7.5" font-weight="950" stroke="rgba(0,0,0,0.55)" stroke-width="1.4" paint-order="stroke">FLEXBOT</text>
+</svg>`;
+}
+
 function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, totalPctStr, days }) {
   const W = 1080;
   const H = 1080;
