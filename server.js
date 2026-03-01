@@ -4810,10 +4810,10 @@ function createTopTradesSvg({ symbol, dayLabel, items }) {
   <rect x="${pad}" y="${y}" width="${W - pad * 2}" height="120" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
   <text x="${pad + 40}" y="${y + 78}" font-family="Inter,Segoe UI,Arial" font-size="58" fill="#fff" font-weight="1000" style="font-variant-numeric: tabular-nums;">${rank}</text>
 
-  <text x="${pad + 140}" y="${y + 48}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.70)">Direction</text>
-  <text x="${pad + 140}" y="${y + 84}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#fff" font-weight="900">${dir}</text>
+  <text x="${pad + 140}" y="${y + 40}" font-family="Inter,Segoe UI,Arial" font-size="30" fill="rgba(255,255,255,0.70)">Direction</text>
+  <text x="${pad + 140}" y="${y + 90}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#fff" font-weight="900">${dir}</text>
 
-  ${out ? `<text x="${pad + 330}" y="${y + 84}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#22c55e" font-weight="1000">${out}</text>` : ``}
+  ${out ? `<text x="${pad + 330}" y="${y + 90}" font-family="Inter,Segoe UI,Arial" font-size="44" fill="#22c55e" font-weight="1000">${out}</text>` : ``}
 
   <text x="${W - pad - 40}" y="${y + 82}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#22c55e" font-weight="1100" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
 </g>`;
