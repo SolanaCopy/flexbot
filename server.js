@@ -4854,7 +4854,7 @@ function createTopTradesSvg({ symbol, dayLabel, items }) {
 <text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">TOP TRADES</text>
 
 <text x="540" y="210" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="52" fill="#fff" font-weight="900">TOP 3 TRADES OF THE DAY!</text>
-${sub ? `<text x="540" y="265" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.75)">${esc(sub)}</text>` : ``}
+${sub ? `<text x="540" y="282" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.75)">${esc(sub)}</text>` : ``}
 
 ${cardSvg}
 
