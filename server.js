@@ -4866,7 +4866,7 @@ ${(() => {
     }
     const buf = fs.readFileSync(p);
     const dataUri = `data:image/png;base64,${buf.toString("base64")}`;
-    return `<g opacity="0.95"><image x="${(W - 420) / 2}" y="${H - 56 - 96}" width="420" height="96" href="${dataUri}" preserveAspectRatio="xMidYMid meet"/></g>`;
+    return `<g opacity="0.95"><image x="${(W - 680) / 2}" y="${H - 320}" width="680" height="150" href="${dataUri}" preserveAspectRatio="xMidYMid meet"/></g>`;
   } catch {
     return `<text x="540" y="${H - 11}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="#ffffff" letter-spacing="7.5" font-weight="950" stroke="rgba(0,0,0,0.55)" stroke-width="1.4" paint-order="stroke">FLEXBOT</text>`;
   }
