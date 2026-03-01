@@ -5554,13 +5554,118 @@ async function autoDailyRecapHandler(req, res) {
       await tgSendPhoto({ chatId, photo: pngBuf, caption: p === 0 ? `#RECAP ${symbol}` : undefined });
     }
 
-    return res.json({ ok: true, acted: true, closed: items.length, totalUsd, pct, startEquity, start_ms: startMsSafe, pages });
+    // Post TOP 3 trades of the day (by +USD) after the recap.
+    const top = items
+      .filter((x) => Number.isFinite(x.usd) && x.usd > 0)
+      .slice()
+      .sort((a, b) => (b.usd || 0) - (a.usd || 0))
+      .slice(0, 3)
+      .map((x, i) => ({
+        rank: i + 1,
+        dir: x.dir,
+        out: String(x.out || "").toUpperCase().includes("TP") ? "TP" : "",
+        usdStr: fmtUsd(x.usd),
+      }));
+    if (top.length) {
+      const svgTop = createTopTradesSvg({ symbol, dayLabel, items: top });
+      const pngTop = renderSvgToPngBuffer(svgTop);
+      await tgSendPhoto({ chatId, photo: pngTop, caption: "TOP TRADES" });
+    }
+
+    return res.json({ ok: true, acted: true, closed: items.length, totalUsd, pct, startEquity, start_ms: startMsSafe, pages, top_trades_posted: top.length });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_daily_recap_failed", message: String(e?.message || e) });
   }
 }
 app.post("/auto/daily/recap/run", autoDailyRecapHandler);
 app.get("/auto/daily/recap/run", autoDailyRecapHandler);
+
+// GET/POST /auto/daily/toptrades/run (posts TOP 3 by +USD)
+async function autoDailyTopTradesHandler(req, res) {
+  try {
+    const db = await getDb();
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+
+    if (!db) {
+      await tgSendMessage({ chatId, text: "TOP TRADES\nNo data." });
+      return res.json({ ok: true, acted: true, reason: "no_db" });
+    }
+
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const startMs = startOfDayMsInTz("Europe/Amsterdam");
+
+    const q = await db.execute({
+      sql:
+        "SELECT direction,close_outcome,close_result,closed_at_ms FROM signals " +
+        "WHERE symbol=? AND status='closed' AND closed_at_ms IS NOT NULL AND closed_at_ms >= ? " +
+        "ORDER BY closed_at_ms ASC",
+      args: [symbol, startMs],
+    });
+
+    const rows = q.rows || [];
+
+    const parseUsd = (s) => {
+      const raw = String(s ?? "");
+      const n = Number(raw.replace(/[^0-9.+-]/g, ""));
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const items = rows.map((r) => {
+      const dir = r.direction != null ? String(r.direction).toUpperCase() : "-";
+      const out = r.close_outcome != null ? String(r.close_outcome) : "-";
+      const resu = r.close_result != null ? String(r.close_result) : "-";
+      const usd = parseUsd(resu);
+      return { dir, out, resu, usd };
+    });
+
+    const sign = (n) => (n > 0 ? "+" : n < 0 ? "-" : "");
+    const fmtNum = (n) => {
+      const v = Math.abs(Number(n) || 0);
+      try {
+        return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+      } catch {
+        return v.toFixed(2);
+      }
+    };
+    const fmtUsd = (n) => `${sign(n)}${fmtNum(n)} USD`;
+
+    const dayLabel = (() => {
+      try {
+        const dk = dayKeyInTz("Europe/Amsterdam");
+        return `Day: ${dk}`;
+      } catch {
+        return "";
+      }
+    })();
+
+    const top = items
+      .filter((x) => Number.isFinite(x.usd) && x.usd > 0)
+      .slice()
+      .sort((a, b) => (b.usd || 0) - (a.usd || 0))
+      .slice(0, 3)
+      .map((x, i) => ({
+        rank: i + 1,
+        dir: x.dir,
+        out: String(x.out || "").toUpperCase().includes("TP") ? "TP" : "",
+        usdStr: fmtUsd(x.usd),
+      }));
+
+    if (!top.length) {
+      await tgSendMessage({ chatId, text: "TOP TRADES\nNo winning trades today." });
+      return res.json({ ok: true, acted: true, posted: 0 });
+    }
+
+    const svg = createTopTradesSvg({ symbol, dayLabel, items: top });
+    const pngBuf = renderSvgToPngBuffer(svg);
+    await tgSendPhoto({ chatId, photo: pngBuf, caption: "TOP TRADES" });
+
+    return res.json({ ok: true, acted: true, posted: top.length, symbol, startMs });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_daily_toptrades_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/daily/toptrades/run", autoDailyTopTradesHandler);
+app.get("/auto/daily/toptrades/run", autoDailyTopTradesHandler);
 
 // GET/POST /auto/weekly/recap/run (Mon–Fri mini overview, posts 1 PNG)
 async function autoWeeklyRecapHandler(req, res) {
