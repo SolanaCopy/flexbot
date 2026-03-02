@@ -1,0 +1,11 @@
+# OpenClaw backups: never commit secrets
+**/secrets/**
+**/credentials/**
+**/*.token
+**/*.key
+**/*.pem
+**/.env
+
+# Noise
+**/repos/**
+**/.DS_Store

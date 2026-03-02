@@ -1,0 +1,176 @@
+{
+  "meta": {
+    "lastTouchedVersion": "2026.1.30",
+    "lastTouchedAt": "2026-03-02T23:09:16.036Z"
+  },
+  "wizard": {
+    "lastRunAt": "2026-03-01T18:44:18.976Z",
+    "lastRunVersion": "2026.1.30",
+    "lastRunCommand": "doctor",
+    "lastRunMode": "local"
+  },
+  "auth": {
+    "profiles": {
+      "openai-codex:default": {
+        "provider": "openai-codex",
+        "mode": "oauth"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openai-codex/gpt-5.2"
+      },
+      "workspace": "C:\\Users\\moham\\.openclaw\\workspace",
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "maxConcurrent": 4,
+      "subagents": {
+        "maxConcurrent": 8
+      }
+    },
+    "list": [
+      {
+        "id": "main"
+      },
+      {
+        "id": "bot-default",
+        "default": true,
+        "name": "bot-default",
+        "workspace": "C:\\Users\\openclawsvc\\.openclaw\\ws-bot-default",
+        "agentDir": "C:\\Users\\openclawsvc\\.openclaw\\agents\\bot-default\\agent"
+      },
+      {
+        "id": "bot-affiliate",
+        "name": "bot-affiliate",
+        "workspace": "C:\\Users\\openclawsvc\\.openclaw\\ws-bot-affiliate",
+        "agentDir": "C:\\Users\\openclawsvc\\.openclaw\\agents\\bot-affiliate\\agent"
+      },
+      {
+        "id": "bot-fxcopie",
+        "name": "bot-fxcopie",
+        "workspace": "C:\\Users\\openclawsvc\\.openclaw\\ws-bot-fxcopie",
+        "agentDir": "C:\\Users\\openclawsvc\\.openclaw\\agents\\bot-fxcopie\\agent"
+      },
+      {
+        "id": "bot-builder",
+        "name": "bot-builder",
+        "workspace": "C:\\Users\\openclawsvc\\.openclaw\\ws-bot-builder",
+        "agentDir": "C:\\Users\\openclawsvc\\.openclaw\\agents\\bot-builder\\agent"
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "bot-default",
+      "match": {
+        "channel": "telegram",
+        "accountId": "default"
+      }
+    },
+    {
+      "agentId": "bot-affiliate",
+      "match": {
+        "channel": "telegram",
+        "accountId": "affiliate"
+      }
+    },
+    {
+      "agentId": "bot-fxcopie",
+      "match": {
+        "channel": "telegram",
+        "accountId": "fxcopie"
+      }
+    },
+    {
+      "agentId": "bot-builder",
+      "match": {
+        "channel": "telegram",
+        "accountId": "builder"
+      }
+    }
+  ],
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto"
+  },
+  "session": {
+    "dmScope": "per-account-channel-peer"
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "groups": {
+        "-1003611276978": {
+          "requireMention": false
+        }
+      },
+      "groupPolicy": "allowlist",
+      "streamMode": "partial",
+      "network": {
+        "autoSelectFamily": false
+      },
+      "accounts": {
+        "default": {
+          "name": "default",
+          "dmPolicy": "pairing",
+          "tokenFile": "C:\\Users\\moham\\.openclaw\\secrets\\telegram-default.token",
+          "groupPolicy": "allowlist",
+          "streamMode": "partial"
+        },
+        "affiliate": {
+          "name": "affiliate",
+          "dmPolicy": "pairing",
+          "tokenFile": "C:\\Users\\moham\\.openclaw\\secrets\\telegram-affiliate.token",
+          "groupPolicy": "allowlist",
+          "streamMode": "partial"
+        },
+        "fxcopie": {
+          "name": "fxcopie",
+          "dmPolicy": "pairing",
+          "tokenFile": "C:\\Users\\moham\\.openclaw\\secrets\\telegram-fxcopie.token",
+          "groupPolicy": "allowlist",
+          "streamMode": "partial"
+        },
+        "builder": {
+          "name": "builder",
+          "dmPolicy": "pairing",
+          "tokenFile": "C:\\Users\\moham\\.openclaw\\secrets\\telegram-builder.token",
+          "groupPolicy": "allowlist",
+          "streamMode": "partial"
+        }
+      }
+    }
+  },
+  "gateway": {
+    "port": 18789,
+    "mode": "local",
+    "bind": "loopback",
+    "auth": {
+      "mode": "token",
+      "token": "586b0a5a340555c9f6b973cbaaa0e41124aa90809341597f"
+    },
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    }
+  },
+  "skills": {
+    "install": {
+      "nodeManager": "npm"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {
+        "enabled": true
+      }
+    }
+  }
+}
