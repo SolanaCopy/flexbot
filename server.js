@@ -5969,8 +5969,9 @@ function mcAuthDashboard(req, res) {
 }
 
 function mcAuthBot(req, res) {
-  const apiKey = req.header("x-api-key") || "";
-  const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
+  const apiKey = req.header("x-api-key") || req.query.key || "";
+  // BOT_API_KEY voor OpenClaw bots; valt terug op EA_API_KEY voor backwards compat
+  const expected = String(process.env.BOT_API_KEY || process.env.EA_API_KEY || "");
   if (!expected || !apiKey || apiKey !== expected) {
     res.status(401).json({ ok: false, error: "unauthorized" });
     return false;
