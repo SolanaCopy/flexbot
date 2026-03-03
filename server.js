@@ -401,6 +401,28 @@ async function getDb() {
     ")"
   );
 
+  // Mission Control: bot heartbeats (each bot reports its status)
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS bot_heartbeats (" +
+      "bot_id TEXT PRIMARY KEY," +
+      "name TEXT," +
+      "status TEXT," +
+      "last_action TEXT," +
+      "updated_at_ms INTEGER" +
+    ")"
+  );
+
+  // Mission Control: commands from admin to bots
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS bot_commands (" +
+      "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+      "bot_id TEXT," +
+      "command TEXT," +
+      "created_at_ms INTEGER," +
+      "executed_at_ms INTEGER" +
+    ")"
+  );
+
   return libsqlClient;
 }
 
@@ -5895,6 +5917,418 @@ async function warmLoadFromDb() {
     }
   }
 }
+
+// ============================================================
+// MISSION CONTROL
+// ============================================================
+
+function mcAuthDashboard(req, res) {
+  const key = req.query.key ? String(req.query.key) : "";
+  const expected = process.env.DASHBOARD_KEY ? String(process.env.DASHBOARD_KEY) : "";
+  if (!expected || !key || key !== expected) {
+    res.status(401).json({ ok: false, error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+function mcAuthBot(req, res) {
+  const apiKey = req.header("x-api-key") || "";
+  const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
+  if (!expected || !apiKey || apiKey !== expected) {
+    res.status(401).json({ ok: false, error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+// POST /api/mc/bot/heartbeat  (X-API-Key: EA_API_KEY)
+// GET  /api/mc/bot/heartbeat?bot_id=...&status=...&last_action=...  (X-API-Key: EA_API_KEY)
+async function mcHeartbeatHandler(req, res) {
+  if (!mcAuthBot(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    let body = {};
+    try { body = JSON.parse(typeof req.body === "string" ? req.body : JSON.stringify(req.body)); } catch { /* ignore */ }
+
+    const bot_id = String(body.bot_id || req.query.bot_id || "").trim();
+    const name = String(body.name || req.query.name || body.bot_id || req.query.bot_id || "").trim();
+    const status = String(body.status || req.query.status || "online").trim();
+    const last_action = String(body.last_action || req.query.last_action || "").trim();
+
+    if (!bot_id) return res.status(400).json({ ok: false, error: "bot_id_required" });
+
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO bot_heartbeats (bot_id, name, status, last_action, updated_at_ms) VALUES (?,?,?,?,?)",
+      args: [bot_id, name, status, last_action, Date.now()],
+    });
+
+    return res.json({ ok: true, bot_id });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+}
+app.post("/api/mc/bot/heartbeat", mcHeartbeatHandler);
+app.get("/api/mc/bot/heartbeat", mcHeartbeatHandler);
+
+// GET /api/mc/bot/commands  (X-API-Key: EA_API_KEY)
+app.get("/api/mc/bot/commands", async (req, res) => {
+  if (!mcAuthBot(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    const bot_id = req.query.bot_id ? String(req.query.bot_id).trim() : "";
+    if (!bot_id) return res.status(400).json({ ok: false, error: "bot_id_required" });
+
+    const rows = await db.execute({
+      sql: "SELECT id, command, created_at_ms FROM bot_commands WHERE bot_id=? AND executed_at_ms IS NULL ORDER BY id ASC LIMIT 10",
+      args: [bot_id],
+    });
+
+    const commands = (rows.rows || []).map((r) => ({
+      id: Number(r.id),
+      command: String(r.command),
+      created_at_ms: Number(r.created_at_ms),
+    }));
+
+    // Mark fetched commands as executed
+    if (commands.length > 0) {
+      const ids = commands.map((c) => c.id);
+      for (const id of ids) {
+        await db.execute({
+          sql: "UPDATE bot_commands SET executed_at_ms=? WHERE id=?",
+          args: [Date.now(), id],
+        });
+      }
+    }
+
+    return res.json({ ok: true, bot_id, commands });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// POST /api/mc/bot/command  (?key=DASHBOARD_KEY)
+app.post("/api/mc/bot/command", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    let body = {};
+    try { body = JSON.parse(typeof req.body === "string" ? req.body : JSON.stringify(req.body)); } catch { /* ignore */ }
+
+    const bot_id = String(body.bot_id || req.query.bot_id || "").trim();
+    const command = String(body.command || req.query.command || "").trim();
+
+    if (!bot_id) return res.status(400).json({ ok: false, error: "bot_id_required" });
+    if (!["start", "stop", "restart"].includes(command)) {
+      return res.status(400).json({ ok: false, error: "invalid_command", allowed: ["start", "stop", "restart"] });
+    }
+
+    await db.execute({
+      sql: "INSERT INTO bot_commands (bot_id, command, created_at_ms) VALUES (?,?,?)",
+      args: [bot_id, command, Date.now()],
+    });
+
+    return res.json({ ok: true, bot_id, command });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// GET /api/mc/state  (?key=DASHBOARD_KEY)
+app.get("/api/mc/state", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+
+    // Market status
+    const market = marketBlockedNow();
+
+    // EA positions
+    let eaPositions = [];
+    if (db) {
+      try {
+        const rows = await db.execute(
+          "SELECT account_login, server, magic, symbol, has_position, equity, updated_at_ms FROM ea_positions ORDER BY updated_at_ms DESC"
+        );
+        eaPositions = (rows.rows || []).map((r) => ({
+          account_login: String(r.account_login),
+          server: String(r.server),
+          magic: Number(r.magic),
+          symbol: String(r.symbol),
+          has_position: Number(r.has_position) === 1,
+          equity: r.equity != null ? Number(r.equity) : null,
+          updated_at_ms: Number(r.updated_at_ms),
+        }));
+      } catch { /* ignore */ }
+    }
+
+    // Bot heartbeats
+    let bots = [];
+    if (db) {
+      try {
+        const rows = await db.execute(
+          "SELECT bot_id, name, status, last_action, updated_at_ms FROM bot_heartbeats ORDER BY bot_id ASC"
+        );
+        const nowMs = Date.now();
+        bots = (rows.rows || []).map((r) => {
+          const updMs = r.updated_at_ms != null ? Number(r.updated_at_ms) : 0;
+          const ageMins = (nowMs - updMs) / 60000;
+          let derived = "offline";
+          if (ageMins < 5) derived = "online";
+          else if (ageMins < 30) derived = "idle";
+          return {
+            bot_id: String(r.bot_id),
+            name: String(r.name || r.bot_id),
+            status: derived,
+            reported_status: String(r.status || ""),
+            last_action: String(r.last_action || ""),
+            updated_at_ms: updMs,
+            age_mins: Math.round(ageMins),
+          };
+        });
+      } catch { /* ignore */ }
+    }
+
+    // Recent signals (last 10)
+    let signals = [];
+    if (db) {
+      try {
+        const rows = await db.execute(
+          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome FROM signals ORDER BY created_at_ms DESC LIMIT 10"
+        );
+        signals = (rows.rows || []).map((r) => ({
+          id: String(r.id),
+          symbol: String(r.symbol),
+          direction: String(r.direction),
+          sl: r.sl != null ? Number(r.sl) : null,
+          tp: (() => { try { return JSON.parse(String(r.tp_json))[0]; } catch { return null; } })(),
+          status: String(r.status),
+          created_at_ms: Number(r.created_at_ms),
+          closed_at_ms: r.closed_at_ms != null ? Number(r.closed_at_ms) : null,
+          close_outcome: r.close_outcome != null ? String(r.close_outcome) : null,
+        }));
+      } catch { /* ignore */ }
+    }
+
+    return res.json({
+      ok: true,
+      server_time_ms: Date.now(),
+      market,
+      ea_positions: eaPositions,
+      bots,
+      signals,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// GET /mc  (?key=DASHBOARD_KEY) — HTML dashboard
+app.get("/mc", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  const key = String(req.query.key || "");
+  const html = `<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mission Control — OpenClaw</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0d0d0f;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+  header{background:#111318;border-bottom:1px solid #1e2130;padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
+  header h1{font-size:1.25rem;font-weight:700;letter-spacing:.05em;color:#fff}
+  header h1 span{color:#f59e0b}
+  #refresh-time{font-size:.75rem;color:#64748b}
+  .grid{display:grid;gap:16px;padding:20px 24px}
+  .card{background:#111318;border:1px solid #1e2130;border-radius:10px;padding:16px}
+  .card h2{font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:12px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:.7rem;font-weight:600}
+  .badge-green{background:#14532d;color:#4ade80}
+  .badge-orange{background:#431407;color:#fb923c}
+  .badge-red{background:#450a0a;color:#f87171}
+  .badge-blue{background:#1e3a5f;color:#60a5fa}
+  .badge-gray{background:#1e293b;color:#94a3b8}
+  .bots-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+  .bot-card{background:#0d1117;border:1px solid #1e2130;border-radius:8px;padding:14px}
+  .bot-card .bot-name{font-weight:600;font-size:.9rem;margin-bottom:6px}
+  .bot-card .bot-action{font-size:.75rem;color:#64748b;margin-top:6px;min-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bot-card .bot-age{font-size:.7rem;color:#475569;margin-top:4px}
+  .bot-card .btn-row{margin-top:10px;display:flex;gap:6px}
+  .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.7rem;cursor:pointer;font-weight:600}
+  .btn-start{background:#14532d;color:#4ade80}
+  .btn-stop{background:#450a0a;color:#f87171}
+  .btn-restart{background:#1e3a5f;color:#60a5fa}
+  .btn:hover{opacity:.8}
+  table{width:100%;border-collapse:collapse;font-size:.8rem}
+  th{text-align:left;padding:6px 10px;color:#64748b;border-bottom:1px solid #1e2130;font-weight:600;font-size:.7rem;text-transform:uppercase}
+  td{padding:7px 10px;border-bottom:1px solid #1a1f2e}
+  tr:last-child td{border-bottom:none}
+  .ea-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+  .ea-card{background:#0d1117;border:1px solid #1e2130;border-radius:8px;padding:12px;font-size:.8rem}
+  .ea-card .ea-login{font-weight:700;font-size:.9rem;margin-bottom:4px}
+  .ea-card .ea-row{display:flex;justify-content:space-between;color:#94a3b8;margin-top:4px}
+  .mkt-open{color:#4ade80;font-weight:700}
+  .mkt-closed{color:#f87171;font-weight:700}
+  #error-banner{display:none;background:#450a0a;color:#fca5a5;padding:10px 16px;border-radius:6px;margin:0 24px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>&#9881; Mission <span>Control</span></h1>
+  <div id="refresh-time">laden...</div>
+</header>
+<div id="error-banner"></div>
+<div class="grid" id="main-grid">
+  <div class="card" id="card-market"><h2>Markt Status</h2><div id="market-body">laden...</div></div>
+  <div class="card" id="card-ea"><h2>EA Verbindingen</h2><div class="ea-grid" id="ea-body">laden...</div></div>
+  <div class="card"><h2>Bots</h2><div class="bots-grid" id="bots-body">laden...</div></div>
+  <div class="card"><h2>Recente Trades (laatste 10)</h2><div id="signals-body"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="5">laden...</td></tr></tbody></table></div></div>
+</div>
+<script>
+const KEY = ${JSON.stringify(key)};
+const BASE = window.location.origin;
+
+function fmtTime(ms){
+  if(!ms)return'—';
+  const d=new Date(ms);
+  return d.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function fmtDate(ms){
+  if(!ms)return'—';
+  const d=new Date(ms);
+  return d.toLocaleDateString('nl-NL',{day:'2-digit',month:'2-digit'})+' '+fmtTime(ms);
+}
+function ageFmt(ms){
+  const mins=Math.round((Date.now()-ms)/60000);
+  if(mins<1)return'nu net';
+  if(mins<60)return mins+'m geleden';
+  return Math.round(mins/60)+'u geleden';
+}
+
+async function sendCommand(botId, cmd){
+  try{
+    const r=await fetch(BASE+'/api/mc/bot/command?key='+encodeURIComponent(KEY),{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({bot_id:botId,command:cmd})
+    });
+    const d=await r.json();
+    if(d.ok) alert('Commando '+cmd+' verstuurd naar '+botId);
+    else alert('Fout: '+(d.error||JSON.stringify(d)));
+  }catch(e){alert('Fout: '+e.message);}
+}
+
+async function load(){
+  try{
+    const r=await fetch(BASE+'/api/mc/state?key='+encodeURIComponent(KEY));
+    if(!r.ok){
+      const eb=document.getElementById('error-banner');
+      eb.textContent='Fout bij laden: HTTP '+r.status;
+      eb.style.display='block';
+      return;
+    }
+    document.getElementById('error-banner').style.display='none';
+    const d=await r.json();
+
+    document.getElementById('refresh-time').textContent='Vernieuwd: '+new Date().toLocaleTimeString('nl-NL');
+
+    // Market
+    const mEl=document.getElementById('market-body');
+    if(d.market){
+      const open=!d.market.blocked;
+      mEl.innerHTML='<span class="'+(open?'mkt-open':'mkt-closed')+'">'+
+        (open?'&#9679; OPEN':'&#9679; GESLOTEN')+'</span>'+
+        (d.market.reason?' <span style="color:#64748b;font-size:.8rem">('+d.market.reason+')</span>':'');
+    }
+
+    // EA positions
+    const eaEl=document.getElementById('ea-body');
+    if(!d.ea_positions||d.ea_positions.length===0){
+      eaEl.innerHTML='<span style="color:#64748b;font-size:.8rem">Geen EA verbindingen</span>';
+    } else {
+      eaEl.innerHTML=d.ea_positions.map(ea=>{
+        const fresh=ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<5*60000;
+        return '<div class="ea-card">'+
+          '<div class="ea-login">'+ea.account_login+'</div>'+
+          '<div class="ea-row"><span>Server</span><span>'+ea.server+'</span></div>'+
+          '<div class="ea-row"><span>Symbol</span><span>'+ea.symbol+'</span></div>'+
+          '<div class="ea-row"><span>Equity</span><span>'+(ea.equity!=null?'$'+ea.equity.toFixed(2):'—')+'</span></div>'+
+          '<div class="ea-row"><span>Positie</span><span class="badge '+(ea.has_position?'badge-orange':'badge-gray')+'">'+(ea.has_position?'JA':'nee')+'</span></div>'+
+          '<div class="ea-row"><span>Update</span><span class="badge '+(fresh?'badge-green':'badge-red')+'">'+(ea.updated_at_ms?ageFmt(ea.updated_at_ms):'—')+'</span></div>'+
+          '</div>';
+      }).join('');
+    }
+
+    // Bots
+    const BOT_IDS=['bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
+    const botMap={};
+    (d.bots||[]).forEach(b=>{botMap[b.bot_id]=b;});
+    const botsEl=document.getElementById('bots-body');
+    botsEl.innerHTML=BOT_IDS.map(id=>{
+      const b=botMap[id];
+      const status=b?b.status:'offline';
+      const badgeClass=status==='online'?'badge-green':status==='idle'?'badge-orange':'badge-red';
+      const label=status==='online'?'ONLINE':status==='idle'?'IDLE':'OFFLINE';
+      return '<div class="bot-card">'+
+        '<div style="display:flex;align-items:center;gap:8px">'+
+        '<span class="badge '+badgeClass+'">'+label+'</span>'+
+        '<span class="bot-name">'+id+'</span></div>'+
+        '<div class="bot-action">'+(b&&b.last_action?b.last_action:'—')+'</div>'+
+        '<div class="bot-age">'+(b&&b.updated_at_ms?ageFmt(b.updated_at_ms):'nooit gezien')+'</div>'+
+        '<div class="btn-row">'+
+        '<button class="btn btn-start" onclick="sendCommand(\''+id+'\',\'start\')">&#9654; Start</button>'+
+        '<button class="btn btn-stop" onclick="sendCommand(\''+id+'\',\'stop\')">&#9646;&#9646; Stop</button>'+
+        '<button class="btn btn-restart" onclick="sendCommand(\''+id+'\',\'restart\')">&#8635; Herstart</button>'+
+        '</div></div>';
+    }).join('');
+
+    // Signals
+    const tbody=document.getElementById('signals-tbody');
+    if(!d.signals||d.signals.length===0){
+      tbody.innerHTML='<tr><td colspan="5" style="color:#64748b">Geen trades gevonden</td></tr>';
+    } else {
+      tbody.innerHTML=d.signals.map(s=>{
+        const outcome=s.close_outcome||s.status;
+        let badge='badge-gray';
+        if(outcome==='active')badge='badge-blue';
+        else if(/tp/i.test(outcome))badge='badge-green';
+        else if(/sl/i.test(outcome))badge='badge-red';
+        return '<tr>'+
+          '<td>'+fmtDate(s.created_at_ms)+'</td>'+
+          '<td><span class="badge '+(s.direction==='BUY'?'badge-green':'badge-orange')+'">'+s.direction+'</span></td>'+
+          '<td>'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
+          '<td>'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
+          '<td><span class="badge '+badge+'">'+outcome+'</span></td>'+
+          '</tr>';
+      }).join('');
+    }
+
+  }catch(e){
+    const eb=document.getElementById('error-banner');
+    eb.textContent='Fout: '+e.message;
+    eb.style.display='block';
+  }
+}
+
+load();
+setInterval(load,30000);
+</script>
+</body>
+</html>`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
+});
+
+// ============================================================
+// END MISSION CONTROL
+// ============================================================
 
 async function main() {
   await warmLoadFromDb();
