@@ -6249,6 +6249,7 @@ async function load(){
     }
 
     // EA positions
+    const EA_NAMES={'12033719':'Flexbot test'};
     const eaEl=document.getElementById('ea-body');
     if(!d.ea_positions||d.ea_positions.length===0){
       eaEl.innerHTML='<span style="color:#64748b;font-size:.8rem">Geen EA verbindingen</span>';
@@ -6256,7 +6257,7 @@ async function load(){
       eaEl.innerHTML=d.ea_positions.map(ea=>{
         const fresh=ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<5*60000;
         return '<div class="ea-card">'+
-          '<div class="ea-login">'+ea.account_login+'</div>'+
+          '<div class="ea-login">'+(EA_NAMES[ea.account_login]||ea.account_login)+'</div>'+
           '<div class="ea-row"><span>Server</span><span>'+ea.server+'</span></div>'+
           '<div class="ea-row"><span>Symbol</span><span>'+ea.symbol+'</span></div>'+
           '<div class="ea-row"><span>Equity</span><span>'+(ea.equity!=null?'$'+ea.equity.toFixed(2):'—')+'</span></div>'+
