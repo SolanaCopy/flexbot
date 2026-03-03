@@ -6251,10 +6251,11 @@ async function load(){
     // EA positions
     const EA_NAMES={'12033719':'Flexbot test'};
     const eaEl=document.getElementById('ea-body');
-    if(!d.ea_positions||d.ea_positions.length===0){
-      eaEl.innerHTML='<span style="color:#64748b;font-size:.8rem">Geen EA verbindingen</span>';
+    const activeEa=(d.ea_positions||[]).filter(ea=>ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<24*60*60*1000);
+    if(activeEa.length===0){
+      eaEl.innerHTML='<span style="color:#64748b;font-size:.8rem">Geen actieve EA verbindingen</span>';
     } else {
-      eaEl.innerHTML=d.ea_positions.map(ea=>{
+      eaEl.innerHTML=activeEa.map(ea=>{
         const fresh=ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<5*60000;
         return '<div class="ea-card">'+
           '<div class="ea-login">'+(EA_NAMES[ea.account_login]||ea.account_login)+'</div>'+
