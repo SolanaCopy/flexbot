@@ -6175,99 +6175,186 @@ app.get("/mc", async (req, res) => {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mission Control — OpenClaw</title>
+<title>⚡ Mission Control — OpenClaw</title>
 <style>
+  :root{
+    --bg:#07090f;--surface:#0d1117;--surface2:#111827;--border:#1e2535;
+    --cyan:#22d3ee;--green:#4ade80;--orange:#fb923c;--red:#f87171;--blue:#60a5fa;--purple:#a78bfa;--yellow:#fbbf24;
+    --text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;
+  }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0d0d0f;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
-  header{background:#111318;border-bottom:1px solid #1e2130;padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
-  header h1{font-size:1.25rem;font-weight:700;letter-spacing:.05em;color:#fff}
-  header h1 span{color:#f59e0b}
-  #refresh-time{font-size:.75rem;color:#64748b}
-  .grid{display:grid;gap:16px;padding:20px 24px}
-  .card{background:#111318;border:1px solid #1e2130;border-radius:10px;padding:16px}
-  .card h2{font-size:.75rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:12px}
-  .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:.7rem;font-weight:600}
-  .badge-green{background:#14532d;color:#4ade80}
-  .badge-orange{background:#431407;color:#fb923c}
-  .badge-red{background:#450a0a;color:#f87171}
-  .badge-blue{background:#1e3a5f;color:#60a5fa}
-  .badge-gray{background:#1e293b;color:#94a3b8}
-  .office-room{background:linear-gradient(180deg,#12172a 0%,#0d1117 60%,#161b2e 100%);border-radius:10px;padding:20px 10px 14px;position:relative;overflow:hidden}
-  .office-room::after{content:'';position:absolute;bottom:0;left:0;right:0;height:28%;background:repeating-linear-gradient(90deg,#1a2040 0,#1a2040 60px,#171d3a 60px,#171d3a 120px);z-index:0}
-  .office-desks{display:grid;grid-template-columns:1fr 1fr;gap:18px;position:relative;z-index:1}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;position:relative}
+  body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px);pointer-events:none;z-index:9999}
+
+  /* ── Header ── */
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
+  .hdr-left{display:flex;align-items:center;gap:12px}
+  .hdr-logo{font-size:1.3rem;font-weight:800;letter-spacing:.04em;color:#fff;text-transform:uppercase}
+  .hdr-logo span{color:var(--cyan)}
+  .hdr-live{background:#450a0a;color:var(--red);border:1px solid #7f1d1d;font-size:.65rem;font-weight:800;padding:2px 7px;border-radius:4px;letter-spacing:.1em;animation:livePulse 1.5s ease-in-out infinite}
+  @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.6}}
+  .hdr-right{text-align:right}
+  #live-clock{font-size:1.1rem;font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums;letter-spacing:.05em}
+  #refresh-time{font-size:.65rem;color:var(--muted);margin-top:1px}
+
+  /* ── Layout ── */
+  .page{padding:18px 22px;display:flex;flex-direction:column;gap:14px}
+  .row-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:800px){.row-2{grid-template-columns:1fr}}
+
+  /* ── Cards ── */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;position:relative;overflow:hidden}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:.4}
+  .card-title{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+  .card-title-icon{font-size:.85rem}
+
+  /* ── Badges ── */
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:99px;font-size:.68rem;font-weight:700;letter-spacing:.03em}
+  .badge-green{background:#052e16;color:var(--green);border:1px solid #166534}
+  .badge-orange{background:#1c0a00;color:var(--orange);border:1px solid #7c2d12}
+  .badge-red{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
+  .badge-blue{background:#0c1a2e;color:var(--blue);border:1px solid #1d4ed8}
+  .badge-gray{background:#0f172a;color:var(--muted2);border:1px solid #334155}
+  .badge-cyan{background:#042028;color:var(--cyan);border:1px solid #0e7490}
+
+  /* ── Error ── */
+  #error-banner{display:none;background:#1c0505;color:#fca5a5;padding:10px 18px;border-radius:8px;border:1px solid #7f1d1d;font-size:.8rem}
+
+  /* ── Market card ── */
+  .mkt-body{display:flex;align-items:center;gap:20px}
+  .mkt-ring{position:relative;width:70px;height:70px;flex-shrink:0}
+  .mkt-ring svg{width:70px;height:70px;transform:rotate(-90deg)}
+  .mkt-ring-center{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .mkt-dot{width:12px;height:12px;border-radius:50%}
+  .mkt-dot.open{background:var(--green);box-shadow:0 0 10px var(--green);animation:dotPulse 1.5s ease-in-out infinite}
+  .mkt-dot.closed{background:var(--red)}
+  @keyframes dotPulse{0%,100%{box-shadow:0 0 6px var(--green)}50%{box-shadow:0 0 18px var(--green)}}
+  .mkt-info{}
+  .mkt-status{font-size:1.5rem;font-weight:800;letter-spacing:.04em}
+  .mkt-status.open{color:var(--green)}
+  .mkt-status.closed{color:var(--red)}
+  .mkt-reason{font-size:.78rem;color:var(--muted2);margin-top:3px}
+
+  /* ── EA cards ── */
+  .ea-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+  .ea-card{background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--border);border-radius:8px;padding:13px}
+  .ea-card.has-pos{border-left-color:var(--orange)}
+  .ea-card.fresh{border-left-color:var(--green)}
+  .ea-name{font-weight:700;font-size:.9rem;color:#fff;margin-bottom:8px}
+  .ea-equity{font-size:1.4rem;font-weight:800;color:var(--cyan);margin-bottom:8px;letter-spacing:.02em}
+  .ea-row{display:flex;justify-content:space-between;align-items:center;font-size:.75rem;color:var(--muted2);margin-top:5px}
+  .ea-row span:last-child{color:var(--text)}
+
+  /* ── Bot office ── */
+  .office-room{background:linear-gradient(180deg,#0a0f1e 0%,#070c18 55%,#0d1225 100%);border-radius:10px;padding:22px 12px 16px;position:relative;overflow:hidden;border:1px solid #131b30}
+  .office-room::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,#22d3ee44,transparent)}
+  .office-floor{position:absolute;bottom:0;left:0;right:0;height:26%;background:repeating-linear-gradient(90deg,#111830 0,#111830 58px,#0e1529 58px,#0e1529 116px)}
+  .office-ceiling{position:absolute;top:8px;left:0;right:0;height:6px;background:repeating-linear-gradient(90deg,#0d1528 0,#0d1528 40px,#0a1020 40px,#0a1020 80px)}
+  .office-light{position:absolute;top:10px;width:24px;height:4px;background:#fffbe6;border-radius:2px;box-shadow:0 0 12px #fffbe680;opacity:.7}
+  .office-desks{display:grid;grid-template-columns:1fr 1fr;gap:20px;position:relative;z-index:1}
   .workstation{display:flex;flex-direction:column;align-items:center}
-  .ws-monitor{width:88px;height:56px;background:#0a0a1a;border:3px solid #2a2d4a;border-radius:5px;padding:3px;box-sizing:border-box}
-  .ws-screen{width:100%;height:100%;border-radius:2px;overflow:hidden;padding:3px;box-sizing:border-box;font-family:monospace;font-size:6px;line-height:1.4;word-break:break-all}
-  .ws-screen.online{background:#001400;color:#4ade80;animation:screenGlow 2s ease-in-out infinite}
-  .ws-screen.idle{background:#180f00;color:#fb923c}
-  .ws-screen.offline{background:#090909;color:#2a2a2a}
-  .ws-stand{width:14px;height:7px;background:#252840;margin:0 auto}
-  .ws-base{width:34px;height:4px;background:#252840;border-radius:2px;margin:0 auto}
-  .ws-desk{width:128px;height:10px;background:linear-gradient(180deg,#6b4226,#4a2c14);border-radius:3px 3px 0 0;margin-top:2px;position:relative}
-  .ws-keyboard{width:48px;height:6px;background:#1e2540;border-radius:2px;position:absolute;bottom:2px;left:50%;transform:translateX(-50%)}
-  .ws-char{position:relative;height:50px;width:128px}
+  .ws-monitor{width:92px;height:60px;background:#050510;border:2px solid #1e2340;border-radius:6px;padding:3px;position:relative}
+  .ws-monitor::after{content:'';position:absolute;inset:0;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.04)}
+  .ws-screen{width:100%;height:100%;border-radius:3px;overflow:hidden;padding:4px 3px;font-family:'Courier New',monospace;font-size:5.5px;line-height:1.5;word-break:break-all}
+  .ws-screen.online{background:#001a00;color:#4ade80;animation:screenGlow 2.5s ease-in-out infinite}
+  .ws-screen.idle{background:#150d00;color:#fb923c}
+  .ws-screen.offline{background:#080808;color:#1a1a1a}
+  .ws-stand{width:12px;height:8px;background:#1a1e30;margin:0 auto;clip-path:polygon(20% 0%,80% 0%,100% 100%,0% 100%)}
+  .ws-base{width:32px;height:4px;background:#1a1e30;border-radius:2px;margin:0 auto}
+  .ws-desk{width:130px;height:11px;background:linear-gradient(180deg,#5c3317,#3d2010);border-radius:3px 3px 0 0;margin-top:2px;position:relative;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+  .ws-keyboard{width:46px;height:6px;background:#151e35;border-radius:2px;position:absolute;bottom:2px;left:50%;transform:translateX(-50%);box-shadow:0 0 4px rgba(34,211,238,.1)}
+  .ws-char{position:relative;height:52px;width:130px}
   .ws-person{position:absolute;bottom:0;left:50%;transform:translateX(-50%)}
-  .ws-head{width:18px;height:18px;border-radius:50%;margin:0 auto}
+  .ws-head{width:18px;height:18px;border-radius:50%;margin:0 auto;box-shadow:0 0 6px rgba(0,0,0,.4)}
   .ws-body{width:14px;height:15px;border-radius:3px 3px 0 0;margin:2px auto 0;position:relative}
   .ws-arm{width:7px;height:11px;border-radius:4px;position:absolute;top:2px}
   .ws-arm.l{left:-7px;transform-origin:top center}
   .ws-arm.r{right:-7px;transform-origin:top center}
   .ws-legs{display:flex;gap:3px;justify-content:center;margin-top:1px}
   .ws-leg{width:6px;height:10px;border-radius:0 0 3px 3px}
-  .ws-nameplate{font-size:.68rem;color:#64748b;text-align:center;margin-top:5px}
-  .ws-statuslabel{font-size:.65rem;font-weight:700;text-align:center;margin-top:2px}
-  .ws-statuslabel.online{color:#4ade80}
-  .ws-statuslabel.idle{color:#fb923c}
-  .ws-statuslabel.offline{color:#475569}
-  .ws-action{font-size:.6rem;color:#475569;text-align:center;margin-top:3px;max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .ws-btns{display:flex;gap:4px;margin-top:6px;justify-content:center}
-  .zzz{position:absolute;font-weight:bold;color:#93c5fd;animation:zzzUp 2s ease-in-out infinite;pointer-events:none}
-  .online .ws-arm.l{animation:typing .35s ease-in-out infinite alternate}
-  .online .ws-arm.r{animation:typing .35s ease-in-out infinite alternate-reverse}
+  .ws-nameplate{font-size:.65rem;color:var(--muted);text-align:center;margin-top:6px;font-family:monospace;letter-spacing:.05em}
+  .ws-statuslabel{font-size:.62rem;font-weight:800;text-align:center;margin-top:2px;letter-spacing:.05em}
+  .ws-statuslabel.online{color:var(--green)}
+  .ws-statuslabel.idle{color:var(--orange)}
+  .ws-statuslabel.offline{color:#2d3748}
+  .ws-action{font-size:.58rem;color:#3d4f6b;text-align:center;margin-top:3px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ws-btns{display:flex;gap:4px;margin-top:7px;justify-content:center}
+  .zzz{position:absolute;font-weight:bold;color:#93c5fd;animation:zzzUp 2.2s ease-in-out infinite;pointer-events:none;text-shadow:0 0 6px #60a5fa88}
+  .online .ws-arm.l{animation:typing .3s ease-in-out infinite alternate}
+  .online .ws-arm.r{animation:typing .3s ease-in-out infinite alternate-reverse}
   .idle .ws-person{animation:breathe 3.5s ease-in-out infinite}
-  .offline .ws-person{opacity:.25;filter:grayscale(1)}
+  .offline .ws-person{opacity:.2;filter:grayscale(1)}
   @keyframes typing{0%{transform:rotate(-22deg)}100%{transform:rotate(12deg)}}
   @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-  @keyframes screenGlow{0%,100%{box-shadow:inset 0 0 6px #4ade8022}50%{box-shadow:inset 0 0 16px #4ade8055}}
-  @keyframes zzzUp{0%{opacity:0;transform:translate(0,0) scale(.7)}50%{opacity:1}100%{opacity:0;transform:translate(9px,-16px) scale(1)}}
-  .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.7rem;cursor:pointer;font-weight:600}
-  .btn-start{background:#14532d;color:#4ade80}
-  .btn-stop{background:#450a0a;color:#f87171}
-  .btn-restart{background:#1e3a5f;color:#60a5fa}
-  .btn:hover{opacity:.8}
-  table{width:100%;border-collapse:collapse;font-size:.8rem}
-  th{text-align:left;padding:6px 10px;color:#64748b;border-bottom:1px solid #1e2130;font-weight:600;font-size:.7rem;text-transform:uppercase}
-  td{padding:7px 10px;border-bottom:1px solid #1a1f2e}
-  tr:last-child td{border-bottom:none}
-  .ea-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
-  .ea-card{background:#0d1117;border:1px solid #1e2130;border-radius:8px;padding:12px;font-size:.8rem}
-  .ea-card .ea-login{font-weight:700;font-size:.9rem;margin-bottom:4px}
-  .ea-card .ea-row{display:flex;justify-content:space-between;color:#94a3b8;margin-top:4px}
-  .mkt-open{color:#4ade80;font-weight:700}
-  .mkt-closed{color:#f87171;font-weight:700}
-  #error-banner{display:none;background:#450a0a;color:#fca5a5;padding:10px 16px;border-radius:6px;margin:0 24px 0}
+  @keyframes screenGlow{0%,100%{box-shadow:inset 0 0 8px #4ade8018}50%{box-shadow:inset 0 0 18px #4ade8045}}
+  @keyframes zzzUp{0%{opacity:0;transform:translate(0,0) scale(.7)}40%{opacity:1}100%{opacity:0;transform:translate(10px,-18px) scale(1.1)}}
+  .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-weight:700;transition:all .15s;letter-spacing:.03em}
+  .btn-start{background:#052e16;color:var(--green);border:1px solid #166534}
+  .btn-stop{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
+  .btn-restart{background:#0c1a2e;color:var(--blue);border:1px solid #1d4ed8}
+  .btn:hover{filter:brightness(1.3);transform:translateY(-1px)}
+
+  /* ── Signals table ── */
+  .signals-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:.78rem}
+  thead tr{border-bottom:1px solid var(--border)}
+  th{text-align:left;padding:8px 12px;color:var(--muted);font-weight:600;font-size:.65rem;text-transform:uppercase;letter-spacing:.08em}
+  td{padding:9px 12px;border-bottom:1px solid #0f1520;color:var(--muted2)}
+  td:first-child{color:var(--text);font-variant-numeric:tabular-nums}
+  tbody tr:hover{background:rgba(255,255,255,.02)}
+  tbody tr:last-child td{border-bottom:none}
 </style>
 </head>
 <body>
 <header>
-  <h1>&#9881; Mission <span>Control</span></h1>
-  <div id="refresh-time">laden...</div>
+  <div class="hdr-left">
+    <div class="hdr-logo">Mission <span>Control</span></div>
+    <div class="hdr-live">LIVE</div>
+  </div>
+  <div class="hdr-right">
+    <div id="live-clock">--:--:--</div>
+    <div id="refresh-time">nog niet geladen</div>
+  </div>
 </header>
-<div id="error-banner"></div>
-<div class="grid" id="main-grid">
-  <div class="card" id="card-market"><h2>Markt Status</h2><div id="market-body">laden...</div></div>
-  <div class="card" id="card-ea"><h2>EA Verbindingen</h2><div class="ea-grid" id="ea-body">laden...</div></div>
-  <div class="card"><h2>&#127970; Kantoor</h2><div class="office-room"><div class="office-desks" id="bots-body"><div style="color:#64748b;font-size:.8rem">laden...</div></div></div></div>
-  <div class="card"><h2>Recente Trades (laatste 10)</h2><div id="signals-body"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="5">laden...</td></tr></tbody></table></div></div>
+<div class="page">
+  <div id="error-banner"></div>
+  <div class="card" id="card-market">
+    <div class="card-title"><span class="card-title-icon">&#127758;</span> Markt Status</div>
+    <div id="market-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+  </div>
+  <div class="row-2">
+    <div class="card" id="card-ea">
+      <div class="card-title"><span class="card-title-icon">&#128268;</span> EA Verbindingen</div>
+      <div class="ea-grid" id="ea-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="card-title-icon">&#127970;</span> Agent Kantoor</div>
+      <div class="office-room">
+        <div class="office-ceiling"></div>
+        <div class="office-light" style="left:20%"></div>
+        <div class="office-light" style="left:55%"></div>
+        <div class="office-floor"></div>
+        <div class="office-desks" id="bots-body"><div style="color:var(--muted);font-size:.8rem">laden...</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="card-title-icon">&#128200;</span> Recente Trades (laatste 10)</div>
+    <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="5">laden...</td></tr></tbody></table></div>
+  </div>
 </div>
 <script>
 const KEY = ${JSON.stringify(key)};
 const BASE = window.location.origin;
 
+function tick(){
+  document.getElementById('live-clock').textContent=new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+tick();setInterval(tick,1000);
+
 function fmtTime(ms){
   if(!ms)return'—';
-  const d=new Date(ms);
-  return d.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  return new Date(ms).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 }
 function fmtDate(ms){
   if(!ms)return'—';
@@ -6277,8 +6364,8 @@ function fmtDate(ms){
 function ageFmt(ms){
   const mins=Math.round((Date.now()-ms)/60000);
   if(mins<1)return'nu net';
-  if(mins<60)return mins+'m geleden';
-  return Math.round(mins/60)+'u geleden';
+  if(mins<60)return mins+'m';
+  return Math.round(mins/60)+'u';
 }
 
 async function sendCommand(botId, cmd){
@@ -6305,16 +6392,25 @@ async function load(){
     }
     document.getElementById('error-banner').style.display='none';
     const d=await r.json();
-
-    document.getElementById('refresh-time').textContent='Vernieuwd: '+new Date().toLocaleTimeString('nl-NL');
+    document.getElementById('refresh-time').textContent='Vernieuwd '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
     // Market
     const mEl=document.getElementById('market-body');
     if(d.market){
       const open=!d.market.blocked;
-      mEl.innerHTML='<span class="'+(open?'mkt-open':'mkt-closed')+'">'+
-        (open?'&#9679; OPEN':'&#9679; GESLOTEN')+'</span>'+
-        (d.market.reason?' <span style="color:#64748b;font-size:.8rem">('+d.market.reason+')</span>':'');
+      const cls=open?'open':'closed';
+      const ringColor=open?'#4ade80':'#f87171';
+      const bgColor=open?'#052e16':'#1c0505';
+      mEl.innerHTML='<div class="mkt-body">'+
+        '<div class="mkt-ring">'+
+          '<svg viewBox="0 0 70 70"><circle cx="35" cy="35" r="28" fill="none" stroke="'+bgColor+'" stroke-width="7"/><circle cx="35" cy="35" r="28" fill="none" stroke="'+ringColor+'" stroke-width="7" stroke-dasharray="'+(open?'176':'60')+' 176" stroke-linecap="round" opacity=".8"/></svg>'+
+          '<div class="mkt-ring-center"><div class="mkt-dot '+cls+'"></div></div>'+
+        '</div>'+
+        '<div class="mkt-info">'+
+          '<div class="mkt-status '+cls+'">'+(open?'OPEN':'GESLOTEN')+'</div>'+
+          (d.market.reason?'<div class="mkt-reason">'+d.market.reason+'</div>':'')+
+        '</div>'+
+      '</div>';
     }
 
     // EA positions
@@ -6322,17 +6418,19 @@ async function load(){
     const eaEl=document.getElementById('ea-body');
     const activeEa=(d.ea_positions||[]).filter(ea=>ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<24*60*60*1000);
     if(activeEa.length===0){
-      eaEl.innerHTML='<span style="color:#64748b;font-size:.8rem">Geen actieve EA verbindingen</span>';
+      eaEl.innerHTML='<span style="color:var(--muted);font-size:.8rem">Geen actieve EA verbindingen</span>';
     } else {
       eaEl.innerHTML=activeEa.map(ea=>{
         const fresh=ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<5*60000;
-        return '<div class="ea-card">'+
-          '<div class="ea-login">'+(EA_NAMES[ea.account_login]||ea.account_login)+'</div>'+
-          '<div class="ea-row"><span>Server</span><span>'+ea.server+'</span></div>'+
+        const hasPos=ea.has_position;
+        const cls=fresh?'fresh':(hasPos?'has-pos':'');
+        return '<div class="ea-card '+cls+'">'+
+          '<div class="ea-name">'+(EA_NAMES[ea.account_login]||ea.account_login)+'</div>'+
+          '<div class="ea-equity">'+(ea.equity!=null?'$'+ea.equity.toFixed(2):'—')+'</div>'+
           '<div class="ea-row"><span>Symbol</span><span>'+ea.symbol+'</span></div>'+
-          '<div class="ea-row"><span>Equity</span><span>'+(ea.equity!=null?'$'+ea.equity.toFixed(2):'—')+'</span></div>'+
-          '<div class="ea-row"><span>Positie</span><span class="badge '+(ea.has_position?'badge-orange':'badge-gray')+'">'+(ea.has_position?'JA':'nee')+'</span></div>'+
-          '<div class="ea-row"><span>Update</span><span class="badge '+(fresh?'badge-green':'badge-red')+'">'+(ea.updated_at_ms?ageFmt(ea.updated_at_ms):'—')+'</span></div>'+
+          '<div class="ea-row"><span>Server</span><span style="font-size:.7rem">'+ea.server+'</span></div>'+
+          '<div class="ea-row"><span>Positie</span><span><span class="badge '+(hasPos?'badge-orange':'badge-gray')+'">'+(hasPos?'&#9650; IN POSITIE':'geen')+'</span></span></div>'+
+          '<div class="ea-row"><span>Update</span><span><span class="badge '+(fresh?'badge-green':'badge-red')+'">'+(ea.updated_at_ms?ageFmt(ea.updated_at_ms)+' geleden':'—')+'</span></span></div>'+
           '</div>';
       }).join('');
     }
@@ -6353,11 +6451,12 @@ async function load(){
       const status=b?b.status:'offline';
       const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#fbbf24'};
       const action=b&&b.last_action?b.last_action:'—';
-      const screenTxt=status==='online'?'> '+action.slice(0,50):status==='idle'?'~ '+action.slice(0,50):'-- offline --';
+      const shortName=id.replace('bot-','');
+      const screenTxt=status==='online'?'> '+action.slice(0,60):status==='idle'?'~ idle':' offline ';
       const zzzHtml=status==='idle'?
         '<span class="zzz" style="top:-20px;left:18px;font-size:11px">z</span>'+
         '<span class="zzz" style="top:-28px;left:25px;font-size:8px;animation-delay:.7s">z</span>'+
-        '<span class="zzz" style="top:-34px;left:30px;font-size:6px;animation-delay:1.4s">z</span>':'';
+        '<span class="zzz" style="top:-36px;left:31px;font-size:6px;animation-delay:1.4s">z</span>':'';
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
       return '<div class="workstation '+status+'">'+
         '<div class="ws-monitor"><div class="ws-screen '+status+'">'+screenTxt+'</div></div>'+
@@ -6376,7 +6475,7 @@ async function load(){
             '<div class="ws-leg" style="background:'+c.legs+'"></div>'+
           '</div>'+
         '</div></div>'+
-        '<div class="ws-nameplate">'+id+'</div>'+
+        '<div class="ws-nameplate">'+shortName+'</div>'+
         '<div class="ws-statuslabel '+status+'">'+statusLabel+'</div>'+
         '<div class="ws-action">'+action+'</div>'+
         '<div class="ws-btns">'+
@@ -6390,19 +6489,19 @@ async function load(){
     // Signals
     const tbody=document.getElementById('signals-tbody');
     if(!d.signals||d.signals.length===0){
-      tbody.innerHTML='<tr><td colspan="5" style="color:#64748b">Geen trades gevonden</td></tr>';
+      tbody.innerHTML='<tr><td colspan="5" style="color:var(--muted)">Geen trades gevonden</td></tr>';
     } else {
       tbody.innerHTML=d.signals.map(s=>{
         const outcome=s.close_outcome||s.status;
         let badge='badge-gray';
-        if(outcome==='active')badge='badge-blue';
+        if(outcome==='active')badge='badge-cyan';
         else if(/tp/i.test(outcome))badge='badge-green';
         else if(/sl/i.test(outcome))badge='badge-red';
         return '<tr>'+
           '<td>'+fmtDate(s.created_at_ms)+'</td>'+
           '<td><span class="badge '+(s.direction==='BUY'?'badge-green':'badge-orange')+'">'+s.direction+'</span></td>'+
-          '<td>'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
-          '<td>'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
+          '<td style="font-variant-numeric:tabular-nums">'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
+          '<td style="font-variant-numeric:tabular-nums">'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
           '<td><span class="badge '+badge+'">'+outcome+'</span></td>'+
           '</tr>';
       }).join('');
