@@ -6192,12 +6192,44 @@ app.get("/mc", async (req, res) => {
   .badge-red{background:#450a0a;color:#f87171}
   .badge-blue{background:#1e3a5f;color:#60a5fa}
   .badge-gray{background:#1e293b;color:#94a3b8}
-  .bots-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
-  .bot-card{background:#0d1117;border:1px solid #1e2130;border-radius:8px;padding:14px}
-  .bot-card .bot-name{font-weight:600;font-size:.9rem;margin-bottom:6px}
-  .bot-card .bot-action{font-size:.75rem;color:#64748b;margin-top:6px;min-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .bot-card .bot-age{font-size:.7rem;color:#475569;margin-top:4px}
-  .bot-card .btn-row{margin-top:10px;display:flex;gap:6px}
+  .office-room{background:linear-gradient(180deg,#12172a 0%,#0d1117 60%,#161b2e 100%);border-radius:10px;padding:20px 10px 14px;position:relative;overflow:hidden}
+  .office-room::after{content:'';position:absolute;bottom:0;left:0;right:0;height:28%;background:repeating-linear-gradient(90deg,#1a2040 0,#1a2040 60px,#171d3a 60px,#171d3a 120px);z-index:0}
+  .office-desks{display:grid;grid-template-columns:1fr 1fr;gap:18px;position:relative;z-index:1}
+  .workstation{display:flex;flex-direction:column;align-items:center}
+  .ws-monitor{width:88px;height:56px;background:#0a0a1a;border:3px solid #2a2d4a;border-radius:5px;padding:3px;box-sizing:border-box}
+  .ws-screen{width:100%;height:100%;border-radius:2px;overflow:hidden;padding:3px;box-sizing:border-box;font-family:monospace;font-size:6px;line-height:1.4;word-break:break-all}
+  .ws-screen.online{background:#001400;color:#4ade80;animation:screenGlow 2s ease-in-out infinite}
+  .ws-screen.idle{background:#180f00;color:#fb923c}
+  .ws-screen.offline{background:#090909;color:#2a2a2a}
+  .ws-stand{width:14px;height:7px;background:#252840;margin:0 auto}
+  .ws-base{width:34px;height:4px;background:#252840;border-radius:2px;margin:0 auto}
+  .ws-desk{width:128px;height:10px;background:linear-gradient(180deg,#6b4226,#4a2c14);border-radius:3px 3px 0 0;margin-top:2px;position:relative}
+  .ws-keyboard{width:48px;height:6px;background:#1e2540;border-radius:2px;position:absolute;bottom:2px;left:50%;transform:translateX(-50%)}
+  .ws-char{position:relative;height:50px;width:128px}
+  .ws-person{position:absolute;bottom:0;left:50%;transform:translateX(-50%)}
+  .ws-head{width:18px;height:18px;border-radius:50%;margin:0 auto}
+  .ws-body{width:14px;height:15px;border-radius:3px 3px 0 0;margin:2px auto 0;position:relative}
+  .ws-arm{width:7px;height:11px;border-radius:4px;position:absolute;top:2px}
+  .ws-arm.l{left:-7px;transform-origin:top center}
+  .ws-arm.r{right:-7px;transform-origin:top center}
+  .ws-legs{display:flex;gap:3px;justify-content:center;margin-top:1px}
+  .ws-leg{width:6px;height:10px;border-radius:0 0 3px 3px}
+  .ws-nameplate{font-size:.68rem;color:#64748b;text-align:center;margin-top:5px}
+  .ws-statuslabel{font-size:.65rem;font-weight:700;text-align:center;margin-top:2px}
+  .ws-statuslabel.online{color:#4ade80}
+  .ws-statuslabel.idle{color:#fb923c}
+  .ws-statuslabel.offline{color:#475569}
+  .ws-action{font-size:.6rem;color:#475569;text-align:center;margin-top:3px;max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ws-btns{display:flex;gap:4px;margin-top:6px;justify-content:center}
+  .zzz{position:absolute;font-weight:bold;color:#93c5fd;animation:zzzUp 2s ease-in-out infinite;pointer-events:none}
+  .online .ws-arm.l{animation:typing .35s ease-in-out infinite alternate}
+  .online .ws-arm.r{animation:typing .35s ease-in-out infinite alternate-reverse}
+  .idle .ws-person{animation:breathe 3.5s ease-in-out infinite}
+  .offline .ws-person{opacity:.25;filter:grayscale(1)}
+  @keyframes typing{0%{transform:rotate(-22deg)}100%{transform:rotate(12deg)}}
+  @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+  @keyframes screenGlow{0%,100%{box-shadow:inset 0 0 6px #4ade8022}50%{box-shadow:inset 0 0 16px #4ade8055}}
+  @keyframes zzzUp{0%{opacity:0;transform:translate(0,0) scale(.7)}50%{opacity:1}100%{opacity:0;transform:translate(9px,-16px) scale(1)}}
   .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.7rem;cursor:pointer;font-weight:600}
   .btn-start{background:#14532d;color:#4ade80}
   .btn-stop{background:#450a0a;color:#f87171}
@@ -6225,7 +6257,7 @@ app.get("/mc", async (req, res) => {
 <div class="grid" id="main-grid">
   <div class="card" id="card-market"><h2>Markt Status</h2><div id="market-body">laden...</div></div>
   <div class="card" id="card-ea"><h2>EA Verbindingen</h2><div class="ea-grid" id="ea-body">laden...</div></div>
-  <div class="card"><h2>Bots</h2><div class="bots-grid" id="bots-body">laden...</div></div>
+  <div class="card"><h2>&#127970; Kantoor</h2><div class="office-room"><div class="office-desks" id="bots-body"><div style="color:#64748b;font-size:.8rem">laden...</div></div></div></div>
   <div class="card"><h2>Recente Trades (laatste 10)</h2><div id="signals-body"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="5">laden...</td></tr></tbody></table></div></div>
 </div>
 <script>
@@ -6305,27 +6337,54 @@ async function load(){
       }).join('');
     }
 
-    // Bots
+    // Bots — geanimeerd kantoor
     const BOT_IDS=['bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
+    const BOT_COLORS={
+      'bot-default':  {shirt:'#3b82f6',legs:'#1e3a8a',skin:'#fbbf24'},
+      'bot-affiliate':{shirt:'#8b5cf6',legs:'#4c1d95',skin:'#fbbf24'},
+      'bot-fxcopie':  {shirt:'#10b981',legs:'#065f46',skin:'#fbbf24'},
+      'bot-builder':  {shirt:'#f59e0b',legs:'#92400e',skin:'#fbbf24'},
+    };
     const botMap={};
     (d.bots||[]).forEach(b=>{botMap[b.bot_id]=b;});
     const botsEl=document.getElementById('bots-body');
     botsEl.innerHTML=BOT_IDS.map(id=>{
       const b=botMap[id];
       const status=b?b.status:'offline';
-      const badgeClass=status==='online'?'badge-green':status==='idle'?'badge-orange':'badge-red';
-      const label=status==='online'?'ONLINE':status==='idle'?'IDLE':'OFFLINE';
-      return '<div class="bot-card">'+
-        '<div style="display:flex;align-items:center;gap:8px">'+
-        '<span class="badge '+badgeClass+'">'+label+'</span>'+
-        '<span class="bot-name">'+id+'</span></div>'+
-        '<div class="bot-action">'+(b&&b.last_action?b.last_action:'—')+'</div>'+
-        '<div class="bot-age">'+(b&&b.updated_at_ms?ageFmt(b.updated_at_ms):'nooit gezien')+'</div>'+
-        '<div class="btn-row">'+
-        '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)">&#9654; Start</button>'+
-        '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)">&#9646;&#9646; Stop</button>'+
-        '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)">&#8635; Herstart</button>'+
-        '</div></div>';
+      const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#fbbf24'};
+      const action=b&&b.last_action?b.last_action:'—';
+      const screenTxt=status==='online'?'> '+action.slice(0,50):status==='idle'?'~ '+action.slice(0,50):'-- offline --';
+      const zzzHtml=status==='idle'?
+        '<span class="zzz" style="top:-20px;left:18px;font-size:11px">z</span>'+
+        '<span class="zzz" style="top:-28px;left:25px;font-size:8px;animation-delay:.7s">z</span>'+
+        '<span class="zzz" style="top:-34px;left:30px;font-size:6px;animation-delay:1.4s">z</span>':'';
+      const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
+      return '<div class="workstation '+status+'">'+
+        '<div class="ws-monitor"><div class="ws-screen '+status+'">'+screenTxt+'</div></div>'+
+        '<div class="ws-stand"></div>'+
+        '<div class="ws-base"></div>'+
+        '<div class="ws-desk"><div class="ws-keyboard"></div></div>'+
+        '<div class="ws-char"><div class="ws-person">'+
+          zzzHtml+
+          '<div class="ws-head" style="background:'+c.skin+'"></div>'+
+          '<div class="ws-body" style="background:'+c.shirt+'">'+
+            '<div class="ws-arm l" style="background:'+c.shirt+'"></div>'+
+            '<div class="ws-arm r" style="background:'+c.shirt+'"></div>'+
+          '</div>'+
+          '<div class="ws-legs">'+
+            '<div class="ws-leg" style="background:'+c.legs+'"></div>'+
+            '<div class="ws-leg" style="background:'+c.legs+'"></div>'+
+          '</div>'+
+        '</div></div>'+
+        '<div class="ws-nameplate">'+id+'</div>'+
+        '<div class="ws-statuslabel '+status+'">'+statusLabel+'</div>'+
+        '<div class="ws-action">'+action+'</div>'+
+        '<div class="ws-btns">'+
+          '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Start">&#9654;</button>'+
+          '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Stop">&#9646;&#9646;</button>'+
+          '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Herstart">&#8635;</button>'+
+        '</div>'+
+      '</div>';
     }).join('');
 
     // Signals
