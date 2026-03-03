@@ -6193,7 +6193,7 @@ app.get("/mc", async (req, res) => {
   .hdr-logo span{color:var(--cyan)}
   .hdr-live{background:#450a0a;color:var(--red);border:1px solid #7f1d1d;font-size:.65rem;font-weight:800;padding:2px 7px;border-radius:4px;letter-spacing:.1em;animation:livePulse 1.5s ease-in-out infinite}
   @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.6}}
-  #mkt-chip{display:flex;align-items:center;gap:7px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:4px 12px;font-size:.75rem;font-weight:700;letter-spacing:.04em;transition:all .3s}
+  #mkt-chip{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:3px 9px;font-size:.65rem;font-weight:700;letter-spacing:.04em;transition:all .3s}
   #mkt-chip.open{border-color:#166534;color:var(--green)}
   #mkt-chip.closed{border-color:#7f1d1d;color:var(--red)}
   #mkt-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
@@ -6403,7 +6403,7 @@ async function load(){
       const chip=document.getElementById('mkt-chip');
       const lbl=document.getElementById('mkt-label');
       chip.className=open?'open':'closed';
-      lbl.textContent=(open?'OPEN':'GESLOTEN')+(d.market.reason?' — '+d.market.reason:'');
+      lbl.textContent='Forex Markt: '+(open?'OPEN':'GESLOTEN')+(d.market.reason?' ('+d.market.reason+')':'');
     }
 
     // EA positions
