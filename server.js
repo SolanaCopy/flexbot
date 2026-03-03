@@ -4674,7 +4674,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const metaY = 220;
 
   const listX = 90;
-  const listX2 = 590;
+  const listX2 = 560;
   const listY = 490;
   const lineH = 38;
 
