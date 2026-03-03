@@ -6187,12 +6187,18 @@ app.get("/mc", async (req, res) => {
   body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px);pointer-events:none;z-index:9999}
 
   /* ── Header ── */
-  header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
   .hdr-left{display:flex;align-items:center;gap:12px}
   .hdr-logo{font-size:1.3rem;font-weight:800;letter-spacing:.04em;color:#fff;text-transform:uppercase}
   .hdr-logo span{color:var(--cyan)}
   .hdr-live{background:#450a0a;color:var(--red);border:1px solid #7f1d1d;font-size:.65rem;font-weight:800;padding:2px 7px;border-radius:4px;letter-spacing:.1em;animation:livePulse 1.5s ease-in-out infinite}
   @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.6}}
+  #mkt-chip{display:flex;align-items:center;gap:7px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:4px 12px;font-size:.75rem;font-weight:700;letter-spacing:.04em;transition:all .3s}
+  #mkt-chip.open{border-color:#166534;color:var(--green)}
+  #mkt-chip.closed{border-color:#7f1d1d;color:var(--red)}
+  #mkt-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  #mkt-chip.open #mkt-dot{background:var(--green);animation:dotPulse 1.5s ease-in-out infinite}
+  #mkt-chip.closed #mkt-dot{background:var(--red)}
   .hdr-right{text-align:right}
   #live-clock{font-size:1.1rem;font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums;letter-spacing:.05em}
   #refresh-time{font-size:.65rem;color:var(--muted);margin-top:1px}
@@ -6310,6 +6316,7 @@ app.get("/mc", async (req, res) => {
   <div class="hdr-left">
     <div class="hdr-logo">Mission <span>Control</span></div>
     <div class="hdr-live">LIVE</div>
+    <div id="mkt-chip"><div id="mkt-dot"></div><span id="mkt-label">laden...</span></div>
   </div>
   <div class="hdr-right">
     <div id="live-clock">--:--:--</div>
@@ -6318,10 +6325,6 @@ app.get("/mc", async (req, res) => {
 </header>
 <div class="page">
   <div id="error-banner"></div>
-  <div class="card" id="card-market">
-    <div class="card-title"><span class="card-title-icon">&#127758;</span> Markt Status</div>
-    <div id="market-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
-  </div>
   <div class="row-2">
     <div class="card" id="card-ea">
       <div class="card-title"><span class="card-title-icon">&#128268;</span> EA Verbindingen</div>
@@ -6394,23 +6397,13 @@ async function load(){
     const d=await r.json();
     document.getElementById('refresh-time').textContent='Vernieuwd '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-    // Market
-    const mEl=document.getElementById('market-body');
+    // Market chip in header
     if(d.market){
       const open=!d.market.blocked;
-      const cls=open?'open':'closed';
-      const ringColor=open?'#4ade80':'#f87171';
-      const bgColor=open?'#052e16':'#1c0505';
-      mEl.innerHTML='<div class="mkt-body">'+
-        '<div class="mkt-ring">'+
-          '<svg viewBox="0 0 70 70"><circle cx="35" cy="35" r="28" fill="none" stroke="'+bgColor+'" stroke-width="7"/><circle cx="35" cy="35" r="28" fill="none" stroke="'+ringColor+'" stroke-width="7" stroke-dasharray="'+(open?'176':'60')+' 176" stroke-linecap="round" opacity=".8"/></svg>'+
-          '<div class="mkt-ring-center"><div class="mkt-dot '+cls+'"></div></div>'+
-        '</div>'+
-        '<div class="mkt-info">'+
-          '<div class="mkt-status '+cls+'">'+(open?'OPEN':'GESLOTEN')+'</div>'+
-          (d.market.reason?'<div class="mkt-reason">'+d.market.reason+'</div>':'')+
-        '</div>'+
-      '</div>';
+      const chip=document.getElementById('mkt-chip');
+      const lbl=document.getElementById('mkt-label');
+      chip.className=open?'open':'closed';
+      lbl.textContent=(open?'OPEN':'GESLOTEN')+(d.market.reason?' — '+d.market.reason:'');
     }
 
     // EA positions
