@@ -175,6 +175,20 @@ function getAndUpdateDailyEquityStart({ symbol, tz, equityUsd }) {
   return st;
 }
 
+function getAndUpdateDailyBalanceStart({ symbol, tz, balanceUsd }) {
+  const dayKey = dayKeyInTz(tz);
+  const fp = riskStatePath("balance-day", symbol);
+  const st = readJsonFileSafe(fp, { dayKey: "", tz, startBalance: null, updatedAtMs: 0 });
+  if (st.dayKey !== dayKey || !Number.isFinite(Number(st.startBalance)) || Number(st.startBalance) <= 0) {
+    const next = { dayKey, tz, startBalance: balanceUsd, updatedAtMs: Date.now() };
+    writeJsonFileSafe(fp, next);
+    return next;
+  }
+  st.updatedAtMs = Date.now();
+  writeJsonFileSafe(fp, st);
+  return st;
+}
+
 function getConsecutiveLosses({ symbol, tz }) {
   const dayKey = dayKeyInTz(tz);
   const fp = riskStatePath("consec", symbol);
@@ -2427,7 +2441,7 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
 // --- EA live status (has open trade) ---
 // POST /ea/status
 // Header: X-API-Key: <EA_API_KEY>
-// Body JSON: { account_login, server, magic, symbol, has_position, tickets?:[], equity?:number, time?:ms|string }
+// Body JSON: { account_login, server, magic, symbol, has_position, tickets?:[], equity?:number, balance?:number, time?:ms|string }
 app.post("/ea/status", async (req, res) => {
   try {
     const apiKey = req.header("x-api-key");
@@ -2448,8 +2462,18 @@ app.post("/ea/status", async (req, res) => {
     const has_position = body?.has_position === true || body?.has_position === 1 || body?.has_position === "1";
     const tickets = Array.isArray(body?.tickets) ? body.tickets.map((x) => String(x)) : [];
     const equity = body?.equity != null ? Number(body.equity) : null;
+    const balance = body?.balance != null ? Number(body.balance) : null;
 
-    // Track daily start equity for PnL % calculations (Amsterdam day)
+    // Track daily start BALANCE for PnL % calculations (Amsterdam day)
+    try {
+      if (Number.isFinite(balance) && balance > 0) {
+        getAndUpdateDailyBalanceStart({ symbol, tz: "Europe/Amsterdam", balanceUsd: balance });
+      }
+    } catch {
+      // ignore
+    }
+
+    // (Legacy) Track daily start equity (still used by some risk checks)
     try {
       if (Number.isFinite(equity) && equity > 0) {
         getAndUpdateDailyEquityStart({ symbol, tz: "Europe/Amsterdam", equityUsd: equity });
@@ -5521,23 +5545,23 @@ async function autoDailyRecapHandler(req, res) {
 
     const totalUsd = items.reduce((a, x) => a + (Number.isFinite(x.usd) ? x.usd : 0), 0);
 
-    // Percent: use stored daily start equity (written by /ea/status) if available.
-    let startEquity = null;
+    // Percent: use stored daily start BALANCE (written by /ea/status) if available.
+    let startBalance = null;
     try {
-      const fp = riskStatePath("risk-day", symbol);
+      const fp = riskStatePath("balance-day", symbol);
       const st = readJsonFileSafe(fp, null);
-      if (st && Number.isFinite(Number(st.startEquity)) && Number(st.startEquity) > 0) {
-        startEquity = Number(st.startEquity);
+      if (st && Number.isFinite(Number(st.startBalance)) && Number(st.startBalance) > 0) {
+        startBalance = Number(st.startBalance);
       }
     } catch {
-      startEquity = null;
+      startBalance = null;
     }
-    if (startEquity == null) {
-      const envEq = Number(process.env.DAILY_START_EQUITY_USD || process.env.START_EQUITY_USD || 0);
-      if (Number.isFinite(envEq) && envEq > 0) startEquity = envEq;
+    if (startBalance == null) {
+      const envBal = Number(process.env.DAILY_START_BALANCE_USD || process.env.START_BALANCE_USD || 0);
+      if (Number.isFinite(envBal) && envBal > 0) startBalance = envBal;
     }
 
-    const pct = startEquity ? (totalUsd / startEquity) * 100 : null;
+    const pct = startBalance ? (totalUsd / startBalance) * 100 : null;
 
     const sign = (n) => (n > 0 ? "+" : n < 0 ? "-" : "");
     const fmtNum = (n) => {
