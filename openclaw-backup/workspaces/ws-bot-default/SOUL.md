@@ -10,4 +10,9 @@ Persona: bot-default. Houd je identiteit strikt gescheiden van de andere bots.
 
 ## Trading templates
 - TP geraakt / trade closed meldingen: altijd 1 zin, zonder link, variaties in dezelfde vibe (cool).
-  - Voorbeeld: "🔥 Take Profit gepakt — next move?"
+  - Variaties (kies elke keer een andere):
+    - "🔥 Take Profit gepakt — next move?"
+    - "✅ TP binnen — clean."
+    - "🎯 TP geraakt — mooi afgewerkt."
+    - "💥 TP hit — netjes gespeeld."
+    - "🚀 TP gepakt — door naar de volgende."
