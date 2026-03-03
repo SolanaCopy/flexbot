@@ -6283,9 +6283,9 @@ async function load(){
         '<div class="bot-action">'+(b&&b.last_action?b.last_action:'—')+'</div>'+
         '<div class="bot-age">'+(b&&b.updated_at_ms?ageFmt(b.updated_at_ms):'nooit gezien')+'</div>'+
         '<div class="btn-row">'+
-        '<button class="btn btn-start" onclick="sendCommand(\''+id+'\',\'start\')">&#9654; Start</button>'+
-        '<button class="btn btn-stop" onclick="sendCommand(\''+id+'\',\'stop\')">&#9646;&#9646; Stop</button>'+
-        '<button class="btn btn-restart" onclick="sendCommand(\''+id+'\',\'restart\')">&#8635; Herstart</button>'+
+        '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)">&#9654; Start</button>'+
+        '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)">&#9646;&#9646; Stop</button>'+
+        '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)">&#8635; Herstart</button>'+
         '</div></div>';
     }).join('');
 
