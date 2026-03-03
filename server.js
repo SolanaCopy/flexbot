@@ -1763,25 +1763,46 @@ app.post("/signal/closed", async (req, res) => {
             args: [sym2, next, String(signal_id), Date.now()],
           });
 
-          if (isTp && next === 1) {
-            await tgSendMessage({ chatId, text: "✅ TP geraakt — netjes.\nhttps://www.fxflexbot.com/" });
-          } else if (isTp && next === 2) {
-            // Send streak-2 VIDEO (Boss request)
-            const videoPath = path.join(__dirname, "assets", "streak_tp2.mp4");
-            if (fs.existsSync(videoPath)) {
-              const buf = fs.readFileSync(videoPath);
-              await tgSendVideo({ chatId, video: buf, caption: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
+          // TP / trade-closed one-liners (no link; rotate variants)
+          const tpLines = [
+            "🔥 Take Profit gepakt — next move?",
+            "✅ TP binnen — clean.",
+            "🎯 TP geraakt — mooi afgewerkt.",
+            "💥 TP hit — netjes gespeeld.",
+            "🚀 TP gepakt — door naar de volgende.",
+          ];
+          const pickTpLine = () => {
+            const last = globalThis.__flexbotLastTpLine || "";
+            const pool = tpLines.filter((x) => x !== last);
+            const arr = pool.length ? pool : tpLines;
+            const chosen = arr[Math.floor(Math.random() * arr.length)];
+            globalThis.__flexbotLastTpLine = chosen;
+            return chosen;
+          };
+
+          if (isTp && next >= 1) {
+            const line = pickTpLine();
+
+            if (next === 2) {
+              // Send streak-2 VIDEO (Boss request)
+              const videoPath = path.join(__dirname, "assets", "streak_tp2.mp4");
+              if (fs.existsSync(videoPath)) {
+                const buf = fs.readFileSync(videoPath);
+                await tgSendVideo({ chatId, video: buf, caption: line });
+              } else {
+                await tgSendMessage({ chatId, text: line });
+              }
+            } else if (next === 3) {
+              // Send streak-3 VIDEO (Boss request)
+              const videoPath = path.join(__dirname, "assets", "streak_tp3.mp4");
+              if (fs.existsSync(videoPath)) {
+                const buf = fs.readFileSync(videoPath);
+                await tgSendVideo({ chatId, video: buf, caption: line });
+              } else {
+                await tgSendMessage({ chatId, text: line });
+              }
             } else {
-              await tgSendMessage({ chatId, text: "🔥 2 TP’s op rij — momentum.\nhttps://www.fxflexbot.com/" });
-            }
-          } else if (isTp && next === 3) {
-            // Send streak-3 VIDEO (Boss request)
-            const videoPath = path.join(__dirname, "assets", "streak_tp3.mp4");
-            if (fs.existsSync(videoPath)) {
-              const buf = fs.readFileSync(videoPath);
-              await tgSendVideo({ chatId, video: buf, caption: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
-            } else {
-              await tgSendMessage({ chatId, text: "🏆 3 TP’s op rij — win streak.\nhttps://www.fxflexbot.com/" });
+              await tgSendMessage({ chatId, text: line });
             }
           }
         }
