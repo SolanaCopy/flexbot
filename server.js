@@ -4814,13 +4814,25 @@ ${sub ? `<text x="${W / 2}" y="${titleY - 10}" text-anchor="middle" font-family=
   <rect x="${pad}" y="${metaY}" width="${W - pad * 2}" height="140" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
 
   <!-- Three aligned columns (labels on one baseline, values on one baseline) -->
-  <text x="${pad + 170}" y="${metaY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Closed trades</text>
-  <text x="${pad + 170}" y="${metaY + 110}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="72" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums;">${closedCount}</text>
+  ${(() => {
+    const colL = pad + 170;
+    const colM = W / 2;
+    const colR = W - pad - 170;
+    const labelY = metaY + 44;
+    const valueY = metaY + 112;
+    const pnlFs = pnlBig.length >= 13 ? 34 : pnlBig.length >= 11 ? 38 : pnlBig.length >= 9 ? 44 : 50;
 
-  <text x="${W / 2}" y="${metaY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
-  <text x="${W / 2}" y="${metaY + 101}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${pnlBig.length >= 11 ? 22 : pnlBig.length >= 9 ? 28 : 36}" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="14" fill="rgba(255,255,255,0.72)" dx="10"> USD</tspan></text>
+    return `
+  <text x="${colL}" y="${labelY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Closed trades</text>
+  <text x="${colL}" y="${valueY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="72" fill="#fff" font-weight="900" style="font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'lnum' 1;">${closedCount}</text>
 
-  ${pnlPct ? `<text x="${W - pad - 90}" y="${metaY + 98}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="52" fill="${pnlColor}" font-weight="1000" stroke="rgba(0,0,0,0.75)" stroke-width="4.2" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${pnlPct}</text>` : ``}
+  <text x="${colM}" y="${labelY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total PnL</text>
+  <text x="${colM}" y="${valueY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${pnlFs}" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'lnum' 1;">${pnlBig}<tspan font-size="16" fill="rgba(255,255,255,0.70)"> USD</tspan></text>
+
+  ${pnlPct ? `<text x="${colR}" y="${labelY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total %</text>
+  <text x="${colR}" y="${valueY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="64" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'lnum' 1;">${pnlPct}</text>` : ``}
+`;
+  })()}
 </g>
 
 ${linesSvg}
