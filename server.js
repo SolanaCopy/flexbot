@@ -4830,7 +4830,7 @@ ${sub ? `<text x="${W / 2}" y="${titleY - 10}" text-anchor="middle" font-family=
   <text x="${colM}" y="${valueY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${pnlFs}" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'lnum' 1;">${pnlBig}<tspan font-size="16" fill="rgba(255,255,255,0.70)"> USD</tspan></text>
 
   ${pnlPct ? `<text x="${colR}" y="${labelY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.78)">Total %</text>
-  <text x="${colR}" y="${valueY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="64" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'lnum' 1;">${pnlPct}</text>` : ``}
+  <text x="${colR}" y="${valueY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${pnlFs}" fill="${pnlColor}" font-weight="950" filter="url(#softGlow)" style="font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1, 'lnum' 1;">${pnlPct}</text>` : ``}
 `;
   })()}
 </g>
