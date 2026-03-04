@@ -6223,7 +6223,12 @@ app.get("/api/mc/state", async (req, res) => {
     }
 
     // ── Trade Gates evaluatie ──
+    // MC gates draaien altijd voor het Flexbot test account
     const symbol = "XAUUSD";
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
+    const mcMagicRaw = Number(process.env.MC_GATE_MAGIC || process.env.MAIN_MAGIC || 0);
+    const mcMagic = Number.isFinite(mcMagicRaw) ? Math.floor(mcMagicRaw) : 0;
     const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
     const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 3.8);
     const maxDailyLossPct = Number.isFinite(maxDailyLossPctRaw) && maxDailyLossPctRaw > 0 ? maxDailyLossPctRaw : 3.8;
@@ -6240,6 +6245,7 @@ app.get("/api/mc/state", async (req, res) => {
       trend_bias:      { pass: true, bias: "none" },
       verdict:         "ready",
       block_reason:    null,
+      account:         mcLogin,
     };
 
     // Helper: zet eerste blokkerende gate
@@ -6261,13 +6267,16 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
-    // Open trade lock
+    // Open trade lock (check Flexbot test account positie)
     try {
-      const lock = await isMainAccountLocked(symbol);
-      if (lock.ok && lock.locked) {
-        trade_gates.open_trade_lock.pass = false;
-        trade_gates.open_trade_lock.reason = lock.reason || "open_position_lock";
-        setBlocked("open_trade_lock");
+      const mcEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol);
+      if (mcEa && mcEa.has_position) {
+        const updAge = mcEa.updated_at_ms ? Date.now() - mcEa.updated_at_ms : Infinity;
+        if (updAge <= 5 * 60 * 1000) { // alleen als status vers is (<5 min)
+          trade_gates.open_trade_lock.pass = false;
+          trade_gates.open_trade_lock.reason = "open_position_lock";
+          setBlocked("open_trade_lock");
+        }
       }
     } catch { /* best effort */ }
 
@@ -6288,12 +6297,8 @@ app.get("/api/mc/state", async (req, res) => {
       const dayKey = dayKeyInTz(riskTz);
       const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
       const startEq = Number(st?.startEquity);
-      // Gebruik main account equity (zelfde account als open_trade_lock)
-      const mainLogin = String(process.env.MAIN_ACCOUNT_LOGIN || "").trim();
-      const mainServer = String(process.env.MAIN_ACCOUNT_SERVER || "").trim();
-      const latestEa = mainLogin && mainServer
-        ? eaPositions.find(ea => ea.account_login === mainLogin && ea.server === mainServer && ea.symbol === symbol && ea.equity != null)
-        : eaPositions.find(ea => ea.symbol === symbol && ea.equity != null);
+      // Gebruik Flexbot test account equity
+      const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.equity != null);
       const currentEq = latestEa ? latestEa.equity : NaN;
       if (st.dayKey === dayKey && Number.isFinite(startEq) && startEq > 0 && Number.isFinite(currentEq)) {
         const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
