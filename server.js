@@ -6252,48 +6252,56 @@ app.get("/mc", async (req, res) => {
   .ea-row span:last-child{color:var(--text)}
 
   /* ── Bot office ── */
-  .office-room{background:linear-gradient(180deg,#0a0f1e 0%,#070c18 55%,#0d1225 100%);border-radius:10px;padding:22px 12px 16px;position:relative;overflow:hidden;border:1px solid #131b30}
-  .office-room::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,#22d3ee44,transparent)}
-  .office-floor{position:absolute;bottom:0;left:0;right:0;height:26%;background:repeating-linear-gradient(90deg,#111830 0,#111830 58px,#0e1529 58px,#0e1529 116px)}
-  .office-ceiling{position:absolute;top:8px;left:0;right:0;height:6px;background:repeating-linear-gradient(90deg,#0d1528 0,#0d1528 40px,#0a1020 40px,#0a1020 80px)}
-  .office-light{position:absolute;top:10px;width:24px;height:4px;background:#fffbe6;border-radius:2px;box-shadow:0 0 12px #fffbe680;opacity:.7}
-  .office-desks{display:grid;grid-template-columns:1fr 1fr;gap:20px;position:relative;z-index:1}
+  .office-room{background:linear-gradient(180deg,#060b18 0%,#080f1c 45%,#0a1220 100%);border-radius:10px;padding:14px 8px 8px;position:relative;overflow:hidden;border:1px solid #131b30;min-height:290px}
+  .office-room::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,#22d3ee55,transparent)}
+  .office-wall{position:absolute;inset:0 0 28% 0;background:linear-gradient(180deg,#060d1c,#0b1428)}
+  .office-floor{position:absolute;bottom:0;left:0;right:0;height:28%;background:repeating-linear-gradient(90deg,#101828 0,#101828 56px,#0c1424 56px,#0c1424 112px);border-top:1px solid #192038}
+  .office-ceiling{position:absolute;top:0;left:0;right:0;height:9px;background:#050c1a;border-bottom:1px solid #0e162a}
+  .office-light{position:absolute;top:3px;width:32px;height:6px;background:#fffde8;border-radius:0 0 4px 4px;box-shadow:0 0 22px #fffde8cc,0 12px 32px #fffde822;opacity:.9}
+  .office-desks{display:grid;grid-template-columns:1fr 1fr;gap:10px;position:relative;z-index:2;padding-bottom:4px}
   .workstation{display:flex;flex-direction:column;align-items:center}
-  .ws-monitor{width:92px;height:60px;background:#050510;border:2px solid #1e2340;border-radius:6px;padding:3px;position:relative}
-  .ws-monitor::after{content:'';position:absolute;inset:0;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.04)}
-  .ws-screen{width:100%;height:100%;border-radius:3px;overflow:hidden;padding:4px 3px;font-family:'Courier New',monospace;font-size:5.5px;line-height:1.5;word-break:break-all}
-  .ws-screen.online{background:#001a00;color:#4ade80;animation:screenGlow 2.5s ease-in-out infinite}
-  .ws-screen.idle{background:#150d00;color:#fb923c}
-  .ws-screen.offline{background:#080808;color:#1a1a1a}
-  .ws-stand{width:12px;height:8px;background:#1a1e30;margin:0 auto;clip-path:polygon(20% 0%,80% 0%,100% 100%,0% 100%)}
-  .ws-base{width:32px;height:4px;background:#1a1e30;border-radius:2px;margin:0 auto}
-  .ws-desk{width:130px;height:11px;background:linear-gradient(180deg,#5c3317,#3d2010);border-radius:3px 3px 0 0;margin-top:2px;position:relative;box-shadow:0 2px 8px rgba(0,0,0,.5)}
-  .ws-keyboard{width:46px;height:6px;background:#151e35;border-radius:2px;position:absolute;bottom:2px;left:50%;transform:translateX(-50%);box-shadow:0 0 4px rgba(34,211,238,.1)}
-  .ws-char{position:relative;height:52px;width:130px}
-  .ws-person{position:absolute;bottom:0;left:50%;transform:translateX(-50%)}
-  .ws-head{width:18px;height:18px;border-radius:50%;margin:0 auto;box-shadow:0 0 6px rgba(0,0,0,.4)}
-  .ws-body{width:14px;height:15px;border-radius:3px 3px 0 0;margin:2px auto 0;position:relative}
-  .ws-arm{width:7px;height:11px;border-radius:4px;position:absolute;top:2px}
-  .ws-arm.l{left:-7px;transform-origin:top center}
-  .ws-arm.r{right:-7px;transform-origin:top center}
-  .ws-legs{display:flex;gap:3px;justify-content:center;margin-top:1px}
-  .ws-leg{width:6px;height:10px;border-radius:0 0 3px 3px}
-  .ws-nameplate{font-size:.65rem;color:var(--muted);text-align:center;margin-top:6px;font-family:monospace;letter-spacing:.05em}
-  .ws-statuslabel{font-size:.62rem;font-weight:800;text-align:center;margin-top:2px;letter-spacing:.05em}
-  .ws-statuslabel.online{color:var(--green)}
-  .ws-statuslabel.idle{color:var(--orange)}
-  .ws-statuslabel.offline{color:#2d3748}
-  .ws-action{font-size:.58rem;color:#3d4f6b;text-align:center;margin-top:3px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .ws-btns{display:flex;gap:4px;margin-top:7px;justify-content:center}
-  .zzz{position:absolute;font-weight:bold;color:#93c5fd;animation:zzzUp 2.2s ease-in-out infinite;pointer-events:none;text-shadow:0 0 6px #60a5fa88}
-  .online .ws-arm.l{animation:typing .3s ease-in-out infinite alternate}
-  .online .ws-arm.r{animation:typing .3s ease-in-out infinite alternate-reverse}
-  .idle .ws-person{animation:breathe 3.5s ease-in-out infinite}
-  .offline .ws-person{opacity:.2;filter:grayscale(1)}
-  @keyframes typing{0%{transform:rotate(-22deg)}100%{transform:rotate(12deg)}}
-  @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
-  @keyframes screenGlow{0%,100%{box-shadow:inset 0 0 8px #4ade8018}50%{box-shadow:inset 0 0 18px #4ade8045}}
-  @keyframes zzzUp{0%{opacity:0;transform:translate(0,0) scale(.7)}40%{opacity:1}100%{opacity:0;transform:translate(10px,-18px) scale(1.1)}}
+  /* Monitor */
+  .ws-mon{width:100px;height:68px;background:#040609;border:3px solid #1b2140;border-radius:7px;overflow:hidden;position:relative;flex-shrink:0}
+  .ws-mon.online{border-color:#163326;box-shadow:0 0 20px rgba(74,222,128,.15)}
+  .ws-mon.idle{border-color:#251808}
+  .ws-mon-bar{height:9px;background:#0b1020;display:flex;align-items:center;gap:3px;padding:0 5px;border-bottom:1px solid #141c34}
+  .ws-mon-dot{width:4px;height:4px;border-radius:50%}
+  .ws-mon-screen{padding:3px 3px;font-family:'Courier New',monospace;font-size:5px;line-height:1.5;word-break:break-all;height:calc(100% - 9px);overflow:hidden}
+  .ws-mon-screen.online{background:#001108;color:#4ade80;animation:screenGlow 2.5s ease-in-out infinite}
+  .ws-mon-screen.idle{background:#100800;color:#fb923c}
+  .ws-mon-screen.offline{background:#050508;color:#151520}
+  .ws-neck{width:10px;height:8px;background:#14182a;margin:0 auto;clip-path:polygon(20% 0%,80% 0%,100% 100%,0% 100%)}
+  .ws-mbase{width:26px;height:3px;background:#14182a;border-radius:2px;margin:0 auto}
+  /* Desk */
+  .ws-desk{width:128px;height:12px;background:linear-gradient(180deg,#6b3f1c,#3e2209);border-radius:3px 3px 0 0;margin-top:2px;position:relative;box-shadow:0 4px 14px rgba(0,0,0,.55)}
+  .ws-desk::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:rgba(255,190,120,.12);border-radius:3px 3px 0 0}
+  .ws-kbd{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:42px;height:6px;background:#121c33;border-radius:2px;box-shadow:0 1px 4px rgba(0,0,0,.4),0 0 6px rgba(34,211,238,.06)}
+  .ws-cup{position:absolute;bottom:1px;right:8px;width:7px;height:9px;background:#5a2d10;border-radius:1px 1px 3px 3px}
+  .ws-cup::before{content:'';position:absolute;top:-4px;left:0;width:7px;height:4px;border:1.5px solid #8a5030;border-bottom:none;border-radius:4px 4px 0 0}
+  .ws-cup::after{content:'';position:absolute;top:2px;right:-4px;width:4px;height:4px;border:1.5px solid #8a5030;border-left:none;border-radius:0 4px 4px 0}
+  /* Character area */
+  .ws-char-area{position:relative;height:62px;width:128px}
+  .ws-svg{position:absolute;bottom:0;left:50%;transform:translateX(-50%)}
+  /* SVG char animations */
+  .arm-l{transform-box:fill-box;transform-origin:right center}
+  .arm-r{transform-box:fill-box;transform-origin:left center}
+  .char-head-g{transform-box:fill-box;transform-origin:center 85%}
+  .workstation.online .arm-l{animation:armTyp .28s ease-in-out infinite alternate}
+  .workstation.online .arm-r{animation:armTyp .28s ease-in-out infinite alternate-reverse}
+  .workstation.idle .char-head-g{animation:headNod 3.5s ease-in-out infinite}
+  .workstation.offline .ws-svg{opacity:.15;filter:grayscale(1)}
+  /* Name + status */
+  .ws-name{font-size:.6rem;color:var(--muted);text-align:center;margin-top:5px;font-family:monospace;letter-spacing:.07em}
+  .ws-stat{font-size:.58rem;font-weight:800;text-align:center;letter-spacing:.07em}
+  .ws-stat.online{color:var(--green)}
+  .ws-stat.idle{color:var(--orange)}
+  .ws-stat.offline{color:#2d3748}
+  .ws-act{font-size:.54rem;color:#2c3e55;text-align:center;max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px;margin-top:1px}
+  .ws-btns{display:flex;gap:4px;margin-top:6px;justify-content:center}
+  @keyframes armTyp{0%{transform:rotate(-13deg) translateY(1px)}100%{transform:rotate(11deg) translateY(-2px)}}
+  @keyframes headNod{0%,100%{transform:rotate(0deg) translateY(0)}40%{transform:rotate(-9deg) translateY(1px)}}
+  @keyframes screenGlow{0%,100%{box-shadow:inset 0 0 8px #4ade8012}50%{box-shadow:inset 0 0 22px #4ade8042}}
+  @keyframes zzzUp{0%{opacity:0;transform:translate(0,0) scale(.7)}40%{opacity:1}100%{opacity:0;transform:translate(8px,-18px) scale(1.1)}}
   .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-weight:700;transition:all .15s;letter-spacing:.03em}
   .btn-start{background:#052e16;color:var(--green);border:1px solid #166534}
   .btn-stop{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
@@ -6334,8 +6342,9 @@ app.get("/mc", async (req, res) => {
       <div class="card-title"><span class="card-title-icon">&#127970;</span> Agent Kantoor</div>
       <div class="office-room">
         <div class="office-ceiling"></div>
-        <div class="office-light" style="left:20%"></div>
-        <div class="office-light" style="left:55%"></div>
+        <div class="office-light" style="left:16%"></div>
+        <div class="office-light" style="left:50%"></div>
+        <div class="office-wall"></div>
         <div class="office-floor"></div>
         <div class="office-desks" id="bots-body"><div style="color:var(--muted);font-size:.8rem">laden...</div></div>
       </div>
@@ -6382,6 +6391,44 @@ async function sendCommand(botId, cmd){
     if(d.ok) alert('Commando '+cmd+' verstuurd naar '+botId);
     else alert('Fout: '+(d.error||JSON.stringify(d)));
   }catch(e){alert('Fout: '+e.message);}
+}
+
+function makePerson(c,status){
+  var smile=status==='online'?'M19 16 Q25 20.5 31 16':status==='idle'?'M20 17 Q25 17 30 17':'M20 16.5 Q25 14 30 16.5';
+  var eyeL=status==='idle'?
+    '<line x1="20" y1="11" x2="24" y2="11" stroke="#222" stroke-width="1.8" stroke-linecap="round"/>':
+    '<circle cx="22" cy="11" r="2.2" fill="#1a1212"/><circle cx="22.9" cy="10.1" r=".8" fill="rgba(255,255,255,.9)"/>';
+  var eyeR=status==='idle'?
+    '<line x1="26" y1="11" x2="30" y2="11" stroke="#222" stroke-width="1.8" stroke-linecap="round"/>':
+    '<circle cx="28" cy="11" r="2.2" fill="#1a1212"/><circle cx="28.9" cy="10.1" r=".8" fill="rgba(255,255,255,.9)"/>';
+  var zzz=status==='idle'?
+    '<text x="35" y="6" font-size="9" font-weight="900" fill="#93c5fd" style="animation:zzzUp 2.2s ease-in-out infinite">z</text>'+
+    '<text x="41" y="-1" font-size="7" font-weight="900" fill="#60a5fa" style="animation:zzzUp 2.2s ease-in-out .7s infinite">z</text>'+
+    '<text x="46" y="-7" font-size="5" font-weight="900" fill="#3b82f6" style="animation:zzzUp 2.2s ease-in-out 1.4s infinite">z</text>':'';
+  return '<svg class="ws-svg" width="56" height="62" viewBox="-2 -12 60 74" xmlns="http://www.w3.org/2000/svg">'+
+    '<rect x="6" y="20" width="44" height="32" rx="5" fill="#101828" stroke="#1e2845" stroke-width="1"/>'+
+    '<rect x="8" y="21" width="40" height="7" rx="3" fill="#182040"/>'+
+    '<rect x="5" y="30" width="8" height="18" rx="3" fill="#0e1730"/>'+
+    '<rect x="43" y="30" width="8" height="18" rx="3" fill="#0e1730"/>'+
+    '<rect x="17" y="40" width="8" height="16" rx="4" fill="'+c.legs+'"/>'+
+    '<rect x="31" y="40" width="8" height="16" rx="4" fill="'+c.legs+'"/>'+
+    '<ellipse cx="21" cy="56" rx="8" ry="4" fill="#080810"/>'+
+    '<ellipse cx="35" cy="56" rx="8" ry="4" fill="#080810"/>'+
+    '<rect class="arm-l" x="0" y="25" width="18" height="10" rx="5" fill="'+c.shirt+'"/>'+
+    '<rect class="arm-r" x="38" y="25" width="18" height="10" rx="5" fill="'+c.shirt+'"/>'+
+    '<rect x="13" y="20" width="30" height="26" rx="5" fill="'+c.shirt+'"/>'+
+    '<path d="M18 20 L28 27 L38 20" stroke="rgba(255,255,255,.14)" stroke-width="1.5" fill="none" stroke-linecap="round"/>'+
+    '<g class="char-head-g">'+
+      '<ellipse cx="28" cy="0" rx="13" ry="7" fill="'+c.hair+'"/>'+
+      '<rect x="15" y="0" width="26" height="10" rx="1" fill="'+c.hair+'"/>'+
+      '<circle cx="28" cy="11" r="13" fill="'+c.skin+'"/>'+
+      '<ellipse cx="15.5" cy="11" rx="2.5" ry="3.5" fill="'+c.skin+'"/>'+
+      '<ellipse cx="40.5" cy="11" rx="2.5" ry="3.5" fill="'+c.skin+'"/>'+
+      eyeL+eyeR+
+      '<path d="'+smile+'" stroke="#7a4030" stroke-width="1.5" fill="none" stroke-linecap="round"/>'+
+    '</g>'+
+    zzz+
+  '</svg>';
 }
 
 async function load(){
@@ -6431,10 +6478,10 @@ async function load(){
     // Bots — geanimeerd kantoor
     const BOT_IDS=['bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
     const BOT_COLORS={
-      'bot-default':  {shirt:'#3b82f6',legs:'#1e3a8a',skin:'#fbbf24'},
-      'bot-affiliate':{shirt:'#8b5cf6',legs:'#4c1d95',skin:'#fbbf24'},
-      'bot-fxcopie':  {shirt:'#10b981',legs:'#065f46',skin:'#fbbf24'},
-      'bot-builder':  {shirt:'#f59e0b',legs:'#92400e',skin:'#fbbf24'},
+      'bot-default':  {shirt:'#3b82f6',legs:'#1e3a8a',skin:'#f5c87a',hair:'#1a1520'},
+      'bot-affiliate':{shirt:'#8b5cf6',legs:'#4c1d95',skin:'#f5c87a',hair:'#1a1520'},
+      'bot-fxcopie':  {shirt:'#10b981',legs:'#065f46',skin:'#f5c87a',hair:'#1a1520'},
+      'bot-builder':  {shirt:'#f59e0b',legs:'#92400e',skin:'#f5c87a',hair:'#1a1520'},
     };
     const botMap={};
     (d.bots||[]).forEach(b=>{botMap[b.bot_id]=b;});
@@ -6442,35 +6489,27 @@ async function load(){
     botsEl.innerHTML=BOT_IDS.map(id=>{
       const b=botMap[id];
       const status=b?b.status:'offline';
-      const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#fbbf24'};
+      const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#f5c87a',hair:'#1a1520'};
       const action=b&&b.last_action?b.last_action:'—';
       const shortName=id.replace('bot-','');
-      const screenTxt=status==='online'?'> '+action.slice(0,60):status==='idle'?'~ idle':' offline ';
-      const zzzHtml=status==='idle'?
-        '<span class="zzz" style="top:-20px;left:18px;font-size:11px">z</span>'+
-        '<span class="zzz" style="top:-28px;left:25px;font-size:8px;animation-delay:.7s">z</span>'+
-        '<span class="zzz" style="top:-36px;left:31px;font-size:6px;animation-delay:1.4s">z</span>':'';
+      const screenTxt=status==='online'?'> '+action.slice(0,55):status==='idle'?'~ standby...':'[offline]';
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
       return '<div class="workstation '+status+'">'+
-        '<div class="ws-monitor"><div class="ws-screen '+status+'">'+screenTxt+'</div></div>'+
-        '<div class="ws-stand"></div>'+
-        '<div class="ws-base"></div>'+
-        '<div class="ws-desk"><div class="ws-keyboard"></div></div>'+
-        '<div class="ws-char"><div class="ws-person">'+
-          zzzHtml+
-          '<div class="ws-head" style="background:'+c.skin+'"></div>'+
-          '<div class="ws-body" style="background:'+c.shirt+'">'+
-            '<div class="ws-arm l" style="background:'+c.shirt+'"></div>'+
-            '<div class="ws-arm r" style="background:'+c.shirt+'"></div>'+
+        '<div class="ws-mon '+status+'">'+
+          '<div class="ws-mon-bar">'+
+            '<div class="ws-mon-dot" style="background:#f87171"></div>'+
+            '<div class="ws-mon-dot" style="background:#fb923c"></div>'+
+            '<div class="ws-mon-dot" style="background:#4ade80"></div>'+
           '</div>'+
-          '<div class="ws-legs">'+
-            '<div class="ws-leg" style="background:'+c.legs+'"></div>'+
-            '<div class="ws-leg" style="background:'+c.legs+'"></div>'+
-          '</div>'+
-        '</div></div>'+
-        '<div class="ws-nameplate">'+shortName+'</div>'+
-        '<div class="ws-statuslabel '+status+'">'+statusLabel+'</div>'+
-        '<div class="ws-action">'+action+'</div>'+
+          '<div class="ws-mon-screen '+status+'">'+screenTxt+'</div>'+
+        '</div>'+
+        '<div class="ws-neck"></div>'+
+        '<div class="ws-mbase"></div>'+
+        '<div class="ws-desk"><div class="ws-kbd"></div><div class="ws-cup"></div></div>'+
+        '<div class="ws-char-area">'+makePerson(c,status)+'</div>'+
+        '<div class="ws-name">'+shortName+'</div>'+
+        '<div class="ws-stat '+status+'">'+statusLabel+'</div>'+
+        '<div class="ws-act">'+action+'</div>'+
         '<div class="ws-btns">'+
           '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Start">&#9654;</button>'+
           '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Stop">&#9646;&#9646;</button>'+
