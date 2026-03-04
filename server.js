@@ -5120,7 +5120,7 @@ async function autoScalpRunHandler(req, res) {
 
     // Risk/strategy env
     const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
-    const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 3.8);
+    const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 15);
     const maxDailyLossPct = Number.isFinite(maxDailyLossPctRaw) && maxDailyLossPctRaw > 0 ? maxDailyLossPctRaw : 3.8;
     const maxConsecLossRaw = Number(process.env.MAX_CONSEC_LOSSES || 3);
     const maxConsecLosses = Number.isFinite(maxConsecLossRaw) && maxConsecLossRaw > 0 ? Math.floor(maxConsecLossRaw) : 3;
@@ -6228,7 +6228,7 @@ app.get("/api/mc/state", async (req, res) => {
     // ── Trade Gates evaluatie ──
     const symbol = "XAUUSD";
     const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
-    const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 3.8);
+    const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 15);
     const maxDailyLossPct = Number.isFinite(maxDailyLossPctRaw) && maxDailyLossPctRaw > 0 ? maxDailyLossPctRaw : 3.8;
     const maxConsecLossRaw = Number(process.env.MAX_CONSEC_LOSSES || 3);
     const maxConsecLosses = Number.isFinite(maxConsecLossRaw) && maxConsecLossRaw > 0 ? Math.floor(maxConsecLossRaw) : 3;
