@@ -6121,6 +6121,26 @@ app.post("/api/mc/bot/command", async (req, res) => {
   }
 });
 
+// DELETE /api/mc/ea  (?key=DASHBOARD_KEY&account_login=...&server=...&symbol=...)
+app.delete("/api/mc/ea", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const account_login = String(req.query.account_login || "").trim();
+    const server = String(req.query.server || "").trim();
+    const symbol = String(req.query.symbol || "XAUUSD").toUpperCase();
+    if (!account_login) return res.status(400).json({ ok: false, error: "account_login_required" });
+    await db.execute({
+      sql: "DELETE FROM ea_positions WHERE account_login=? AND server=? AND symbol=?",
+      args: [account_login, server, symbol],
+    });
+    return res.json({ ok: true, deleted: { account_login, server, symbol } });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /api/mc/state  (?key=DASHBOARD_KEY)
 app.get("/api/mc/state", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
