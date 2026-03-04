@@ -6298,49 +6298,27 @@ app.get("/mc", async (req, res) => {
   .wp-action{font-size:.48rem;color:#283848;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* === VLOER === */
   .office-floor{height:18px;background:repeating-linear-gradient(90deg,#0e1626 0,#0e1626 44px,#0b1220 44px,#0b1220 88px);border-top:1px solid #14203a}
-  /* === BUREAU RIJ: werkstations === */
-  .desk-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:14px 8px 4px;position:relative;z-index:2;background:linear-gradient(180deg,#07101e,#060c18)}
-  .workstation{display:flex;flex-direction:column;align-items:center}
-  /* Monitor */
-  .ws-mon{width:78px;height:52px;background:#030507;border:2px solid #1a2040;border-radius:5px;overflow:hidden}
-  .ws-mon.online{border-color:#163326;box-shadow:0 0 12px rgba(74,222,128,.14)}
-  .ws-mon.idle{border-color:#221508}
-  .ws-mon-bar{height:7px;background:#08101e;display:flex;align-items:center;gap:2px;padding:0 4px;border-bottom:1px solid #121a30}
-  .ws-mon-dot{width:3px;height:3px;border-radius:50%}
-  .ws-mon-screen{padding:2px;font-family:'Courier New',monospace;font-size:4px;line-height:1.5;height:calc(100% - 7px);overflow:hidden;word-break:break-all}
-  .ws-mon-screen.online{background:#001008;color:#4ade80;animation:screenGlow 2.5s ease-in-out infinite}
-  .ws-mon-screen.idle{background:#0e0700;color:#fb923c}
-  .ws-mon-screen.offline{background:#040406;color:#111120}
-  .ws-neck{width:8px;height:6px;background:#101524;margin:0 auto;clip-path:polygon(20% 0%,80% 0%,100% 100%,0% 100%)}
-  .ws-mbase{width:20px;height:3px;background:#101524;border-radius:2px;margin:0 auto}
-  /* Bureau */
-  .ws-desk{width:96px;height:10px;background:linear-gradient(180deg,#6b3f1c,#3e2209);border-radius:3px 3px 0 0;margin-top:2px;position:relative;box-shadow:0 3px 10px rgba(0,0,0,.5)}
-  .ws-desk::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:rgba(255,190,120,.1);border-radius:3px 3px 0 0}
-  .ws-kbd{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:32px;height:5px;background:#101b2e;border-radius:2px}
-  .ws-cup{position:absolute;bottom:1px;right:5px;width:6px;height:7px;background:#5a2d10;border-radius:1px 1px 2px 2px}
-  .ws-cup::before{content:'';position:absolute;top:-3px;left:0;width:6px;height:3px;border:1.5px solid #8a5030;border-bottom:none;border-radius:3px 3px 0 0}
-  .ws-cup::after{content:'';position:absolute;top:1px;right:-3px;width:3px;height:3px;border:1.5px solid #8a5030;border-left:none;border-radius:0 3px 3px 0}
-  /* Poppetje */
-  .ws-char-area{position:relative;height:48px;width:96px}
-  .ws-svg{position:absolute;bottom:0;left:50%;transform:translateX(-50%)}
-  .arm-l{transform-box:fill-box;transform-origin:right center}
-  .arm-r{transform-box:fill-box;transform-origin:left center}
-  .char-head-g{transform-box:fill-box;transform-origin:center 85%}
-  .workstation.online .arm-l{animation:armTyp .28s ease-in-out infinite alternate}
-  .workstation.online .arm-r{animation:armTyp .28s ease-in-out infinite alternate-reverse}
-  .workstation.idle .char-head-g{animation:headNod 3.5s ease-in-out infinite}
-  .workstation.offline .ws-svg{opacity:.15;filter:grayscale(1)}
-  .ws-name{font-size:.57rem;color:var(--muted);text-align:center;margin-top:4px;font-family:monospace;letter-spacing:.07em}
+  /* === STOEL RIJ: poppetjes met rug naar ons === */
+  .desk-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:10px 8px 6px;position:relative;z-index:2;background:linear-gradient(180deg,#07101e,#060c18)}
+  /* Console bureau balk tussen schermen en stoelen */
+  .desk-row::before{content:'';display:block;position:absolute;top:0;left:8px;right:8px;height:7px;background:linear-gradient(180deg,#1a2a48,#111e36);border-radius:2px;box-shadow:0 0 8px rgba(34,211,238,.08)}
+  .workstation{display:flex;flex-direction:column;align-items:center;padding-top:6px}
+  /* Stoel SVG */
+  .chair-svg{display:block;overflow:visible}
+  .chair-body-g{transform-box:fill-box;transform-origin:center 60%}
+  .workstation.online .chair-body-g{animation:leanIn 1.8s ease-in-out infinite alternate}
+  .workstation.idle .chair-body-g{animation:chairSway 4s ease-in-out infinite}
+  .workstation.offline .chair-svg{opacity:.18;filter:grayscale(1)}
+  .ws-name{font-size:.57rem;color:var(--muted);text-align:center;margin-top:3px;font-family:monospace;letter-spacing:.07em}
   .ws-stat{font-size:.55rem;font-weight:800;text-align:center;letter-spacing:.07em}
   .ws-stat.online{color:var(--green)}
   .ws-stat.idle{color:var(--orange)}
   .ws-stat.offline{color:#2d3748}
-  .ws-act{font-size:.5rem;color:#2c3e55;text-align:center;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
-  .ws-btns{display:flex;gap:3px;margin-top:5px;justify-content:center}
-  @keyframes armTyp{0%{transform:rotate(-13deg) translateY(1px)}100%{transform:rotate(11deg) translateY(-2px)}}
-  @keyframes headNod{0%,100%{transform:rotate(0deg) translateY(0)}40%{transform:rotate(-9deg) translateY(1px)}}
+  .ws-btns{display:flex;gap:3px;margin-top:4px;justify-content:center}
+  @keyframes leanIn{0%{transform:translateY(0) rotate(0deg)}100%{transform:translateY(-3px) rotate(-.8deg)}}
+  @keyframes chairSway{0%,100%{transform:rotate(0deg)}50%{transform:rotate(1.5deg)}}
+  @keyframes chairZzz{0%{opacity:0;transform:translate(0,0) scale(.7)}40%{opacity:1}100%{opacity:0;transform:translate(7px,-14px) scale(1)}}
   @keyframes screenGlow{0%,100%{box-shadow:inset 0 0 6px #4ade8010}50%{box-shadow:inset 0 0 18px #4ade8040}}
-  @keyframes zzzUp{0%{opacity:0;transform:translate(0,0) scale(.7)}40%{opacity:1}100%{opacity:0;transform:translate(8px,-18px) scale(1.1)}}
   .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-weight:700;transition:all .15s;letter-spacing:.03em}
   .btn-start{background:#052e16;color:var(--green);border:1px solid #166534}
   .btn-stop{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
@@ -6429,41 +6407,53 @@ async function sendCommand(botId, cmd){
   }catch(e){alert('Fout: '+e.message);}
 }
 
-function makePerson(c,status){
-  var smile=status==='online'?'M19 16 Q25 20.5 31 16':status==='idle'?'M20 17 Q25 17 30 17':'M20 16.5 Q25 14 30 16.5';
-  var eyeL=status==='idle'?
-    '<line x1="20" y1="11" x2="24" y2="11" stroke="#222" stroke-width="1.8" stroke-linecap="round"/>':
-    '<circle cx="22" cy="11" r="2.2" fill="#1a1212"/><circle cx="22.9" cy="10.1" r=".8" fill="rgba(255,255,255,.9)"/>';
-  var eyeR=status==='idle'?
-    '<line x1="26" y1="11" x2="30" y2="11" stroke="#222" stroke-width="1.8" stroke-linecap="round"/>':
-    '<circle cx="28" cy="11" r="2.2" fill="#1a1212"/><circle cx="28.9" cy="10.1" r=".8" fill="rgba(255,255,255,.9)"/>';
+function makeChair(c,status){
   var zzz=status==='idle'?
-    '<text x="35" y="6" font-size="9" font-weight="900" fill="#93c5fd" style="animation:zzzUp 2.2s ease-in-out infinite">z</text>'+
-    '<text x="41" y="-1" font-size="7" font-weight="900" fill="#60a5fa" style="animation:zzzUp 2.2s ease-in-out .7s infinite">z</text>'+
-    '<text x="46" y="-7" font-size="5" font-weight="900" fill="#3b82f6" style="animation:zzzUp 2.2s ease-in-out 1.4s infinite">z</text>':'';
-  return '<svg class="ws-svg" width="44" height="50" viewBox="-2 -12 60 74" xmlns="http://www.w3.org/2000/svg">'+
-    '<rect x="6" y="20" width="44" height="32" rx="5" fill="#101828" stroke="#1e2845" stroke-width="1"/>'+
-    '<rect x="8" y="21" width="40" height="7" rx="3" fill="#182040"/>'+
-    '<rect x="5" y="30" width="8" height="18" rx="3" fill="#0e1730"/>'+
-    '<rect x="43" y="30" width="8" height="18" rx="3" fill="#0e1730"/>'+
-    '<rect x="17" y="40" width="8" height="16" rx="4" fill="'+c.legs+'"/>'+
-    '<rect x="31" y="40" width="8" height="16" rx="4" fill="'+c.legs+'"/>'+
-    '<ellipse cx="21" cy="56" rx="8" ry="4" fill="#080810"/>'+
-    '<ellipse cx="35" cy="56" rx="8" ry="4" fill="#080810"/>'+
-    '<rect class="arm-l" x="0" y="25" width="18" height="10" rx="5" fill="'+c.shirt+'"/>'+
-    '<rect class="arm-r" x="38" y="25" width="18" height="10" rx="5" fill="'+c.shirt+'"/>'+
-    '<rect x="13" y="20" width="30" height="26" rx="5" fill="'+c.shirt+'"/>'+
-    '<path d="M18 20 L28 27 L38 20" stroke="rgba(255,255,255,.14)" stroke-width="1.5" fill="none" stroke-linecap="round"/>'+
-    '<g class="char-head-g">'+
-      '<ellipse cx="28" cy="0" rx="13" ry="7" fill="'+c.hair+'"/>'+
-      '<rect x="15" y="0" width="26" height="10" rx="1" fill="'+c.hair+'"/>'+
-      '<circle cx="28" cy="11" r="13" fill="'+c.skin+'"/>'+
-      '<ellipse cx="15.5" cy="11" rx="2.5" ry="3.5" fill="'+c.skin+'"/>'+
-      '<ellipse cx="40.5" cy="11" rx="2.5" ry="3.5" fill="'+c.skin+'"/>'+
-      eyeL+eyeR+
-      '<path d="'+smile+'" stroke="#7a4030" stroke-width="1.5" fill="none" stroke-linecap="round"/>'+
-    '</g>'+
-    zzz+
+    '<text x="42" y="4" font-size="8" font-weight="900" fill="#93c5fd" style="animation:chairZzz 2s ease-in-out infinite">z</text>'+
+    '<text x="49" y="-2" font-size="6" font-weight="900" fill="#60a5fa" style="animation:chairZzz 2s ease-in-out .7s infinite">z</text>':'';
+  var person=status==='offline'?'':
+    '<g class="chair-body-g">'+
+      // Achterkant hoofd (haar)
+      '<ellipse cx="35" cy="14" rx="13" ry="8" fill="'+c.hair+'"/>'+
+      '<circle cx="35" cy="17" r="12" fill="'+c.hair+'"/>'+
+      // Nek
+      '<rect x="31" y="27" width="8" height="6" rx="3" fill="'+c.skin+'"/>'+
+      // Rug / shirt
+      '<rect x="19" y="31" width="32" height="16" rx="5" fill="'+c.shirt+'"/>'+
+      // Linkerarm op armsteun
+      '<rect x="5" y="37" width="17" height="8" rx="4" fill="'+c.shirt+'"/>'+
+      // Rechterarm op armsteun
+      '<rect x="48" y="37" width="17" height="8" rx="4" fill="'+c.shirt+'"/>'+
+      zzz+
+    '</g>';
+  return '<svg class="chair-svg" width="62" height="78" viewBox="0 0 70 88" xmlns="http://www.w3.org/2000/svg">'+
+    // Rugleuning hoge stoel
+    '<rect x="8" y="4" width="54" height="46" rx="7" fill="#141e38"/>'+
+    '<rect x="11" y="7" width="48" height="40" rx="5" fill="#1a2644"/>'+
+    // Rugkussen naad
+    '<line x1="11" y1="27" x2="59" y2="27" stroke="#111e38" stroke-width="1.5"/>'+
+    // Poppetje (achterkant)
+    person+
+    // Armsteunen
+    '<rect x="4" y="35" width="9" height="20" rx="3" fill="#101828"/>'+
+    '<rect x="57" y="35" width="9" height="20" rx="3" fill="#101828"/>'+
+    // Zitting
+    '<rect x="5" y="50" width="60" height="13" rx="5" fill="#141e38"/>'+
+    '<rect x="8" y="51" width="54" height="10" rx="3" fill="#192240"/>'+
+    // Poot
+    '<rect x="31" y="63" width="8" height="15" rx="3" fill="#0c1428"/>'+
+    // Vijf-spaaks voet
+    '<line x1="35" y1="78" x2="13" y2="83" stroke="#121e34" stroke-width="3" stroke-linecap="round"/>'+
+    '<line x1="35" y1="78" x2="57" y2="83" stroke="#121e34" stroke-width="3" stroke-linecap="round"/>'+
+    '<line x1="35" y1="78" x2="19" y2="86" stroke="#121e34" stroke-width="3" stroke-linecap="round"/>'+
+    '<line x1="35" y1="78" x2="51" y2="86" stroke="#121e34" stroke-width="3" stroke-linecap="round"/>'+
+    '<line x1="35" y1="78" x2="35" y2="87" stroke="#121e34" stroke-width="3" stroke-linecap="round"/>'+
+    // Wieltjes
+    '<circle cx="13" cy="83" r="2.5" fill="#080e1c"/>'+
+    '<circle cx="57" cy="83" r="2.5" fill="#080e1c"/>'+
+    '<circle cx="19" cy="86" r="2.5" fill="#080e1c"/>'+
+    '<circle cx="51" cy="86" r="2.5" fill="#080e1c"/>'+
+    '<circle cx="35" cy="87" r="2.5" fill="#080e1c"/>'+
   '</svg>';
 }
 
@@ -6558,31 +6548,17 @@ async function load(){
       '</div>';
     }).join('')+'</div>';
 
-    // Werkstations (onderste rij)
+    // Stoelen rij (onderste rij — rug naar ons toe)
     const deskHtml='<div class="desk-row">'+BOT_IDS.map(id=>{
       const b=botMap[id];
       const status=b?b.status:'offline';
       const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#f5c87a',hair:'#1a1520'};
-      const action=b&&b.last_action?b.last_action:'—';
       const shortName=id.replace('bot-','');
-      const screenTxt=status==='online'?'> '+action.slice(0,50):status==='idle'?'~ standby':'[off]';
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
       return '<div class="workstation '+status+'">'+
-        '<div class="ws-mon '+status+'">'+
-          '<div class="ws-mon-bar">'+
-            '<div class="ws-mon-dot" style="background:#f87171"></div>'+
-            '<div class="ws-mon-dot" style="background:#fb923c"></div>'+
-            '<div class="ws-mon-dot" style="background:#4ade80"></div>'+
-          '</div>'+
-          '<div class="ws-mon-screen '+status+'">'+screenTxt+'</div>'+
-        '</div>'+
-        '<div class="ws-neck"></div>'+
-        '<div class="ws-mbase"></div>'+
-        '<div class="ws-desk"><div class="ws-kbd"></div><div class="ws-cup"></div></div>'+
-        '<div class="ws-char-area">'+makePerson(c,status)+'</div>'+
+        makeChair(c,status)+
         '<div class="ws-name">'+shortName+'</div>'+
         '<div class="ws-stat '+status+'">'+statusLabel+'</div>'+
-        '<div class="ws-act">'+action+'</div>'+
         '<div class="ws-btns">'+
           '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Start">&#9654;</button>'+
           '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Stop">&#9646;&#9646;</button>'+
