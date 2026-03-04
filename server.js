@@ -6107,28 +6107,33 @@ app.get("/api/mc/state", async (req, res) => {
 
     // Bot heartbeats
     let bots = [];
+    let gateway = null;
     if (db) {
       try {
         const rows = await db.execute(
           "SELECT bot_id, name, status, last_action, updated_at_ms FROM bot_heartbeats ORDER BY bot_id ASC"
         );
         const nowMs = Date.now();
-        bots = (rows.rows || []).map((r) => {
+        for (const r of (rows.rows || [])) {
           const updMs = r.updated_at_ms != null ? Number(r.updated_at_ms) : 0;
           const ageMins = (nowMs - updMs) / 60000;
-          let derived = "offline";
-          if (ageMins < 5) derived = "online";
-          else if (ageMins < 30) derived = "idle";
-          return {
+          const reported = String(r.status || "offline");
+          // Use reported status; only override if heartbeat is very stale (>15 min)
+          const status = ageMins < 15 ? reported : ageMins < 60 ? "idle" : "offline";
+          const entry = {
             bot_id: String(r.bot_id),
             name: String(r.name || r.bot_id),
-            status: derived,
-            reported_status: String(r.status || ""),
+            status,
             last_action: String(r.last_action || ""),
             updated_at_ms: updMs,
             age_mins: Math.round(ageMins),
           };
-        });
+          if (r.bot_id === "_gateway") {
+            gateway = entry;
+          } else {
+            bots.push(entry);
+          }
+        }
       } catch { /* ignore */ }
     }
 
@@ -6157,6 +6162,7 @@ app.get("/api/mc/state", async (req, res) => {
       ok: true,
       server_time_ms: Date.now(),
       market,
+      gateway,
       ea_positions: eaPositions,
       bots,
       signals,
@@ -6193,12 +6199,20 @@ app.get("/mc", async (req, res) => {
   .hdr-logo span{color:var(--cyan)}
   .hdr-live{background:#450a0a;color:var(--red);border:1px solid #7f1d1d;font-size:.65rem;font-weight:800;padding:2px 7px;border-radius:4px;letter-spacing:.1em;animation:livePulse 1.5s ease-in-out infinite}
   @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.6}}
-  #mkt-chip{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:3px 9px;font-size:.65rem;font-weight:700;letter-spacing:.04em;transition:all .3s}
+  .hdr-chip{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:3px 9px;font-size:.65rem;font-weight:700;letter-spacing:.04em;transition:all .3s}
   #mkt-chip.open{border-color:#166534;color:var(--green)}
   #mkt-chip.closed{border-color:#7f1d1d;color:var(--red)}
-  #mkt-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-  #mkt-chip.open #mkt-dot{background:var(--green);animation:dotPulse 1.5s ease-in-out infinite}
-  #mkt-chip.closed #mkt-dot{background:var(--red)}
+  #gw-chip.online{border-color:#166534;color:var(--green)}
+  #gw-chip.idle{border-color:#92400e;color:var(--orange)}
+  #gw-chip.offline{border-color:#7f1d1d;color:var(--red);animation:livePulse 1.5s ease-in-out infinite}
+  #gw-chip.unknown{border-color:#334155;color:var(--muted)}
+  .chip-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  #mkt-chip.open .chip-dot{background:var(--green);animation:dotPulse 1.5s ease-in-out infinite}
+  #mkt-chip.closed .chip-dot{background:var(--red)}
+  #gw-chip.online .chip-dot{background:var(--green);animation:dotPulse 1.5s ease-in-out infinite}
+  #gw-chip.idle .chip-dot{background:var(--orange)}
+  #gw-chip.offline .chip-dot{background:var(--red)}
+  #gw-chip.unknown .chip-dot{background:var(--muted)}
   .hdr-right{text-align:right}
   #live-clock{font-size:1.1rem;font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums;letter-spacing:.05em}
   #refresh-time{font-size:.65rem;color:var(--muted);margin-top:1px}
@@ -6324,7 +6338,8 @@ app.get("/mc", async (req, res) => {
   <div class="hdr-left">
     <div class="hdr-logo">Mission <span>Control</span></div>
     <div class="hdr-live">LIVE</div>
-    <div id="mkt-chip"><div id="mkt-dot"></div><span id="mkt-label">laden...</span></div>
+    <div id="mkt-chip" class="hdr-chip"><div class="chip-dot"></div><span id="mkt-label">laden...</span></div>
+    <div id="gw-chip" class="hdr-chip unknown"><div class="chip-dot"></div><span id="gw-label">Gateway...</span></div>
   </div>
   <div class="hdr-right">
     <div id="live-clock">--:--:--</div>
@@ -6444,13 +6459,24 @@ async function load(){
     const d=await r.json();
     document.getElementById('refresh-time').textContent='Vernieuwd '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-    // Market chip in header
+    // Market chip
     if(d.market){
       const open=!d.market.blocked;
       const chip=document.getElementById('mkt-chip');
-      const lbl=document.getElementById('mkt-label');
-      chip.className=open?'open':'closed';
-      lbl.textContent='Forex Markt: '+(open?'OPEN':'GESLOTEN')+(d.market.reason?' ('+d.market.reason+')':'');
+      chip.className='hdr-chip '+(open?'open':'closed');
+      document.getElementById('mkt-label').textContent='Forex Markt: '+(open?'OPEN':'GESLOTEN')+(d.market.reason?' ('+d.market.reason+')':'');
+    }
+
+    // Gateway chip
+    const gwChip=document.getElementById('gw-chip');
+    const gwLbl=document.getElementById('gw-label');
+    if(d.gateway){
+      const gs=d.gateway.status;
+      gwChip.className='hdr-chip '+(gs==='online'?'online':gs==='idle'?'idle':'offline');
+      gwLbl.textContent='Gateway: '+(gs==='online'?'ONLINE':gs==='idle'?'IDLE':'DOWN')+(d.gateway.age_mins?', '+d.gateway.age_mins+'m geleden':'');
+    } else {
+      gwChip.className='hdr-chip unknown';
+      gwLbl.textContent='Gateway: onbekend';
     }
 
     // EA positions
