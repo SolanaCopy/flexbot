@@ -6016,7 +6016,8 @@ function mcAuthBot(req, res) {
   const apiKey = req.header("x-api-key") || req.query.key || "";
   // BOT_API_KEY voor OpenClaw bots; valt terug op EA_API_KEY voor backwards compat
   const expected = String(process.env.BOT_API_KEY || process.env.EA_API_KEY || "");
-  if (!expected || !apiKey || apiKey !== expected) {
+  const dashKey = String(process.env.DASHBOARD_KEY || "");
+  if ((!expected || apiKey !== expected) && (!dashKey || apiKey !== dashKey)) {
     res.status(401).json({ ok: false, error: "unauthorized" });
     return false;
   }
@@ -6695,6 +6696,13 @@ async function load(){
       if(gwResolved){
         gwChip.className='hdr-chip online';
         gwLbl.textContent='Gateway: ONLINE (lokaal)';
+        // Browser stuurt heartbeats naar Render namens de gateway + bots
+        try{
+          const hbIds=['_gateway','bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
+          for(const hbId of hbIds){
+            fetch(BASE+'/api/mc/bot/heartbeat?key='+encodeURIComponent(KEY)+'&bot_id='+encodeURIComponent(hbId)+'&status=online&last_action='+encodeURIComponent('via lokale gateway')).catch(()=>{});
+          }
+        }catch(e2){/* best effort */}
       }
     }catch(e){/* gateway niet bereikbaar lokaal */}
     if(!gwResolved){
