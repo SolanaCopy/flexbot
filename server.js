@@ -6268,8 +6268,12 @@ app.get("/api/mc/state", async (req, res) => {
       const dayKey = dayKeyInTz(riskTz);
       const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
       const startEq = Number(st?.startEquity);
-      // Probeer huidige equity van EA positie te pakken
-      const latestEa = eaPositions.find(ea => ea.symbol === symbol && ea.equity != null);
+      // Gebruik main account equity (zelfde account als open_trade_lock)
+      const mainLogin = String(process.env.MAIN_ACCOUNT_LOGIN || "").trim();
+      const mainServer = String(process.env.MAIN_ACCOUNT_SERVER || "").trim();
+      const latestEa = mainLogin && mainServer
+        ? eaPositions.find(ea => ea.account_login === mainLogin && ea.server === mainServer && ea.symbol === symbol && ea.equity != null)
+        : eaPositions.find(ea => ea.symbol === symbol && ea.equity != null);
       const currentEq = latestEa ? latestEa.equity : NaN;
       if (st.dayKey === dayKey && Number.isFinite(startEq) && startEq > 0 && Number.isFinite(currentEq)) {
         const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
