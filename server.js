@@ -6150,13 +6150,16 @@ app.get("/api/mc/state", async (req, res) => {
     // Market status
     const market = marketBlockedNow();
 
-    // EA positions
+    // EA positions — alleen Flexbot test account
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
     let eaPositions = [];
     if (db) {
       try {
-        const rows = await db.execute(
-          "SELECT account_login, server, magic, symbol, has_position, equity, updated_at_ms FROM ea_positions ORDER BY updated_at_ms DESC"
-        );
+        const rows = await db.execute({
+          sql: "SELECT account_login, server, magic, symbol, has_position, equity, updated_at_ms FROM ea_positions WHERE account_login=? AND server=? ORDER BY updated_at_ms DESC",
+          args: [mcLogin, mcServer],
+        });
         eaPositions = (rows.rows || []).map((r) => ({
           account_login: String(r.account_login),
           server: String(r.server),
@@ -6223,12 +6226,7 @@ app.get("/api/mc/state", async (req, res) => {
     }
 
     // ── Trade Gates evaluatie ──
-    // MC gates draaien altijd voor het Flexbot test account
     const symbol = "XAUUSD";
-    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
-    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
-    const mcMagicRaw = Number(process.env.MC_GATE_MAGIC || process.env.MAIN_MAGIC || 0);
-    const mcMagic = Number.isFinite(mcMagicRaw) ? Math.floor(mcMagicRaw) : 0;
     const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
     const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 3.8);
     const maxDailyLossPct = Number.isFinite(maxDailyLossPctRaw) && maxDailyLossPctRaw > 0 ? maxDailyLossPctRaw : 3.8;
@@ -6695,9 +6693,8 @@ async function load(){
 
     // EA positions
     const EA_NAMES={'12033719':'Flexbot test'};
-    const EA_HIDDEN=['11922720'];
     const eaEl=document.getElementById('ea-body');
-    const activeEa=(d.ea_positions||[]).filter(ea=>ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<24*60*60*1000&&!EA_HIDDEN.includes(ea.account_login));
+    const activeEa=(d.ea_positions||[]).filter(ea=>ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<24*60*60*1000);
     if(activeEa.length===0){
       eaEl.innerHTML='<span style="color:var(--muted);font-size:.8rem">Geen actieve EA verbindingen</span>';
     } else {
