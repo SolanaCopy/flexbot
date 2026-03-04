@@ -6698,9 +6698,16 @@ async function load(){
         gwLbl.textContent='Gateway: ONLINE (lokaal)';
         // Browser stuurt heartbeats naar Render namens de gateway + bots
         try{
-          const hbIds=['_gateway','bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
-          for(const hbId of hbIds){
-            fetch(BASE+'/api/mc/bot/heartbeat?key='+encodeURIComponent(KEY)+'&bot_id='+encodeURIComponent(hbId)+'&status=online&last_action='+encodeURIComponent('via lokale gateway')).catch(()=>{});
+          // Gateway zelf = online; bots = idle (draaien maar wachten op berichten)
+          fetch(BASE+'/api/mc/bot/heartbeat?key='+encodeURIComponent(KEY)+'&bot_id=_gateway&status=online&last_action='+encodeURIComponent('via lokale gateway')).catch(()=>{});
+          const botIds=['bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
+          for(const hbId of botIds){
+            const b=botMap[hbId];
+            // Als er een verse heartbeat is (<15 min), gebruik die status; anders idle
+            const hbFresh=b&&b.age_mins<15;
+            const st=hbFresh?b.status:'idle';
+            const act=b&&b.last_action?b.last_action:'wacht op berichten';
+            fetch(BASE+'/api/mc/bot/heartbeat?key='+encodeURIComponent(KEY)+'&bot_id='+encodeURIComponent(hbId)+'&status='+encodeURIComponent(st)+'&last_action='+encodeURIComponent(act)).catch(()=>{});
           }
         }catch(e2){/* best effort */}
       }
