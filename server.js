@@ -6272,8 +6272,10 @@ app.get("/api/mc/state", async (req, res) => {
       const latestEa = eaPositions.find(ea => ea.symbol === symbol && ea.equity != null);
       const currentEq = latestEa ? latestEa.equity : NaN;
       if (st.dayKey === dayKey && Number.isFinite(startEq) && startEq > 0 && Number.isFinite(currentEq)) {
-        const ddPct = ((startEq - currentEq) / startEq) * 100.0;
+        const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
         trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
+        trade_gates.daily_loss.start_equity = Number(startEq.toFixed(2));
+        trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
         if (ddPct >= maxDailyLossPct) {
           trade_gates.daily_loss.pass = false;
           setBlocked("daily_loss");
@@ -6743,7 +6745,7 @@ async function load(){
         {key:'news_blackout',label:'Nieuws',         detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
         {key:'open_trade_lock',label:'Open Positie', detail:g.open_trade_lock.reason||''},
         {key:'cooldown',     label:'Cooldown',       detail:!g.cooldown.pass?g.cooldown.remaining_min+'m resterend':''},
-        {key:'daily_loss',   label:'Dag Verlies',    detail:g.daily_loss.dd_pct+'% / max '+g.daily_loss.max+'%'},
+        {key:'daily_loss',   label:'Dag Verlies',    detail:g.daily_loss.dd_pct+'% van max '+g.daily_loss.max+'%'+(g.daily_loss.start_equity?' (start $'+g.daily_loss.start_equity+')':'')},
         {key:'consec_losses',label:'Opeenvolgend',   detail:g.consec_losses.losses+' / max '+g.consec_losses.max},
         {key:'trend_bias',   label:'Trend Bias',     detail:g.trend_bias.bias},
       ];
