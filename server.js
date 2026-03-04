@@ -6266,37 +6266,63 @@ app.get("/mc", async (req, res) => {
   .ea-row span:last-child{color:var(--text)}
 
   /* ── Bot office ── */
-  .office-room{background:linear-gradient(180deg,#060b18 0%,#080f1c 45%,#0a1220 100%);border-radius:10px;padding:14px 8px 8px;position:relative;overflow:hidden;border:1px solid #131b30;min-height:290px}
-  .office-room::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,#22d3ee55,transparent)}
-  .office-wall{position:absolute;inset:0 0 28% 0;background:linear-gradient(180deg,#060d1c,#0b1428)}
-  .office-floor{position:absolute;bottom:0;left:0;right:0;height:28%;background:repeating-linear-gradient(90deg,#101828 0,#101828 56px,#0c1424 56px,#0c1424 112px);border-top:1px solid #192038}
-  .office-ceiling{position:absolute;top:0;left:0;right:0;height:9px;background:#050c1a;border-bottom:1px solid #0e162a}
-  .office-light{position:absolute;top:3px;width:32px;height:6px;background:#fffde8;border-radius:0 0 4px 4px;box-shadow:0 0 22px #fffde8cc,0 12px 32px #fffde822;opacity:.9}
-  .office-desks{display:grid;grid-template-columns:1fr 1fr;gap:10px;position:relative;z-index:2;padding-bottom:4px}
+  .office-room{background:#060a14;border-radius:10px;overflow:hidden;border:1px solid #131b30;position:relative}
+  /* === BACK WALL: grote schermen === */
+  .wall-panel-row{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding:10px 8px 12px;background:linear-gradient(180deg,#040810,#06101c);border-bottom:3px solid #0e1828;position:relative;z-index:2}
+  .wall-panel-row::before{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,#22d3ee44,transparent)}
+  /* Plafond verlichtingsrail */
+  .wall-panel-row::after{content:'';position:absolute;top:0;left:0;right:0;height:6px;background:linear-gradient(180deg,#0a1428,#060e1e);border-bottom:1px solid #0e1a30}
+  .wall-panel{background:#030610;border:1px solid #18213a;border-radius:5px;padding:6px 6px 5px;position:relative;overflow:hidden}
+  .wall-panel.online{border-color:#183326;box-shadow:0 0 14px rgba(74,222,128,.12),inset 0 0 30px rgba(74,222,128,.03)}
+  .wall-panel.idle{border-color:#28180a}
+  .wall-panel.offline{border-color:#161626;opacity:.5}
+  /* Mount bracket */
+  .wall-panel::after{content:'';position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);width:14px;height:8px;background:#0a1020;clip-path:polygon(25% 0%,75% 0%,100% 100%,0% 100%)}
+  .wp-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+  .wp-name{font-family:monospace;font-size:.6rem;font-weight:800;letter-spacing:.1em;color:#5a7090;text-transform:uppercase}
+  .wp-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .wall-panel.online .wp-dot{background:var(--green);box-shadow:0 0 6px var(--green);animation:dotPulse 1.5s ease-in-out infinite}
+  .wall-panel.idle .wp-dot{background:var(--orange)}
+  .wall-panel.offline .wp-dot{background:#2d3748}
+  /* Equalizer bars */
+  .wp-bars{display:flex;align-items:flex-end;gap:2px;height:34px;margin-bottom:4px}
+  .bar{flex:1;border-radius:1px 1px 0 0;min-height:2px;transform-origin:bottom}
+  .wall-panel.online .bar{background:rgba(74,222,128,.65);animation:barBounce .65s ease-in-out infinite alternate}
+  .wall-panel.idle .bar{background:rgba(251,146,60,.4);animation:barBounce 2.8s ease-in-out infinite alternate}
+  .wall-panel.offline .bar{background:rgba(30,35,55,.7)!important;height:2px!important;animation:none!important}
+  @keyframes barBounce{0%{transform:scaleY(.4)}100%{transform:scaleY(1)}}
+  .wp-status{font-size:.54rem;font-weight:800;letter-spacing:.06em;margin-bottom:1px}
+  .wall-panel.online .wp-status{color:var(--green)}
+  .wall-panel.idle .wp-status{color:var(--orange)}
+  .wall-panel.offline .wp-status{color:#3a4a5e}
+  .wp-action{font-size:.48rem;color:#283848;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* === VLOER === */
+  .office-floor{height:18px;background:repeating-linear-gradient(90deg,#0e1626 0,#0e1626 44px,#0b1220 44px,#0b1220 88px);border-top:1px solid #14203a}
+  /* === BUREAU RIJ: werkstations === */
+  .desk-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:14px 8px 4px;position:relative;z-index:2;background:linear-gradient(180deg,#07101e,#060c18)}
   .workstation{display:flex;flex-direction:column;align-items:center}
   /* Monitor */
-  .ws-mon{width:100px;height:68px;background:#040609;border:3px solid #1b2140;border-radius:7px;overflow:hidden;position:relative;flex-shrink:0}
-  .ws-mon.online{border-color:#163326;box-shadow:0 0 20px rgba(74,222,128,.15)}
-  .ws-mon.idle{border-color:#251808}
-  .ws-mon-bar{height:9px;background:#0b1020;display:flex;align-items:center;gap:3px;padding:0 5px;border-bottom:1px solid #141c34}
-  .ws-mon-dot{width:4px;height:4px;border-radius:50%}
-  .ws-mon-screen{padding:3px 3px;font-family:'Courier New',monospace;font-size:5px;line-height:1.5;word-break:break-all;height:calc(100% - 9px);overflow:hidden}
-  .ws-mon-screen.online{background:#001108;color:#4ade80;animation:screenGlow 2.5s ease-in-out infinite}
-  .ws-mon-screen.idle{background:#100800;color:#fb923c}
-  .ws-mon-screen.offline{background:#050508;color:#151520}
-  .ws-neck{width:10px;height:8px;background:#14182a;margin:0 auto;clip-path:polygon(20% 0%,80% 0%,100% 100%,0% 100%)}
-  .ws-mbase{width:26px;height:3px;background:#14182a;border-radius:2px;margin:0 auto}
-  /* Desk */
-  .ws-desk{width:128px;height:12px;background:linear-gradient(180deg,#6b3f1c,#3e2209);border-radius:3px 3px 0 0;margin-top:2px;position:relative;box-shadow:0 4px 14px rgba(0,0,0,.55)}
-  .ws-desk::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:rgba(255,190,120,.12);border-radius:3px 3px 0 0}
-  .ws-kbd{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:42px;height:6px;background:#121c33;border-radius:2px;box-shadow:0 1px 4px rgba(0,0,0,.4),0 0 6px rgba(34,211,238,.06)}
-  .ws-cup{position:absolute;bottom:1px;right:8px;width:7px;height:9px;background:#5a2d10;border-radius:1px 1px 3px 3px}
-  .ws-cup::before{content:'';position:absolute;top:-4px;left:0;width:7px;height:4px;border:1.5px solid #8a5030;border-bottom:none;border-radius:4px 4px 0 0}
-  .ws-cup::after{content:'';position:absolute;top:2px;right:-4px;width:4px;height:4px;border:1.5px solid #8a5030;border-left:none;border-radius:0 4px 4px 0}
-  /* Character area */
-  .ws-char-area{position:relative;height:62px;width:128px}
+  .ws-mon{width:78px;height:52px;background:#030507;border:2px solid #1a2040;border-radius:5px;overflow:hidden}
+  .ws-mon.online{border-color:#163326;box-shadow:0 0 12px rgba(74,222,128,.14)}
+  .ws-mon.idle{border-color:#221508}
+  .ws-mon-bar{height:7px;background:#08101e;display:flex;align-items:center;gap:2px;padding:0 4px;border-bottom:1px solid #121a30}
+  .ws-mon-dot{width:3px;height:3px;border-radius:50%}
+  .ws-mon-screen{padding:2px;font-family:'Courier New',monospace;font-size:4px;line-height:1.5;height:calc(100% - 7px);overflow:hidden;word-break:break-all}
+  .ws-mon-screen.online{background:#001008;color:#4ade80;animation:screenGlow 2.5s ease-in-out infinite}
+  .ws-mon-screen.idle{background:#0e0700;color:#fb923c}
+  .ws-mon-screen.offline{background:#040406;color:#111120}
+  .ws-neck{width:8px;height:6px;background:#101524;margin:0 auto;clip-path:polygon(20% 0%,80% 0%,100% 100%,0% 100%)}
+  .ws-mbase{width:20px;height:3px;background:#101524;border-radius:2px;margin:0 auto}
+  /* Bureau */
+  .ws-desk{width:96px;height:10px;background:linear-gradient(180deg,#6b3f1c,#3e2209);border-radius:3px 3px 0 0;margin-top:2px;position:relative;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+  .ws-desk::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:rgba(255,190,120,.1);border-radius:3px 3px 0 0}
+  .ws-kbd{position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:32px;height:5px;background:#101b2e;border-radius:2px}
+  .ws-cup{position:absolute;bottom:1px;right:5px;width:6px;height:7px;background:#5a2d10;border-radius:1px 1px 2px 2px}
+  .ws-cup::before{content:'';position:absolute;top:-3px;left:0;width:6px;height:3px;border:1.5px solid #8a5030;border-bottom:none;border-radius:3px 3px 0 0}
+  .ws-cup::after{content:'';position:absolute;top:1px;right:-3px;width:3px;height:3px;border:1.5px solid #8a5030;border-left:none;border-radius:0 3px 3px 0}
+  /* Poppetje */
+  .ws-char-area{position:relative;height:48px;width:96px}
   .ws-svg{position:absolute;bottom:0;left:50%;transform:translateX(-50%)}
-  /* SVG char animations */
   .arm-l{transform-box:fill-box;transform-origin:right center}
   .arm-r{transform-box:fill-box;transform-origin:left center}
   .char-head-g{transform-box:fill-box;transform-origin:center 85%}
@@ -6304,17 +6330,16 @@ app.get("/mc", async (req, res) => {
   .workstation.online .arm-r{animation:armTyp .28s ease-in-out infinite alternate-reverse}
   .workstation.idle .char-head-g{animation:headNod 3.5s ease-in-out infinite}
   .workstation.offline .ws-svg{opacity:.15;filter:grayscale(1)}
-  /* Name + status */
-  .ws-name{font-size:.6rem;color:var(--muted);text-align:center;margin-top:5px;font-family:monospace;letter-spacing:.07em}
-  .ws-stat{font-size:.58rem;font-weight:800;text-align:center;letter-spacing:.07em}
+  .ws-name{font-size:.57rem;color:var(--muted);text-align:center;margin-top:4px;font-family:monospace;letter-spacing:.07em}
+  .ws-stat{font-size:.55rem;font-weight:800;text-align:center;letter-spacing:.07em}
   .ws-stat.online{color:var(--green)}
   .ws-stat.idle{color:var(--orange)}
   .ws-stat.offline{color:#2d3748}
-  .ws-act{font-size:.54rem;color:#2c3e55;text-align:center;max-width:128px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px;margin-top:1px}
-  .ws-btns{display:flex;gap:4px;margin-top:6px;justify-content:center}
+  .ws-act{font-size:.5rem;color:#2c3e55;text-align:center;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+  .ws-btns{display:flex;gap:3px;margin-top:5px;justify-content:center}
   @keyframes armTyp{0%{transform:rotate(-13deg) translateY(1px)}100%{transform:rotate(11deg) translateY(-2px)}}
   @keyframes headNod{0%,100%{transform:rotate(0deg) translateY(0)}40%{transform:rotate(-9deg) translateY(1px)}}
-  @keyframes screenGlow{0%,100%{box-shadow:inset 0 0 8px #4ade8012}50%{box-shadow:inset 0 0 22px #4ade8042}}
+  @keyframes screenGlow{0%,100%{box-shadow:inset 0 0 6px #4ade8010}50%{box-shadow:inset 0 0 18px #4ade8040}}
   @keyframes zzzUp{0%{opacity:0;transform:translate(0,0) scale(.7)}40%{opacity:1}100%{opacity:0;transform:translate(8px,-18px) scale(1.1)}}
   .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-weight:700;transition:all .15s;letter-spacing:.03em}
   .btn-start{background:#052e16;color:var(--green);border:1px solid #166534}
@@ -6356,12 +6381,8 @@ app.get("/mc", async (req, res) => {
     <div class="card">
       <div class="card-title"><span class="card-title-icon">&#127970;</span> Agent Kantoor</div>
       <div class="office-room">
-        <div class="office-ceiling"></div>
-        <div class="office-light" style="left:16%"></div>
-        <div class="office-light" style="left:50%"></div>
-        <div class="office-wall"></div>
+        <div id="bots-body"><div style="color:var(--muted);font-size:.8rem;padding:20px 12px">laden...</div></div>
         <div class="office-floor"></div>
-        <div class="office-desks" id="bots-body"><div style="color:var(--muted);font-size:.8rem">laden...</div></div>
       </div>
     </div>
   </div>
@@ -6420,7 +6441,7 @@ function makePerson(c,status){
     '<text x="35" y="6" font-size="9" font-weight="900" fill="#93c5fd" style="animation:zzzUp 2.2s ease-in-out infinite">z</text>'+
     '<text x="41" y="-1" font-size="7" font-weight="900" fill="#60a5fa" style="animation:zzzUp 2.2s ease-in-out .7s infinite">z</text>'+
     '<text x="46" y="-7" font-size="5" font-weight="900" fill="#3b82f6" style="animation:zzzUp 2.2s ease-in-out 1.4s infinite">z</text>':'';
-  return '<svg class="ws-svg" width="56" height="62" viewBox="-2 -12 60 74" xmlns="http://www.w3.org/2000/svg">'+
+  return '<svg class="ws-svg" width="44" height="50" viewBox="-2 -12 60 74" xmlns="http://www.w3.org/2000/svg">'+
     '<rect x="6" y="20" width="44" height="32" rx="5" fill="#101828" stroke="#1e2845" stroke-width="1"/>'+
     '<rect x="8" y="21" width="40" height="7" rx="3" fill="#182040"/>'+
     '<rect x="5" y="30" width="8" height="18" rx="3" fill="#0e1730"/>'+
@@ -6509,16 +6530,42 @@ async function load(){
       'bot-fxcopie':  {shirt:'#10b981',legs:'#065f46',skin:'#f5c87a',hair:'#1a1520'},
       'bot-builder':  {shirt:'#f59e0b',legs:'#92400e',skin:'#f5c87a',hair:'#1a1520'},
     };
+    const BAR_SEEDS={
+      'bot-default':  [45,70,35,80,55,90,48,75,60,85,42,68,78,50,82],
+      'bot-affiliate':[30,65,50,78,42,60,70,38,80,55,65,45,72,58,40],
+      'bot-fxcopie':  [60,85,55,92,70,80,65,88,75,95,58,82,72,90,68],
+      'bot-builder':  [40,68,52,76,44,72,56,84,62,74,48,70,60,78,52],
+    };
     const botMap={};
     (d.bots||[]).forEach(b=>{botMap[b.bot_id]=b;});
     const botsEl=document.getElementById('bots-body');
-    botsEl.innerHTML=BOT_IDS.map(id=>{
+
+    // Wandschermen (bovenste rij)
+    const wallHtml='<div class="wall-panel-row">'+BOT_IDS.map(id=>{
+      const b=botMap[id];
+      const status=b?b.status:'offline';
+      const action=b&&b.last_action?b.last_action:'—';
+      const shortName=id.replace('bot-','');
+      const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
+      const seeds=BAR_SEEDS[id]||[50,70,50,70,50,70,50,70,50,70,50,70,50,70,50];
+      const bars=seeds.map((h,i)=>'<div class="bar" style="height:'+
+        (status==='offline'?2:Math.round(h*(status==='idle'?.45:1)))+'%;animation-delay:'+(i*.06)+'s"></div>').join('');
+      return '<div class="wall-panel '+status+'">'+
+        '<div class="wp-header"><span class="wp-name">'+shortName+'</span><div class="wp-dot"></div></div>'+
+        '<div class="wp-bars">'+bars+'</div>'+
+        '<div class="wp-status">'+statusLabel+'</div>'+
+        '<div class="wp-action">'+action.slice(0,30)+'</div>'+
+      '</div>';
+    }).join('')+'</div>';
+
+    // Werkstations (onderste rij)
+    const deskHtml='<div class="desk-row">'+BOT_IDS.map(id=>{
       const b=botMap[id];
       const status=b?b.status:'offline';
       const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#f5c87a',hair:'#1a1520'};
       const action=b&&b.last_action?b.last_action:'—';
       const shortName=id.replace('bot-','');
-      const screenTxt=status==='online'?'> '+action.slice(0,55):status==='idle'?'~ standby...':'[offline]';
+      const screenTxt=status==='online'?'> '+action.slice(0,50):status==='idle'?'~ standby':'[off]';
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
       return '<div class="workstation '+status+'">'+
         '<div class="ws-mon '+status+'">'+
@@ -6542,7 +6589,9 @@ async function load(){
           '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Herstart">&#8635;</button>'+
         '</div>'+
       '</div>';
-    }).join('');
+    }).join('')+'</div>';
+
+    botsEl.innerHTML=wallHtml+deskHtml;
 
     // Signals
     const tbody=document.getElementById('signals-tbody');
