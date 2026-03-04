@@ -6291,16 +6291,22 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
-    // Daily loss (read-only: lees state zonder te updaten)
+    // Daily loss — lees equity van Flexbot test account, vergelijk met start-of-day
     try {
-      const fp = riskStatePath("risk-day", symbol);
-      const dayKey = dayKeyInTz(riskTz);
-      const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
-      const startEq = Number(st?.startEquity);
-      // Gebruik Flexbot test account equity
       const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.equity != null);
       const currentEq = latestEa ? latestEa.equity : NaN;
-      if (st.dayKey === dayKey && Number.isFinite(startEq) && startEq > 0 && Number.isFinite(currentEq)) {
+      if (Number.isFinite(currentEq) && currentEq > 0) {
+        // Lees start-of-day equity uit state bestand
+        const fp = riskStatePath("risk-day", symbol);
+        const dayKey = dayKeyInTz(riskTz);
+        const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
+        let startEq = Number(st?.startEquity);
+        // Sanity check: als startEquity meer dan 50% afwijkt van currentEq,
+        // is het waarschijnlijk van een ander account → niet betrouwbaar
+        const sane = Number.isFinite(startEq) && startEq > 0 &&
+          st.dayKey === dayKey &&
+          Math.abs(startEq - currentEq) / startEq < 0.5;
+        if (!sane) startEq = currentEq; // fallback: vandaag nog geen betrouwbare start
         const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
         trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
         trade_gates.daily_loss.start_equity = Number(startEq.toFixed(2));
