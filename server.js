@@ -4420,7 +4420,8 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const resultBig = prettyNum ? `${prettyNum} USD` : String(resultStr);
   const resultBigFont = fitFontByChars(resultBig, 74, 48, 12);
 
-  const mascotPick = isSl ? null : getMascotPick({ outcome: outcomeStr, result: resultStr });
+  // Mascot: on losses we still want to show the dedicated loss overlay if configured.
+  const mascotPick = getMascotPick({ outcome: outcomeStr, result: resultStr });
   const mascotDataUri = mascotPick?.dataUri || null;
   const mascotName = String(mascotPick?.fileName || "");
 
