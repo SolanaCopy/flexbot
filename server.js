@@ -6752,12 +6752,22 @@ async function load(){
     // Wandschermen (bovenste rij)
     const wallHtml='<div class="wall-panel-row">'+BOT_IDS.map(id=>{
       const b=botMap[id];
-      // Status logica:
+      // Status per bot:
       // 1) Verse heartbeat (<15 min) → gebruik gerapporteerde status
-      // 2) Gateway lokaal online → idle (draait, wacht op berichten)
-      // 3) Geen van beide → offline
+      // 2) Gateway lokaal + last_action bevat recente activiteit → online
+      // 3) Gateway lokaal + geen recente activiteit → idle
+      // 4) Geen van beide → offline
       const hbFresh=b&&b.age_mins<15;
-      const status=hbFresh?b.status:(gwResolved?'idle':'offline');
+      let status='offline';
+      if(hbFresh){
+        status=b.status;
+      }else if(gwResolved){
+        // Parse last_action om te bepalen of bot recent actief was
+        // Format: "Telegram activiteit 12m geleden" of "Telegram activiteit 44u geleden"
+        const actMatch=b&&b.last_action?b.last_action.match(/(\d+)(m|u)\s*geleden/):null;
+        const actMins=actMatch?(actMatch[2]==='u'?Number(actMatch[1])*60:Number(actMatch[1])):Infinity;
+        status=actMins<30?'online':'idle';
+      }
       const action=b&&b.last_action?b.last_action:(gwResolved?'wacht op berichten':'—');
       const shortName=id.replace('bot-','');
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
@@ -6776,7 +6786,14 @@ async function load(){
     const deskHtml='<div class="desk-row">'+BOT_IDS.map(id=>{
       const b=botMap[id];
       const hbFresh2=b&&b.age_mins<15;
-      const status=hbFresh2?b.status:(gwResolved?'idle':'offline');
+      let status='offline';
+      if(hbFresh2){
+        status=b.status;
+      }else if(gwResolved){
+        const actMatch2=b&&b.last_action?b.last_action.match(/(\d+)(m|u)\s*geleden/):null;
+        const actMins2=actMatch2?(actMatch2[2]==='u'?Number(actMatch2[1])*60:Number(actMatch2[1])):Infinity;
+        status=actMins2<30?'online':'idle';
+      }
       const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#f5c87a',hair:'#1a1520'};
       const shortName=id.replace('bot-','');
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
