@@ -6680,15 +6680,22 @@ async function load(){
     }
 
     // Gateway chip — probeer eerst direct localhost te pingen (browser → lokale gateway)
+    // Gebruikt favicon als image-ping (omzeilt mixed-content blokkade HTTPS→HTTP)
     const gwChip=document.getElementById('gw-chip');
     const gwLbl=document.getElementById('gw-label');
     let gwResolved=false;
     try{
-      const gwR=await fetch('http://localhost:18789/',{mode:'no-cors',signal:AbortSignal.timeout(2000)});
-      // no-cors geeft opaque response, maar als fetch NIET faalt, draait de gateway
-      gwChip.className='hdr-chip online';
-      gwLbl.textContent='Gateway: ONLINE (lokaal)';
-      gwResolved=true;
+      gwResolved=await new Promise(resolve=>{
+        const img=new Image();
+        const timer=setTimeout(()=>{img.src='';resolve(false);},2500);
+        img.onload=()=>{clearTimeout(timer);resolve(true);};
+        img.onerror=()=>{clearTimeout(timer);resolve(false);};
+        img.src='http://localhost:18789/favicon-32.png?_t='+Date.now();
+      });
+      if(gwResolved){
+        gwChip.className='hdr-chip online';
+        gwLbl.textContent='Gateway: ONLINE (lokaal)';
+      }
     }catch(e){/* gateway niet bereikbaar lokaal */}
     if(!gwResolved){
       if(d.gateway){
