@@ -6751,9 +6751,11 @@ async function load(){
     // Wandschermen (bovenste rij)
     const wallHtml='<div class="wall-panel-row">'+BOT_IDS.map(id=>{
       const b=botMap[id];
-      // Als gateway lokaal draait, zijn alle bots online (ze draaien IN de gateway)
-      const status=gwResolved?'online':(b?b.status:'offline');
-      const action=b&&b.last_action?b.last_action:(gwResolved?'via lokale gateway':'—');
+      // Heartbeat status van Render; als stale maar gateway lokaal draait → idle (draait, maar geen recente actie)
+      const hbStatus=b?b.status:'offline';
+      const hbStale=!b||b.age_mins>15;
+      const status=hbStale&&gwResolved?'idle':(!hbStale?hbStatus:(gwResolved?'idle':'offline'));
+      const action=b&&b.last_action?b.last_action+(hbStale?' ('+b.age_mins+'m)':''):(gwResolved?'gateway actief':'—');
       const shortName=id.replace('bot-','');
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
       const seeds=BAR_SEEDS[id]||[50,70,50,70,50,70,50,70,50,70,50,70,50,70,50];
@@ -6770,7 +6772,9 @@ async function load(){
     // Stoelen rij (onderste rij — rug naar ons toe)
     const deskHtml='<div class="desk-row">'+BOT_IDS.map(id=>{
       const b=botMap[id];
-      const status=gwResolved?'online':(b?b.status:'offline');
+      const hbStatus2=b?b.status:'offline';
+      const hbStale2=!b||b.age_mins>15;
+      const status=hbStale2&&gwResolved?'idle':(!hbStale2?hbStatus2:(gwResolved?'idle':'offline'));
       const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#f5c87a',hair:'#1a1520'};
       const shortName=id.replace('bot-','');
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
