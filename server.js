@@ -6679,16 +6679,26 @@ async function load(){
       document.getElementById('mkt-label').textContent='Forex Markt: '+(open?'OPEN':'GESLOTEN')+(d.market.reason?' ('+d.market.reason+')':'');
     }
 
-    // Gateway chip
+    // Gateway chip — probeer eerst direct localhost te pingen (browser → lokale gateway)
     const gwChip=document.getElementById('gw-chip');
     const gwLbl=document.getElementById('gw-label');
-    if(d.gateway){
-      const gs=d.gateway.status;
-      gwChip.className='hdr-chip '+(gs==='online'?'online':gs==='idle'?'idle':'offline');
-      gwLbl.textContent='Gateway: '+(gs==='online'?'ONLINE':gs==='idle'?'IDLE':'DOWN')+(d.gateway.age_mins?', '+d.gateway.age_mins+'m geleden':'');
-    } else {
-      gwChip.className='hdr-chip unknown';
-      gwLbl.textContent='Gateway: onbekend';
+    let gwResolved=false;
+    try{
+      const gwR=await fetch('http://localhost:18789/',{mode:'no-cors',signal:AbortSignal.timeout(2000)});
+      // no-cors geeft opaque response, maar als fetch NIET faalt, draait de gateway
+      gwChip.className='hdr-chip online';
+      gwLbl.textContent='Gateway: ONLINE (lokaal)';
+      gwResolved=true;
+    }catch(e){/* gateway niet bereikbaar lokaal */}
+    if(!gwResolved){
+      if(d.gateway){
+        const gs=d.gateway.status;
+        gwChip.className='hdr-chip '+(gs==='online'?'online':gs==='idle'?'idle':'offline');
+        gwLbl.textContent='Gateway: '+(gs==='online'?'ONLINE':gs==='idle'?'IDLE':'DOWN')+(d.gateway.age_mins?', '+d.gateway.age_mins+'m geleden':'');
+      } else {
+        gwChip.className='hdr-chip unknown';
+        gwLbl.textContent='Gateway: onbekend';
+      }
     }
 
     // EA positions
