@@ -6202,6 +6202,109 @@ app.get("/api/mc/state", async (req, res) => {
       } catch { /* ignore */ }
     }
 
+    // ── Trade Gates evaluatie ──
+    const symbol = "XAUUSD";
+    const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
+    const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 3.8);
+    const maxDailyLossPct = Number.isFinite(maxDailyLossPctRaw) && maxDailyLossPctRaw > 0 ? maxDailyLossPctRaw : 3.8;
+    const maxConsecLossRaw = Number(process.env.MAX_CONSEC_LOSSES || 3);
+    const maxConsecLosses = Number.isFinite(maxConsecLossRaw) && maxConsecLossRaw > 0 ? Math.floor(maxConsecLossRaw) : 3;
+
+    const trade_gates = {
+      market:          { pass: !market.blocked, reason: market.reason || null },
+      news_blackout:   { pass: true, next_event: null },
+      open_trade_lock: { pass: true, reason: null },
+      cooldown:        { pass: true, remaining_min: 0 },
+      daily_loss:      { pass: true, dd_pct: 0, max: maxDailyLossPct },
+      consec_losses:   { pass: true, losses: 0, max: maxConsecLosses },
+      trend_bias:      { pass: true, bias: "none" },
+      verdict:         "ready",
+      block_reason:    null,
+    };
+
+    // Helper: zet eerste blokkerende gate
+    function setBlocked(gateName) {
+      if (!trade_gates.block_reason) {
+        trade_gates.verdict = "blocked";
+        trade_gates.block_reason = gateName;
+      }
+    }
+    if (market.blocked) setBlocked("market");
+
+    // News blackout
+    try {
+      const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=30`);
+      if (blackoutR?.ok && blackoutR.blackout) {
+        trade_gates.news_blackout.pass = false;
+        trade_gates.news_blackout.next_event = blackoutR.next_event || null;
+        setBlocked("news_blackout");
+      }
+    } catch { /* best effort */ }
+
+    // Open trade lock
+    try {
+      const lock = await isMainAccountLocked(symbol);
+      if (lock.ok && lock.locked) {
+        trade_gates.open_trade_lock.pass = false;
+        trade_gates.open_trade_lock.reason = lock.reason || "open_position_lock";
+        setBlocked("open_trade_lock");
+      }
+    } catch { /* best effort */ }
+
+    // Cooldown
+    try {
+      const cooldownMin = Number(process.env.AUTO_SCALP_COOLDOWN_MIN || 15);
+      const cd = await fetchJson(`${BASE_URL}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`);
+      if (cd?.ok && cd.remaining_ms > 0) {
+        trade_gates.cooldown.pass = false;
+        trade_gates.cooldown.remaining_min = Math.ceil(cd.remaining_ms / 60000);
+        setBlocked("cooldown");
+      }
+    } catch { /* best effort */ }
+
+    // Daily loss (read-only: lees state zonder te updaten)
+    try {
+      const fp = riskStatePath("risk-day", symbol);
+      const dayKey = dayKeyInTz(riskTz);
+      const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
+      const startEq = Number(st?.startEquity);
+      // Probeer huidige equity van EA positie te pakken
+      const latestEa = eaPositions.find(ea => ea.symbol === symbol && ea.equity != null);
+      const currentEq = latestEa ? latestEa.equity : NaN;
+      if (st.dayKey === dayKey && Number.isFinite(startEq) && startEq > 0 && Number.isFinite(currentEq)) {
+        const ddPct = ((startEq - currentEq) / startEq) * 100.0;
+        trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
+        if (ddPct >= maxDailyLossPct) {
+          trade_gates.daily_loss.pass = false;
+          setBlocked("daily_loss");
+        }
+      }
+    } catch { /* best effort */ }
+
+    // Consecutive losses (read-only)
+    try {
+      const consec = getConsecutiveLosses({ symbol, tz: riskTz });
+      const losses = Number(consec?.losses || 0);
+      trade_gates.consec_losses.losses = losses;
+      if (losses >= maxConsecLosses) {
+        trade_gates.consec_losses.pass = false;
+        setBlocked("consec_losses");
+      }
+    } catch { /* best effort */ }
+
+    // Trend bias
+    try {
+      const candlesR = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`);
+      if (candlesR?.ok && Array.isArray(candlesR?.candles)) {
+        const biasR = trendBiasFromCandles(candlesR.candles, 20, 50);
+        trade_gates.trend_bias.bias = biasR.bias || "none";
+        if (!biasR.ok) {
+          trade_gates.trend_bias.pass = false;
+          setBlocked("trend_bias");
+        }
+      }
+    } catch { /* best effort */ }
+
     return res.json({
       ok: true,
       server_time_ms: Date.now(),
@@ -6210,6 +6313,7 @@ app.get("/api/mc/state", async (req, res) => {
       ea_positions: eaPositions,
       bots,
       signals,
+      trade_gates,
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
@@ -6369,6 +6473,19 @@ app.get("/mc", async (req, res) => {
   .btn-restart{background:#0c1a2e;color:var(--blue);border:1px solid #1d4ed8}
   .btn:hover{filter:brightness(1.3);transform:translateY(-1px)}
 
+  /* ── Trade Gates ── */
+  .gates-row{display:flex;flex-wrap:wrap;gap:8px}
+  .gate-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;font-size:.72rem;font-weight:700;letter-spacing:.03em;transition:all .3s}
+  .gate-chip .gate-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .gate-pass{background:#052e16;color:var(--green);border:1px solid #166534}
+  .gate-pass .gate-dot{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .gate-fail{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
+  .gate-fail .gate-dot{background:var(--red);box-shadow:0 0 6px var(--red)}
+  .gate-detail{font-size:.62rem;color:var(--muted2);font-weight:400;margin-left:2px}
+  .verdict-bar{margin-top:10px;padding:8px 14px;border-radius:8px;font-size:.8rem;font-weight:800;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+  .verdict-ready{background:#052e16;color:var(--green);border:1px solid #166534}
+  .verdict-blocked{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
+
   /* ── Signals table ── */
   .signals-wrap{overflow-x:auto}
   table{width:100%;border-collapse:collapse;font-size:.78rem}
@@ -6407,6 +6524,11 @@ app.get("/mc", async (req, res) => {
         <div class="office-floor"></div>
       </div>
     </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="card-title-icon">&#128679;</span> Trade Gates — Waarom geen trade?</div>
+    <div class="gates-row" id="gates-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+    <div id="gates-verdict"></div>
   </div>
   <div class="card">
     <div class="card-title"><span class="card-title-icon">&#128200;</span> Recente Trades (laatste 10)</div>
@@ -6612,6 +6734,34 @@ async function load(){
     }).join('')+'</div>';
 
     botsEl.innerHTML=wallHtml+deskHtml;
+
+    // Trade Gates
+    if(d.trade_gates){
+      const g=d.trade_gates;
+      const gates=[
+        {key:'market',       label:'Markt',         detail:g.market.reason||''},
+        {key:'news_blackout',label:'Nieuws',         detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
+        {key:'open_trade_lock',label:'Open Positie', detail:g.open_trade_lock.reason||''},
+        {key:'cooldown',     label:'Cooldown',       detail:!g.cooldown.pass?g.cooldown.remaining_min+'m resterend':''},
+        {key:'daily_loss',   label:'Dag Verlies',    detail:g.daily_loss.dd_pct+'% / max '+g.daily_loss.max+'%'},
+        {key:'consec_losses',label:'Opeenvolgend',   detail:g.consec_losses.losses+' / max '+g.consec_losses.max},
+        {key:'trend_bias',   label:'Trend Bias',     detail:g.trend_bias.bias},
+      ];
+      document.getElementById('gates-body').innerHTML=gates.map(gt=>{
+        const pass=g[gt.key].pass;
+        return '<div class="gate-chip '+(pass?'gate-pass':'gate-fail')+'">'+
+          '<div class="gate-dot"></div>'+
+          gt.label+
+          (gt.detail?' <span class="gate-detail">('+gt.detail+')</span>':'')+
+        '</div>';
+      }).join('');
+      const vEl=document.getElementById('gates-verdict');
+      if(g.verdict==='ready'){
+        vEl.innerHTML='<div class="verdict-bar verdict-ready">&#9989; READY — Alle gates open</div>';
+      } else {
+        vEl.innerHTML='<div class="verdict-bar verdict-blocked">&#128721; BLOCKED — '+g.block_reason+'</div>';
+      }
+    }
 
     // Signals
     const tbody=document.getElementById('signals-tbody');
