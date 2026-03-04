@@ -4485,7 +4485,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
     // loss
     // Match the reference screenshot: smaller mascot bottom-left
-    "mascot_loss_force.png": { x: 40, y: 500, w: 560, h: 560 },
+    "mascot_loss_force.png": { x: 40, y: 520, w: 560, h: 560 },
   };
   const ov = mascotOverrides[mascotName];
   let mascotFilter = null;
