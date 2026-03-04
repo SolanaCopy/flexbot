@@ -4412,42 +4412,6 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const isSl = String(outcomeStr).toLowerCase().includes("sl");
   const outcomeColor = isTp ? "#22c55e" : (isSl ? "#ff4d4d" : "#f59e0b");
 
-  // If it's a LOSS and we have the exact template, render on top of it.
-  if (isSl && lossTplDataUri) {
-    const panelValX = 930;
-    const ref8t = (String(id || "").slice(-8) || "--------");
-    const entryStr = entry === "market" ? "market" : fmtLevel(entry);
-    const slStr = fmtLevel(sl);
-    const tpStr = fmtLevel(tp1);
-
-    // Show PnL amount on loss template (Boss request: show how much loss the trade was)
-    const rawNumT = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
-    const prettyNumT = Number.isFinite(rawNumT) ? Math.abs(rawNumT).toFixed(2) : null;
-    const lossText = prettyNumT ? `-${prettyNumT} USD` : String(resultStr);
-
-    const symdir = `${sym} ${dir}`;
-
-    // Clean background: draw the dynamic title + outcome + values on top.
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-  <image x="0" y="0" width="${W}" height="${H}" href="${lossTplDataUri}"/>
-
-  <!-- Symbol + direction -->
-  <text x="110" y="320" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${symdir}</text>
-
-  <!-- Outcome (20px up) -->
-  <text x="110" y="375" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
-
-  <!-- Dynamic panel values (right) -->
-  <text x="${panelValX}" y="294" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entryStr}</text>
-  <text x="${panelValX}" y="379" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${slStr}</text>
-  <text x="${panelValX}" y="474" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${tpStr}</text>
-
-  <!-- PnL (loss) under TP -->
-  <text x="980" y="605" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="58" fill="#ff4d4d" font-weight="1000" stroke="rgba(0,0,0,0.88)" stroke-width="6.0" paint-order="stroke" style="font-variant-numeric: tabular-nums;">${lossText}</text>
-</svg>`;
-  }
-
   const rawNum = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
   const prettyNum = Number.isFinite(rawNum) ? Math.abs(rawNum).toFixed(2) : null;
   const isNeg = String(resultStr).trim().startsWith("-") || isSl;
