@@ -4420,7 +4420,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const resultBig = prettyNum ? `${prettyNum} USD` : String(resultStr);
   const resultBigFont = fitFontByChars(resultBig, 74, 48, 12);
 
-  const mascotPick = getMascotPick({ outcome: outcomeStr, result: resultStr });
+  const mascotPick = isSl ? null : getMascotPick({ outcome: outcomeStr, result: resultStr });
   const mascotDataUri = mascotPick?.dataUri || null;
   const mascotName = String(mascotPick?.fileName || "");
 
