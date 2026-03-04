@@ -4757,6 +4757,9 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const stat2X = pad + stat1W + 12;
   const stat3X = pad + stat1W + stat2W + 24;
 
+  // Dynamic font size: fit number inside card width (0.58 = avg char width ratio for bold Inter)
+  const fitFs = (text, availW, max, min) => Math.min(max, Math.max(min, Math.floor(availW / (String(text).length * 0.58))));
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <defs>
@@ -4819,11 +4822,11 @@ ${sub ? `<text x="${W / 2}" y="138" text-anchor="middle" font-family="Inter,Sego
 
   <rect x="${stat2X}" y="${statsY}" width="${stat2W}" height="${statsH}" rx="18" fill="url(#glass)" stroke="${borderColor}" stroke-width="1.5"/>
   <text x="${stat2X + stat2W / 2}" y="${statsY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.42)" letter-spacing="2.5">TOTAL PnL</text>
-  <text x="${stat2X + stat2W / 2}" y="${statsY + 122}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${pnlFs}" fill="${pnlColor}" font-weight="900" filter="url(#glowPnl)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="16" fill="rgba(255,255,255,0.38)" font-weight="400"> USD</tspan></text>
+  <text x="${stat2X + stat2W / 2}" y="${statsY + 122}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${fitFs(pnlBig, stat2W - 40, 62, 28)}" fill="${pnlColor}" font-weight="900" filter="url(#glowPnl)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="16" fill="rgba(255,255,255,0.38)" font-weight="400"> USD</tspan></text>
 
   ${pnlPct ? `<rect x="${stat3X}" y="${statsY}" width="${stat1W}" height="${statsH}" rx="18" fill="url(#glass)" stroke="${borderColor}" stroke-width="1"/>
   <text x="${stat3X + stat1W / 2}" y="${statsY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.42)" letter-spacing="2.5">CHANGE</text>
-  <text x="${stat3X + stat1W / 2}" y="${statsY + 122}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${pnlFs}" fill="${pnlColor}" font-weight="900" filter="url(#glowPnl)" style="font-variant-numeric: tabular-nums;">${esc(pnlPct)}</text>` : ""}
+  <text x="${stat3X + stat1W / 2}" y="${stat3X > 0 ? statsY + 122 : statsY + 122}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${fitFs(pnlPct, stat1W - 32, 62, 28)}" fill="${pnlColor}" font-weight="900" filter="url(#glowPnl)" style="font-variant-numeric: tabular-nums;">${esc(pnlPct)}</text>` : ""}
 </g>
 
 <line x1="${pad}" y1="${statsY + statsH + 26}" x2="${W - pad}" y2="${statsY + statsH + 26}" stroke="rgba(240,160,48,0.09)" stroke-width="1"/>
@@ -4878,6 +4881,9 @@ function createTopTradesSvg({ symbol, dayLabel, items }) {
     const glowFilter = isPositive ? "url(#glowGreen)" : "url(#glowRed)";
     const amtColor = isPositive ? "#00d084" : "#ff4757";
     const cardH = rowH - 16;
+    // Amount column starts after badges (~380px), ends at W-pad-32. Fit font to available space.
+    const amtAvailW = W - pad - 32 - (pad + 380);
+    const amtFs = Math.min(54, Math.max(26, Math.floor(amtAvailW / (usdStr.length * 0.62))));
     return `<g filter="url(#sh)">
   <rect x="${pad}" y="${y}" width="${W - pad * 2}" height="${cardH}" rx="20" fill="url(#glass)" stroke="${rankColor}18" stroke-width="1.5"/>
   <rect x="${pad}" y="${y}" width="5" height="${cardH}" rx="2.5" fill="${rankColor}" opacity="0.80"/>
@@ -4887,7 +4893,7 @@ function createTopTradesSvg({ symbol, dayLabel, items }) {
   <text x="${pad + 191}" y="${y + 71}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="28" fill="${dirColor}" font-weight="900" letter-spacing="1">${dir}</text>
   ${out ? `<rect x="${pad + 262}" y="${y + 38}" width="90" height="48" rx="11" fill="${outColor}1a" stroke="${outColor}40" stroke-width="1.5"/>
   <text x="${pad + 307}" y="${y + 71}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="28" fill="${outColor}" font-weight="900">${out}</text>` : ""}
-  <text x="${W - pad - 32}" y="${y + cardH / 2 + 22}" text-anchor="end" font-family="JetBrains Mono,Consolas,monospace" font-size="54" fill="${amtColor}" font-weight="900" filter="${glowFilter}" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
+  <text x="${W - pad - 32}" y="${y + cardH / 2 + amtFs * 0.38}" text-anchor="end" font-family="JetBrains Mono,Consolas,monospace" font-size="${amtFs}" fill="${amtColor}" font-weight="900" filter="${glowFilter}" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
 </g>`;
   }).join("\n");
 
@@ -4975,7 +4981,8 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
   const dayRows = Array.isArray(days) ? days : [];
   const pnlTot = esc(String(totalUsdStr || "-"));
   const pctTot = totalPctStr ? esc(String(totalPctStr)) : "";
-  const totFs = String(totalUsdStr || "").replace(/\s*USD\s*/i, "").trim().length >= 11 ? 40 : 48;
+  // Summary card: PnL spans center area (~320px wide), fit font dynamically
+  const totFs = Math.min(48, Math.max(26, Math.floor(300 / (pnlTot.length * 0.58))));
   const borderColor = isNeg ? "rgba(255,71,87,0.25)" : "rgba(0,208,132,0.25)";
 
   const logoDataUri = (() => {
@@ -5011,13 +5018,16 @@ function createWeeklyRecapSvg({ symbol, weekLabel, totalTrades, totalUsdStr, tot
     const fill = colorPnl(d?.usdStr);
     const alt = i % 2 === 0 ? "rgba(255,255,255,0.025)" : "transparent";
     const hasData = d?.trades && String(d.trades) !== "0" && String(d.trades) !== "-";
+    // PnL column spans center (~250px available), % column spans right side (~200px)
+    const rowPnlFs = Math.min(36, Math.max(20, Math.floor(240 / (usdStr.length * 0.58))));
+    const rowPctFs = Math.min(32, Math.max(18, Math.floor(180 / (pctStr.length * 0.60))));
     return `<g>
   <rect x="${pad}" y="${y}" width="${W - pad * 2}" height="${rowRectH}" rx="16" fill="${alt}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
   <rect x="${pad}" y="${y}" width="4" height="${rowRectH}" rx="2" fill="${hasData ? fill : "rgba(255,255,255,0.15)"}" opacity="${hasData ? 0.7 : 0.3}"/>
   <text x="${pad + 30}" y="${y + 57}" font-family="Inter,Segoe UI,Arial" font-size="36" fill="${hasData ? "#ffffff" : "rgba(255,255,255,0.38)"}" font-weight="900">${label}</text>
   <text x="${pad + 204}" y="${y + 62}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="36" fill="${hasData ? "#ffffff" : "rgba(255,255,255,0.30)"}" font-weight="900" style="font-variant-numeric: tabular-nums;">${trades}</text>
-  <text x="${W / 2}" y="${y + 62}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="36" fill="${hasData ? fill : "rgba(255,255,255,0.25)"}" font-weight="900" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
-  ${pctStr ? `<text x="${W - pad - 52}" y="${y + 58}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="32" fill="${hasData ? fill : "rgba(255,255,255,0.25)"}" font-weight="900" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ""}
+  <text x="${W / 2}" y="${y + 62}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${rowPnlFs}" fill="${hasData ? fill : "rgba(255,255,255,0.25)"}" font-weight="900" style="font-variant-numeric: tabular-nums;">${usdStr}</text>
+  ${pctStr ? `<text x="${W - pad - 52}" y="${y + 58}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="${rowPctFs}" fill="${hasData ? fill : "rgba(255,255,255,0.25)"}" font-weight="900" style="font-variant-numeric: tabular-nums;">${pctStr}</text>` : ""}
 </g>`;
   }).join("\n");
 
