@@ -4534,47 +4534,66 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   const mascotFilterAttr = mascotFilter === "boost" ? "url(#mascotBoost)" : null;
 
-  // Right-side levels panel stays on the right.
+  // Layout
   const panelX = 560;
-  const panelY = 220;
-  const panelW = 460;
-  const panelH = 420;
+  const panelY = 210;
+  const panelW = 480;
+  const panelH = 450;
 
-  // Boss: move title block (FLEXBOT / SYMBOL DIR / Outcome) to the LEFT.
-  const titleX = 110;
+  const pnlSign = isNeg ? "-" : "+";
+  const pnlDisplay = prettyNum ? `${pnlSign}${resultBig}` : resultBig;
+  const pnlFs = Math.min(resultBigFont, Math.max(28, Math.floor((panelW - 88) / (pnlDisplay.length * 0.60))));
+  const badgeW = Math.max(110, outcomeStr.length * 24 + 44);
+  const badgeCenterX = 80 + Math.round(badgeW / 2);
+  const symDirText = `${sym} ${dir}`;
+  const symDirFs = Math.min(68, Math.max(36, Math.floor((panelX - 80 - 20) / (symDirText.length * 0.70))));
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#000000"/>
-    <stop offset="0.55" stop-color="#0b0b0d"/>
-    <stop offset="1" stop-color="#000000"/>
+  <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#0e1520"/>
+    <stop offset="1" stop-color="#080b14"/>
   </linearGradient>
-  <radialGradient id="glow" cx="45%" cy="35%" r="75%">
-    <stop offset="0" stop-color="#d4d4d8" stop-opacity="0.10"/>
-    <stop offset="0.5" stop-color="#a1a1aa" stop-opacity="0.06"/>
-    <stop offset="1" stop-color="#000" stop-opacity="0"/>
-  </radialGradient>
-  <radialGradient id="spot" cx="30%" cy="50%" r="55%">
-    <stop offset="0" stop-color="#d4d4d8" stop-opacity="0.12"/>
-    <stop offset="0.55" stop-color="#a1a1aa" stop-opacity="0.06"/>
-    <stop offset="1" stop-color="#000" stop-opacity="0"/>
-  </radialGradient>
-  <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="rgba(255,255,255,0.08)"/>
-    <stop offset="1" stop-color="rgba(255,255,255,0.03)"/>
+  <linearGradient id="accentBar" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#f7c948"/>
+    <stop offset="0.5" stop-color="#e6b820"/>
+    <stop offset="1" stop-color="#c9960c"/>
   </linearGradient>
+  <linearGradient id="headerFade" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#1a1508"/>
+    <stop offset="0.5" stop-color="#111620" stop-opacity="0.7"/>
+    <stop offset="1" stop-color="#080b14" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="glassPanel" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="rgba(255,255,255,0.07)"/>
+    <stop offset="1" stop-color="rgba(255,255,255,0.02)"/>
+  </linearGradient>
+  <linearGradient id="goldBorder" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#f7c948" stop-opacity="0.5"/>
+    <stop offset="1" stop-color="#c9960c" stop-opacity="0.15"/>
+  </linearGradient>
+  <pattern id="dots" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
+    <circle cx="16" cy="16" r="1.5" fill="rgba(255,255,255,0.06)"/>
+  </pattern>
+  <filter id="glowGold" x="-30%" y="-50%" width="160%" height="200%">
+    <feGaussianBlur stdDeviation="8" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="2.5 1.5 0 0 0  1.5 1 0 0 0  0 0 0 0 0  0 0 0 0.65 0" result="g"/>
+    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="glowGreen" x="-30%" y="-50%" width="160%" height="200%">
+    <feGaussianBlur stdDeviation="10" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="0 0 0 0 0.1  0 3 0 0 0.4  0 0 0 0 0.15  0 0 0 0.6 0" result="g"/>
+    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <filter id="glowRed" x="-30%" y="-50%" width="160%" height="200%">
+    <feGaussianBlur stdDeviation="10" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="3 0 0 0 0.4  0 0 0 0 0.05  0 0 0 0 0.05  0 0 0 0.6 0" result="g"/>
+    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
   <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
     <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.65"/>
   </filter>
-  <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
-    <feGaussianBlur stdDeviation="10" result="b"/>
-    <feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.38 0" result="g"/>
-    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
-  </filter>
-
-  <!-- Per-mascot tweak: slight brightness/contrast boost (used by custom2 to avoid "see-through" whites) -->
   <filter id="mascotBoost" color-interpolation-filters="sRGB">
     <feComponentTransfer>
       <feFuncR type="gamma" amplitude="1" exponent="0.92" offset="0"/>
@@ -4584,44 +4603,61 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   </filter>
 </defs>
 
-<rect width="${W}" height="${H}" fill="url(#bg)"/>
-<rect width="${W}" height="${H}" fill="url(#glow)"/>
-<rect x="42" y="42" width="996" height="996" rx="58" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.14)" stroke-width="2"/>
+<!-- Background -->
+<rect width="${W}" height="${H}" fill="url(#bgGrad)"/>
+<rect width="${W}" height="${H}" fill="url(#dots)"/>
 
-<!-- Header -->
-<path d="M170 86 H910 L880 126 H200 Z" fill="rgba(255,255,255,0.06)" stroke="rgba(212,212,216,0.22)" stroke-width="2"/>
-<text x="540" y="118" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="40" fill="rgba(255,255,255,0.86)" letter-spacing="6">TRADE CLOSED</text>
+<!-- Left gold accent bar -->
+<rect x="0" y="0" width="8" height="${H}" fill="url(#accentBar)"/>
 
-<!-- Left mascot (no ring) -->
-<ellipse cx="${ringCx}" cy="${ringCy}" rx="420" ry="420" fill="url(#spot)"/>
+<!-- Header glow strip -->
+<rect x="0" y="0" width="${W}" height="200" fill="url(#headerFade)"/>
+
+<!-- FLEXBOT gold -->
+<text x="80" y="88" font-family="Inter,Segoe UI,Arial" font-size="30" font-weight="900" fill="#f7c948" letter-spacing="8" filter="url(#glowGold)">FLEXBOT</text>
+<!-- TRADE CLOSED -->
+<text x="80" y="156" font-family="Inter,Segoe UI,Arial" font-size="62" font-weight="900" fill="#ffffff" letter-spacing="2">TRADE CLOSED</text>
+<!-- Gold divider -->
+<line x1="80" y1="184" x2="${W - 60}" y2="184" stroke="#f7c948" stroke-width="1.5" stroke-opacity="0.3"/>
+
+<!-- Symbol + Direction -->
+<text x="80" y="270" font-family="Inter,Segoe UI,Arial" font-size="${symDirFs}" font-weight="900" fill="#ffffff">${sym} <tspan fill="rgba(255,255,255,0.70)">${dir}</tspan></text>
+
+<!-- Outcome badge -->
+<rect x="80" y="290" width="${badgeW}" height="50" rx="25" fill="${isTp ? "rgba(34,197,94,0.15)" : (isSl ? "rgba(255,77,77,0.15)" : "rgba(245,158,11,0.15)")}"/>
+<rect x="80" y="290" width="${badgeW}" height="50" rx="25" fill="none" stroke="${outcomeColor}" stroke-width="1.5"/>
+<text x="${badgeCenterX}" y="322" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" font-weight="700" fill="${outcomeColor}">${outcomeStr}</text>
+
+<!-- Left mascot -->
 ${mascotDataUri ? `<g filter="url(#shadow)">
   <image x="${mascotX}" y="${mascotY}" width="${mascotW}" height="${mascotH}" href="${mascotDataUri}" preserveAspectRatio="xMidYMid meet" ${mascotFilterAttr ? `filter="${mascotFilterAttr}"` : ``}/>
 </g>` : ``}
 
-<!-- Title block (left) -->
-<text x="${titleX}" y="250" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.70)" letter-spacing="5">FLEXBOT</text>
-<text x="${titleX}" y="310" font-family="Inter,Segoe UI,Arial" font-size="54" fill="#fff" font-weight="900">${sym} ${dir}</text>
-<text x="${titleX}" y="345" font-family="Inter,Segoe UI,Arial" font-size="32" fill="rgba(255,255,255,0.72)">Outcome: <tspan fill="${outcomeColor}" font-weight="900">${outcomeStr}</tspan></text>
-
-<!-- Levels panel -->
+<!-- Levels panel (right) -->
 <g filter="url(#shadow)">
-  <rect x="${panelX}" y="${panelY}" width="${panelW}" height="${panelH}" rx="28" fill="url(#glass)" stroke="rgba(255,255,255,0.14)"/>
+  <rect x="${panelX}" y="${panelY}" width="${panelW}" height="${panelH}" rx="22" fill="url(#glassPanel)" stroke="url(#goldBorder)" stroke-width="1.5"/>
 
-  <line x1="${panelX}" y1="${panelY + 95}" x2="${panelX + panelW}" y2="${panelY + 95}" stroke="rgba(255,255,255,0.10)"/>
-  <line x1="${panelX}" y1="${panelY + 185}" x2="${panelX + panelW}" y2="${panelY + 185}" stroke="rgba(255,255,255,0.10)"/>
-  <line x1="${panelX}" y1="${panelY + 275}" x2="${panelX + panelW}" y2="${panelY + 275}" stroke="rgba(255,255,255,0.10)"/>
+  <line x1="${panelX + 28}" y1="${panelY + 100}" x2="${panelX + panelW - 28}" y2="${panelY + 100}" stroke="rgba(255,255,255,0.08)"/>
+  <text x="${panelX + 44}" y="${panelY + 66}" font-family="Inter,Segoe UI,Arial" font-size="27" fill="rgba(255,255,255,0.50)" letter-spacing="1">Entry</text>
+  <text x="${panelX + panelW - 44}" y="${panelY + 66}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="36" fill="#ffffff" font-weight="700">${entry === "market" ? "market" : fmtLevel(entry)}</text>
 
-  <text x="${panelX + 48}" y="${panelY + 70}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">Entry</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 70}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${entry === "market" ? "market" : fmtLevel(entry)}</text>
+  <line x1="${panelX + 28}" y1="${panelY + 195}" x2="${panelX + panelW - 28}" y2="${panelY + 195}" stroke="rgba(255,255,255,0.08)"/>
+  <text x="${panelX + 44}" y="${panelY + 156}" font-family="Inter,Segoe UI,Arial" font-size="27" fill="rgba(255,255,255,0.50)" letter-spacing="1">SL</text>
+  <text x="${panelX + panelW - 44}" y="${panelY + 156}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="36" fill="#ff6b6b" font-weight="700">${fmtLevel(sl)}</text>
 
-  <text x="${panelX + 48}" y="${panelY + 160}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">SL</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 160}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(sl)}</text>
+  <line x1="${panelX + 28}" y1="${panelY + 290}" x2="${panelX + panelW - 28}" y2="${panelY + 290}" stroke="rgba(255,255,255,0.08)"/>
+  <text x="${panelX + 44}" y="${panelY + 252}" font-family="Inter,Segoe UI,Arial" font-size="27" fill="rgba(255,255,255,0.50)" letter-spacing="1">TP</text>
+  <text x="${panelX + panelW - 44}" y="${panelY + 252}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="36" fill="#4ade80" font-weight="700">${fmtLevel(tp1)}</text>
 
-  <text x="${panelX + 48}" y="${panelY + 250}" font-family="Inter,Segoe UI,Arial" font-size="34" fill="rgba(255,255,255,0.70)">TP</text>
-  <text x="${panelX + panelW - 48}" y="${panelY + 250}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="34" fill="#fff" font-weight="900">${fmtLevel(tp1)}</text>
-
-  <text x="${panelX + 40}" y="${panelY + 370}" font-family="Inter,Segoe UI,Arial" font-size="${resultBigFont}" fill="${pnlColor}" font-weight="900" stroke="rgba(0,0,0,0.35)" stroke-width="1.4" paint-order="stroke" filter="url(#softGlow)" textLength="${panelW - 80}" lengthAdjust="spacingAndGlyphs">${resultBig}</text>
+  <!-- PnL result with glow -->
+  <text x="${panelX + 44}" y="${panelY + 396}" font-family="Inter,Segoe UI,Arial" font-size="${pnlFs}" fill="${pnlColor}" font-weight="900" filter="url(${isNeg ? "#glowRed" : "#glowGreen"})" textLength="${panelW - 88}" lengthAdjust="spacingAndGlyphs">${pnlDisplay}</text>
 </g>
+
+<!-- Bottom bar -->
+<rect x="0" y="${H - 76}" width="${W}" height="76" fill="rgba(0,0,0,0.45)"/>
+<line x1="0" y1="${H - 76}" x2="${W}" y2="${H - 76}" stroke="#f7c948" stroke-width="1" stroke-opacity="0.22"/>
+<text x="80" y="${H - 28}" font-family="Inter,Segoe UI,Arial" font-size="26" font-weight="900" fill="#f7c948" letter-spacing="5" filter="url(#glowGold)">FLEXBOT</text>
+<text x="${W - 60}" y="${H - 28}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="21" fill="rgba(255,255,255,0.32)">#${ref8} · ${ts}</text>
 
 </svg>`;
 }
