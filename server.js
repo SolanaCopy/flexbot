@@ -6696,20 +6696,6 @@ async function load(){
       if(gwResolved){
         gwChip.className='hdr-chip online';
         gwLbl.textContent='Gateway: ONLINE (lokaal)';
-        // Browser stuurt heartbeats naar Render namens de gateway + bots
-        try{
-          // Gateway zelf = online; bots = idle (draaien maar wachten op berichten)
-          fetch(BASE+'/api/mc/bot/heartbeat?key='+encodeURIComponent(KEY)+'&bot_id=_gateway&status=online&last_action='+encodeURIComponent('via lokale gateway')).catch(()=>{});
-          const botIds=['bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
-          for(const hbId of botIds){
-            const b=botMap[hbId];
-            // Als er een verse heartbeat is (<15 min), gebruik die status; anders idle
-            const hbFresh=b&&b.age_mins<15;
-            const st=hbFresh?b.status:'idle';
-            const act=b&&b.last_action?b.last_action:'wacht op berichten';
-            fetch(BASE+'/api/mc/bot/heartbeat?key='+encodeURIComponent(KEY)+'&bot_id='+encodeURIComponent(hbId)+'&status='+encodeURIComponent(st)+'&last_action='+encodeURIComponent(act)).catch(()=>{});
-          }
-        }catch(e2){/* best effort */}
       }
     }catch(e){/* gateway niet bereikbaar lokaal */}
     if(!gwResolved){
@@ -6766,11 +6752,13 @@ async function load(){
     // Wandschermen (bovenste rij)
     const wallHtml='<div class="wall-panel-row">'+BOT_IDS.map(id=>{
       const b=botMap[id];
-      // Heartbeat status van Render; als stale maar gateway lokaal draait → idle (draait, maar geen recente actie)
-      const hbStatus=b?b.status:'offline';
-      const hbStale=!b||b.age_mins>15;
-      const status=hbStale&&gwResolved?'idle':(!hbStale?hbStatus:(gwResolved?'idle':'offline'));
-      const action=b&&b.last_action?b.last_action+(hbStale?' ('+b.age_mins+'m)':''):(gwResolved?'gateway actief':'—');
+      // Status logica:
+      // 1) Verse heartbeat (<15 min) → gebruik gerapporteerde status
+      // 2) Gateway lokaal online → idle (draait, wacht op berichten)
+      // 3) Geen van beide → offline
+      const hbFresh=b&&b.age_mins<15;
+      const status=hbFresh?b.status:(gwResolved?'idle':'offline');
+      const action=b&&b.last_action?b.last_action:(gwResolved?'wacht op berichten':'—');
       const shortName=id.replace('bot-','');
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
       const seeds=BAR_SEEDS[id]||[50,70,50,70,50,70,50,70,50,70,50,70,50,70,50];
@@ -6787,9 +6775,8 @@ async function load(){
     // Stoelen rij (onderste rij — rug naar ons toe)
     const deskHtml='<div class="desk-row">'+BOT_IDS.map(id=>{
       const b=botMap[id];
-      const hbStatus2=b?b.status:'offline';
-      const hbStale2=!b||b.age_mins>15;
-      const status=hbStale2&&gwResolved?'idle':(!hbStale2?hbStatus2:(gwResolved?'idle':'offline'));
+      const hbFresh2=b&&b.age_mins<15;
+      const status=hbFresh2?b.status:(gwResolved?'idle':'offline');
       const c=BOT_COLORS[id]||{shirt:'#64748b',legs:'#334155',skin:'#f5c87a',hair:'#1a1520'};
       const shortName=id.replace('bot-','');
       const statusLabel=status==='online'?'● ONLINE':status==='idle'?'● IDLE':'○ OFFLINE';
