@@ -3827,14 +3827,13 @@ async function handleTelegramUpdate(req, res) {
         const wantsTomorrow = t.includes("morgen") || t.includes("tomorrow") || t.includes("tmr");
 
         const fmtDayLabel = (tsMs) => {
-          // Example: Vrijdag (vr 20 feb)
+          // Example: Friday (Fri 20 Feb)
           const d = new Date(tsMs);
-          const full = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", weekday: "long" }).format(d);
-          const wd = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", weekday: "short" }).format(d);
-          const day = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", day: "2-digit" }).format(d);
-          const mon = new Intl.DateTimeFormat("nl-NL", { timeZone: "Europe/Amsterdam", month: "short" }).format(d).replace(".", "");
-          const cap = full.charAt(0).toUpperCase() + full.slice(1);
-          return `${cap} (${wd} ${day} ${mon})`;
+          const full = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Amsterdam", weekday: "long" }).format(d);
+          const wd = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Amsterdam", weekday: "short" }).format(d);
+          const day = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Amsterdam", day: "2-digit" }).format(d);
+          const mon = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Amsterdam", month: "short" }).format(d).replace(".", "");
+          return `${full} (${wd} ${day} ${mon})`;
         };
 
         // YYYY-MM-DD bucket for Europe/Amsterdam
@@ -3872,7 +3871,7 @@ async function handleTelegramUpdate(req, res) {
           .slice(0, 12);
 
         if (!list.length) {
-          reply = `${fmtDayLabel(now)} Geen 🟥 HIGH news voor ${curList.join(", ")} volgens de feed.`;
+          reply = `${fmtDayLabel(now)} No 🟥 HIGH news for ${curList.join(", ")} according to the feed.`;
         } else {
           const dayLabel = fmtDayLabel(list[0].ts);
 
@@ -3929,7 +3928,10 @@ async function supportAnswerSupportQuestion(question) {
     headers: { "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "openai/gpt-5.2",
-      messages: [{ role: "user", content: question }],
+      messages: [
+        { role: "system", content: "You are Flexbot's support assistant in a Telegram trading group. Always reply in English. Keep answers short (1-2 sentences max). You help with questions about the Flexbot gold (XAUUSD) trading EA, MetaTrader 5 setup, and trading in general." },
+        { role: "user", content: question }
+      ],
       max_tokens: 60,
     }),
   });
