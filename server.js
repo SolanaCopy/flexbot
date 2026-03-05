@@ -944,7 +944,7 @@ function computeBlackout(events, nowMs, windowMin) {
 }
 
 function formatNewsText(events, currency) {
-  if (!events.length) return "Geen red news gevonden.";
+  if (!events.length) return "No red news found.";
 
   const cur = currency ? ` (${currency})` : "";
   const lines = [`🟥 ForexFactory RED news${cur} (top ${events.length})`];
@@ -1720,26 +1720,26 @@ app.post("/signal/closed", async (req, res) => {
     // Try PNG card first, fallback to text.
     // Add a human-style recap line on SL hits (rotate variants).
     const slVariants = [
-      "Stoploss geraakt. Dat hoort bij het plan. Risk managed, door naar de volgende.",
-      "SL hit. Alles volgens plan, risico onder controle. We blijven consistent.",
-      "Stoploss gepakt. Geen emotie, gewoon business. Volgende kans komt.",
-      "Stoploss hit. Risico gecontroleerd, proces intact.",
-      "SL gepakt. Kapitaal beschermd, focus blijft scherp.",
-      "Stoploss. Dat is onderdeel van het spel. Geen stress.",
-      "Eentje tegen ons. Structuur blijft staan.",
-      "SL hit team. Alles volgens plan — we wachten op de volgende kans.",
-      "Stoploss geraakt. Risk managed. We pakken de volgende samen.",
-      "Verlies hoort erbij. We blijven bouwen.",
-      "Verlies genomen binnen de regels. Alles onder controle.",
-      "SL hit. Daily risk veilig.",
-      "SL geraakt, regels gevolgd. Dat is wat telt.",
-      "Kapitaal eerst, winst volgt.",
-      "Stoploss is geen fout, het is bescherming. Door naar de volgende.",
-      "SL hit. Dit is waarom we risk management hebben.",
-      "Wij volgen regels, niet gevoelens.",
-      "Dit is waarom we met vaste risk werken.",
-      "SL voorkomt grote schade. Zonder SL geen lange termijn.",
-      "Controle over risico = controle over emotie. Drawdown gecontroleerd.",
+      "Stoploss hit. Part of the plan. Risk managed, on to the next one.",
+      "SL hit. All according to plan, risk under control. Staying consistent.",
+      "Stoploss taken. No emotion, just business. Next opportunity is coming.",
+      "Stoploss hit. Risk controlled, process intact.",
+      "SL taken. Capital protected, focus stays sharp.",
+      "Stoploss. Part of the game. No stress.",
+      "One against us. Structure remains solid.",
+      "SL hit team. All according to plan — waiting for the next setup.",
+      "Stoploss hit. Risk managed. We'll catch the next one together.",
+      "Losses are part of the game. We keep building.",
+      "Loss taken within the rules. Everything under control.",
+      "SL hit. Daily risk safe.",
+      "SL hit, rules followed. That's what counts.",
+      "Capital first, profits follow.",
+      "Stoploss is not a mistake, it's protection. On to the next one.",
+      "SL hit. This is why we have risk management.",
+      "We follow rules, not emotions.",
+      "This is why we work with fixed risk.",
+      "SL prevents major damage. No SL, no long-term success.",
+      "Control over risk = control over emotion. Drawdown managed.",
     ];
 
     const out2 = String(outcome || "").toLowerCase();
@@ -1801,11 +1801,11 @@ app.post("/signal/closed", async (req, res) => {
 
           // TP / trade-closed one-liners (no link; rotate variants)
           const tpLines = [
-            "🔥 Take Profit gepakt — next move?",
-            "✅ TP binnen — clean.",
-            "🎯 TP geraakt — mooi afgewerkt.",
-            "💥 TP hit — netjes gespeeld.",
-            "🚀 TP gepakt — door naar de volgende.",
+            "🔥 Take Profit hit — next move?",
+            "✅ TP secured — clean.",
+            "🎯 TP reached — nicely done.",
+            "💥 TP hit — well played.",
+            "🚀 TP taken — on to the next one.",
           ];
           const pickTpLine = () => {
             const last = globalThis.__flexbotLastTpLine || "";
@@ -2424,10 +2424,10 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
     }
 
     const variants = [
-      "⏳ Nog 5 min… daarna kan de EA weer een nieuwe trade pakken ✅",
-      "👀 5 minuten nog — EA is zo weer ready ✅",
-      "Even chill… nog 5 min cooldown en dan zijn we back 🔥",
-      "⏱️ Cooldown bijna klaar: nog 5 min, dan mag de EA weer handelen ✅",
+      "⏳ 5 min left… then the EA can take a new trade ✅",
+      "👀 5 minutes to go — EA is almost ready ✅",
+      "Chill… 5 min cooldown left and then we're back 🔥",
+      "⏱️ Cooldown almost done: 5 min left, then the EA can trade again ✅",
     ];
     const idx = Math.abs(Math.floor(refMs / 1000)) % variants.length;
     const message = variants[idx];
@@ -3584,22 +3584,22 @@ function buildAutoReply(text) {
 
   // Weekend / market closed
   if (weekend && (t.includes("knallen") || t.includes("trade") || t.includes("signaal") || t.includes("open") || t.includes("gaan we") || t.includes("vandaag"))) {
-    return "De markt is dicht (weekend) — Flexbot opent nu geen nieuwe trades. Maandag zijn we terug.";
+    return "Market is closed (weekend) — Flexbot won't open new trades. We're back on Monday.";
   }
 
   // Unlock / members
   if (t.includes("unlock") || t.includes("member") || t.includes("members") || t.includes("betaal") || t.includes("paid")) {
-    return "Voor members: DM de bot met /unlock.";
+    return "For members: DM the bot with /unlock.";
   }
 
   // EA not trading / disconnected
   if (t.includes("disconnected") || t.includes("geen trades") || t.includes("werkt niet") || t.includes("pakte niet") || t.includes("opent niet")) {
-    return "Check de EA banner + Toolbox→Experts. Als hij DISCONNECTED is: Tools→Options→EA→Allow WebRequest + BaseUrl klopt. Stuur anders een screenshot van Experts + banner.";
+    return "Check the EA banner + Toolbox→Experts. If it says DISCONNECTED: Tools→Options→EA→Allow WebRequest + make sure BaseUrl is correct. Otherwise send a screenshot of Experts + banner.";
   }
 
   // Daily stop
   if (t.includes("daily stop") || t.includes("daily") || t.includes("drawdown") || t.includes("dd")) {
-    return "Zie je DAILY STOP op de banner? Dan stopt Flexbot met nieuwe trades tot de volgende trading day (bescherming).";
+    return "See DAILY STOP on the banner? Flexbot stops opening new trades until the next trading day (protection).";
   }
 
   // News (data-driven; avoids hallucinations)
@@ -3749,7 +3749,7 @@ async function handleTelegramUpdate(req, res) {
         await tgSendMessage({ chatId, text: caption });
         return res.json({ ok: true });
       } catch {
-        await tgSendMessage({ chatId, text: "Myfxbook lijst is nu even niet beschikbaar." });
+        await tgSendMessage({ chatId, text: "Myfxbook list is currently unavailable." });
         return res.json({ ok: true });
       }
     }
@@ -3763,7 +3763,7 @@ async function handleTelegramUpdate(req, res) {
         const url = String(mAdd[1] || "").trim().replace(/>+$/, "");
         const title = String(mAdd[2] || "Challenge ✅").trim();
         if (!url.startsWith("http")) {
-          await tgSendMessage({ chatId, text: "Gebruik: /trophy add <link> | <titel>" });
+          await tgSendMessage({ chatId, text: "Usage: /trophy add <link> | <title>" });
           return res.json({ ok: true });
         }
         const dir = path.join(__dirname, "state");
@@ -3798,7 +3798,7 @@ async function handleTelegramUpdate(req, res) {
           trophies = [];
         }
         if (!trophies.length) {
-          await tgSendMessage({ chatId, text: "Nog geen trophies opgeslagen." });
+          await tgSendMessage({ chatId, text: "No trophies saved yet." });
           return res.json({ ok: true });
         }
         const lines = ["🏛 Trophy list:"];
@@ -3896,7 +3896,7 @@ async function handleTelegramUpdate(req, res) {
           reply = parts.join(" ");
         }
       } catch {
-        reply = "Kon news feed niet lezen (tijdelijk).";
+        reply = "Could not read news feed (temporarily unavailable).";
       }
     }
 
@@ -3933,7 +3933,7 @@ async function supportAnswerSupportQuestion(question) {
       max_tokens: 60,
     }),
   });
-  const text = answer?.choices?.[0]?.message?.content || "(Geen antwoord)";
+  const text = answer?.choices?.[0]?.message?.content || "(No answer)";
   supportCache.set(question, text);
   return text;
 }
