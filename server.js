@@ -3578,33 +3578,42 @@ function isWeekendAmsterdam(tsMs = Date.now()) {
   return weekday.startsWith("za") || weekday.startsWith("zo");
 }
 
-function buildAutoReply(text) {
+function buildAutoReply(text, lang = "en") {
   const t = String(text || "").toLowerCase();
   const weekend = isWeekendAmsterdam();
+  const isNL = String(lang).toLowerCase().startsWith("nl");
 
   // Weekend / market closed
   if (weekend && (t.includes("knallen") || t.includes("trade") || t.includes("signaal") || t.includes("open") || t.includes("gaan we") || t.includes("vandaag"))) {
-    return "Market is closed (weekend) — Flexbot won't open new trades. We're back on Monday.";
+    return isNL
+      ? "Markt is gesloten (weekend) — Flexbot opent geen nieuwe trades. Maandag zijn we terug."
+      : "Market is closed (weekend) — Flexbot won't open new trades. We're back on Monday.";
   }
 
   // Unlock / members
   if (t.includes("unlock") || t.includes("member") || t.includes("members") || t.includes("betaal") || t.includes("paid")) {
-    return "For members: DM the bot with /unlock.";
+    return isNL
+      ? "Voor members: stuur de bot een DM met /unlock."
+      : "For members: DM the bot with /unlock.";
   }
 
   // EA not trading / disconnected
   if (t.includes("disconnected") || t.includes("geen trades") || t.includes("werkt niet") || t.includes("pakte niet") || t.includes("opent niet")) {
-    return "Check the EA banner + Toolbox→Experts. If it says DISCONNECTED: Tools→Options→EA→Allow WebRequest + make sure BaseUrl is correct. Otherwise send a screenshot of Experts + banner.";
+    return isNL
+      ? "Check de EA banner + Toolbox→Experts. Als daar DISCONNECTED staat: Tools→Options→EA→Allow WebRequest + BaseUrl checken. Anders stuur een screenshot van Experts + de banner."
+      : "Check the EA banner + Toolbox→Experts. If it says DISCONNECTED: Tools→Options→EA→Allow WebRequest + make sure BaseUrl is correct. Otherwise send a screenshot of Experts + banner.";
   }
 
   // Greetings
   if (/^(yo|hey|hi|hello)\b/.test(t.trim())) {
-    return "Yo — tell me.";
+    return isNL ? "Yo, zeg ’t maar." : "Yo — tell me.";
   }
 
   // Daily stop
   if (t.includes("daily stop") || t.includes("daily") || t.includes("drawdown") || t.includes("dd")) {
-    return "See DAILY STOP on the banner? Flexbot stops opening new trades until the next trading day (protection).";
+    return isNL
+      ? "Zie je DAILY STOP op de banner? Flexbot opent geen nieuwe trades tot de volgende trading day (bescherming)."
+      : "See DAILY STOP on the banner? Flexbot stops opening new trades until the next trading day (protection).";
   }
 
   // News (data-driven; avoids hallucinations)
@@ -3687,8 +3696,12 @@ async function handleTelegramUpdate(req, res) {
     const t = String(text || "").toLowerCase();
     const wantsTrophy = t.includes("myfxbook") || t.includes("fxbook");
 
+    // Language: English in the configured group, Dutch in DMs/other chats.
+    const isGroupTarget = !!targetChatId && chatId === targetChatId;
+    const lang = isGroupTarget ? "en" : "nl";
+
     // Determine auto-reply intent early so we can allow certain keywords without requiring a '?' (boss request)
-    const auto = buildAutoReply(text);
+    const auto = buildAutoReply(text, lang);
     const wantsNews = auto === "NEWS_CHECK";
 
     // For the owner: reply to ANY message (still with cooldown) so it feels responsive.
@@ -3703,7 +3716,7 @@ async function handleTelegramUpdate(req, res) {
     if (!tgCooldownOk(`u:${userId}`, isOwner ? 30 * 1000 : 10 * 60 * 1000)) return res.json({ ok: true });
     if (!tgCooldownOk(`g:${chatId}`, 2 * 60 * 1000)) return res.json({ ok: true });
 
-    let reply = auto || (isOwner ? "Yo" : null);
+    let reply = auto || (isOwner ? (lang === "nl" ? "Yo, zeg ’t maar." : "Yo — tell me.") : null);
     if (!reply) return res.json({ ok: true });
 
     // Trophy case (Myfxbook)
