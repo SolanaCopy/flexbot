@@ -6331,44 +6331,64 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
-    // Daily loss — lees equity van Flexbot test account, vergelijk met start-of-day
+    // Daily loss — twee bronnen:
+    // 1) Gesloten trades van vandaag (close_result uit DB) = gerealiseerd verlies
+    // 2) Floating P&L (equity - balance) = ongerealiseerd verlies
     try {
-      const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.equity != null);
-      const currentEq = latestEa ? latestEa.equity : NaN;
-      if (Number.isFinite(currentEq) && currentEq > 0) {
-        const dayKey = dayKeyInTz(riskTz);
-        let startEq = NaN;
+      const dayKey = dayKeyInTz(riskTz);
+      const dayStartMs = startOfDayMsInTz(riskTz);
+      let realizedPnl = 0;
+      let startBal = NaN;
 
-        // Probeer eerst balance-day (meest betrouwbaar: echte account balance aan het begin van de dag)
+      // Gerealiseerde P&L: som van close_result van trades gesloten vandaag
+      if (db) {
         try {
-          const bds = readJsonFileSafe(riskStatePath("balance-day", symbol), {});
-          if (bds.dayKey === dayKey && Number.isFinite(Number(bds.startBalance)) && Number(bds.startBalance) > 0) {
-            startEq = Number(bds.startBalance);
+          const closedToday = await db.execute({
+            sql: "SELECT close_result FROM signals WHERE closed_at_ms >= ? AND close_result IS NOT NULL",
+            args: [dayStartMs],
+          });
+          for (const r of (closedToday.rows || [])) {
+            const v = parseFloat(String(r.close_result));
+            if (Number.isFinite(v)) realizedPnl += v;
           }
         } catch { /* ignore */ }
+      }
 
-        // Fallback: risk-day (start equity)
-        if (!Number.isFinite(startEq)) {
-          try {
-            const st = readJsonFileSafe(riskStatePath("risk-day", symbol), {});
-            if (st.dayKey === dayKey && Number.isFinite(Number(st.startEquity)) && Number(st.startEquity) > 0 &&
-                Math.abs(Number(st.startEquity) - currentEq) / Number(st.startEquity) < 0.5) {
-              startEq = Number(st.startEquity);
-            }
-          } catch { /* ignore */ }
+      // Floating P&L van EA
+      const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol);
+      const floatingPnl = latestEa?.floating_pnl ?? 0;
+      const currentEq = latestEa?.equity ?? NaN;
+
+      // Start balance: probeer balance-day, dan risk-day
+      try {
+        const bds = readJsonFileSafe(riskStatePath("balance-day", symbol), {});
+        if (bds.dayKey === dayKey && Number.isFinite(Number(bds.startBalance)) && Number(bds.startBalance) > 0) {
+          startBal = Number(bds.startBalance);
         }
+      } catch { /* ignore */ }
+      if (!Number.isFinite(startBal)) {
+        try {
+          const st = readJsonFileSafe(riskStatePath("risk-day", symbol), {});
+          if (st.dayKey === dayKey && Number.isFinite(Number(st.startEquity)) && Number(st.startEquity) > 0) {
+            startBal = Number(st.startEquity);
+          }
+        } catch { /* ignore */ }
+      }
 
-        // Laatste fallback: currentEq (geen verlies meetbaar)
-        if (!Number.isFinite(startEq)) startEq = currentEq;
+      // Totaal verlies vandaag = gerealiseerd + floating
+      const totalPnl = realizedPnl + (Number.isFinite(floatingPnl) ? floatingPnl : 0);
+      const refBal = Number.isFinite(startBal) ? startBal : (Number.isFinite(currentEq) ? currentEq : 0);
+      const ddPct = refBal > 0 ? Math.max(0, (-totalPnl / refBal) * 100.0) : 0;
 
-        const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
-        trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
-        trade_gates.daily_loss.start_equity = Number(startEq.toFixed(2));
-        trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
-        if (ddPct >= maxDailyLossPct) {
-          trade_gates.daily_loss.pass = false;
-          setBlocked("daily_loss");
-        }
+      trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
+      trade_gates.daily_loss.start_equity = Number.isFinite(startBal) ? Number(startBal.toFixed(2)) : null;
+      trade_gates.daily_loss.current_equity = Number.isFinite(currentEq) ? Number(currentEq.toFixed(2)) : null;
+      trade_gates.daily_loss.realized_pnl = Number(realizedPnl.toFixed(2));
+      trade_gates.daily_loss.floating_pnl = Number.isFinite(floatingPnl) ? Number(floatingPnl.toFixed(2)) : 0;
+      trade_gates.daily_loss.total_pnl = Number(totalPnl.toFixed(2));
+      if (ddPct >= maxDailyLossPct) {
+        trade_gates.daily_loss.pass = false;
+        setBlocked("daily_loss");
       }
     } catch { /* best effort */ }
 
@@ -6884,7 +6904,7 @@ async function load(){
         {key:'news_blackout',label:'Nieuws',         detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
         {key:'open_trade_lock',label:'Open Positie', detail:g.open_trade_lock.reason||''},
         {key:'cooldown',     label:'Cooldown',       detail:!g.cooldown.pass?g.cooldown.remaining_min+'m resterend':''},
-        {key:'daily_loss',   label:'Dag Verlies',    detail:g.daily_loss.dd_pct+'% van max '+g.daily_loss.max+'%'+(g.daily_loss.start_equity?' (start $'+g.daily_loss.start_equity+')':'')},
+        {key:'daily_loss',   label:'Dag Verlies',    detail:g.daily_loss.dd_pct+'% van max '+g.daily_loss.max+'%'+(g.daily_loss.total_pnl!=null?' | P&L: '+(g.daily_loss.total_pnl>=0?'+':'')+g.daily_loss.total_pnl+' USD':'')+(g.daily_loss.start_equity?' (start $'+g.daily_loss.start_equity+')':'')},
         {key:'consec_losses',label:'Opeenvolgend',   detail:g.consec_losses.losses+' / max '+g.consec_losses.max},
         {key:'trend_bias',   label:'Trend Bias',     detail:g.trend_bias.bias},
       ];
