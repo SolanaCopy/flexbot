@@ -291,7 +291,6 @@ async function getDb() {
     "ALTER TABLE signals ADD COLUMN closed_at_ms INTEGER",
     "ALTER TABLE signals ADD COLUMN close_outcome TEXT",
     "ALTER TABLE signals ADD COLUMN close_result TEXT",
-    "ALTER TABLE ea_positions ADD COLUMN balance REAL",
   ];
   for (const sql of alterCols) {
     try {
@@ -390,7 +389,6 @@ async function getDb() {
       "has_position INTEGER NOT NULL," +
       "tickets_json TEXT," +
       "equity REAL," +
-      "balance REAL," +
       "updated_at_ms INTEGER NOT NULL," +
       "PRIMARY KEY (account_login, server, magic, symbol)" +
     ")"
@@ -2495,7 +2493,7 @@ app.post("/ea/status", async (req, res) => {
     if (db) {
       await db.execute({
         sql:
-          "INSERT OR REPLACE INTO ea_positions (account_login,server,magic,symbol,has_position,tickets_json,equity,balance,updated_at_ms) VALUES (?,?,?,?,?,?,?,?,?)",
+          "INSERT OR REPLACE INTO ea_positions (account_login,server,magic,symbol,has_position,tickets_json,equity,updated_at_ms) VALUES (?,?,?,?,?,?,?,?)",
         args: [
           account_login,
           server,
@@ -2504,7 +2502,6 @@ app.post("/ea/status", async (req, res) => {
           has_position ? 1 : 0,
           JSON.stringify(tickets),
           Number.isFinite(equity) ? equity : null,
-          Number.isFinite(balance) ? balance : null,
           updated_at_ms,
         ],
       });
@@ -4504,7 +4501,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   // Layout
   const panelX = 560;
-  const panelY = 330;
+  const panelY = 210;
   const panelW = 480;
   const panelH = 450;
 
@@ -6161,35 +6158,18 @@ app.get("/api/mc/state", async (req, res) => {
     if (db) {
       try {
         const rows = await db.execute({
-          sql: "SELECT account_login, server, magic, symbol, has_position, equity, balance, updated_at_ms FROM ea_positions WHERE account_login=? AND server=? ORDER BY updated_at_ms DESC",
+          sql: "SELECT account_login, server, magic, symbol, has_position, equity, updated_at_ms FROM ea_positions WHERE account_login=? AND server=? ORDER BY updated_at_ms DESC",
           args: [mcLogin, mcServer],
         });
-        eaPositions = (rows.rows || []).map((r) => {
-          const eq = r.equity != null ? Number(r.equity) : null;
-          let bal = r.balance != null ? Number(r.balance) : null;
-          // Fallback: als balance niet in DB staat, gebruik startBalance uit dagbestand
-          if (!Number.isFinite(bal)) {
-            try {
-              const sym = String(r.symbol || "XAUUSD").toUpperCase();
-              const bds = readJsonFileSafe(riskStatePath("balance-day", sym), {});
-              if (Number.isFinite(Number(bds.startBalance)) && Number(bds.startBalance) > 0) {
-                bal = Number(bds.startBalance);
-              }
-            } catch { /* ignore */ }
-          }
-          const floatingPnl = (Number.isFinite(eq) && Number.isFinite(bal)) ? Math.round((eq - bal) * 100) / 100 : null;
-          return {
-            account_login: String(r.account_login),
-            server: String(r.server),
-            magic: Number(r.magic),
-            symbol: String(r.symbol),
-            has_position: Number(r.has_position) === 1,
-            equity: eq,
-            balance: bal,
-            floating_pnl: floatingPnl,
-            updated_at_ms: Number(r.updated_at_ms),
-          };
-        });
+        eaPositions = (rows.rows || []).map((r) => ({
+          account_login: String(r.account_login),
+          server: String(r.server),
+          magic: Number(r.magic),
+          symbol: String(r.symbol),
+          has_position: Number(r.has_position) === 1,
+          equity: r.equity != null ? Number(r.equity) : null,
+          updated_at_ms: Number(r.updated_at_ms),
+        }));
       } catch { /* ignore */ }
     }
 
@@ -6225,32 +6205,12 @@ app.get("/api/mc/state", async (req, res) => {
       } catch { /* ignore */ }
     }
 
-    // Open trades (active signals)
-    let open_trades = [];
-    if (db) {
-      try {
-        const otRows = await db.execute(
-          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, close_result FROM signals WHERE status='active' ORDER BY created_at_ms DESC"
-        );
-        open_trades = (otRows.rows || []).map((r) => ({
-          id: String(r.id),
-          symbol: String(r.symbol),
-          direction: String(r.direction),
-          sl: r.sl != null ? Number(r.sl) : null,
-          tp: (() => { try { return JSON.parse(String(r.tp_json))[0]; } catch { return null; } })(),
-          status: String(r.status),
-          created_at_ms: Number(r.created_at_ms),
-          close_result: r.close_result != null ? String(r.close_result) : null,
-        }));
-      } catch { /* ignore */ }
-    }
-
     // Recent signals (last 10)
     let signals = [];
     if (db) {
       try {
         const rows = await db.execute(
-          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome, close_result FROM signals ORDER BY created_at_ms DESC LIMIT 10"
+          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome FROM signals ORDER BY created_at_ms DESC LIMIT 10"
         );
         signals = (rows.rows || []).map((r) => ({
           id: String(r.id),
@@ -6262,7 +6222,6 @@ app.get("/api/mc/state", async (req, res) => {
           created_at_ms: Number(r.created_at_ms),
           closed_at_ms: r.closed_at_ms != null ? Number(r.closed_at_ms) : null,
           close_outcome: r.close_outcome != null ? String(r.close_outcome) : null,
-          close_result: r.close_result != null ? String(r.close_result) : null,
         }));
       } catch { /* ignore */ }
     }
@@ -6331,67 +6290,30 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
-    // Daily loss — twee bronnen:
-    // 1) Gesloten trades van vandaag (close_result uit DB) = gerealiseerd verlies
-    // 2) Floating P&L (equity - balance) = ongerealiseerd verlies
+    // Daily loss — lees equity van Flexbot test account, vergelijk met start-of-day
     try {
-      const dayKey = dayKeyInTz(riskTz);
-      const dayStartMs = startOfDayMsInTz(riskTz);
-      let realizedPnl = 0;
-      let startBal = NaN;
-
-      // Gerealiseerde P&L: som van close_result van trades gesloten vandaag
-      if (db) {
-        try {
-          const closedToday = await db.execute({
-            sql: "SELECT close_result FROM signals WHERE closed_at_ms >= ? AND close_result IS NOT NULL",
-            args: [dayStartMs],
-          });
-          for (const r of (closedToday.rows || [])) {
-            const v = parseFloat(String(r.close_result));
-            if (Number.isFinite(v)) realizedPnl += v;
-          }
-        } catch { /* ignore */ }
-      }
-
-      // Floating P&L van EA
-      const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol);
-      const floatingPnl = latestEa?.floating_pnl ?? 0;
-      const currentEq = latestEa?.equity ?? NaN;
-
-      // Start balance: probeer balance-day, dan risk-day — met sanity check
-      const sanityCheck = (val) => Number.isFinite(val) && val > 0 && Number.isFinite(currentEq) &&
-        Math.abs(val - currentEq) / Math.max(val, currentEq) < 0.5;
-      try {
-        const bds = readJsonFileSafe(riskStatePath("balance-day", symbol), {});
-        if (bds.dayKey === dayKey && sanityCheck(Number(bds.startBalance))) {
-          startBal = Number(bds.startBalance);
+      const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.equity != null);
+      const currentEq = latestEa ? latestEa.equity : NaN;
+      if (Number.isFinite(currentEq) && currentEq > 0) {
+        // Lees start-of-day equity uit state bestand
+        const fp = riskStatePath("risk-day", symbol);
+        const dayKey = dayKeyInTz(riskTz);
+        const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
+        let startEq = Number(st?.startEquity);
+        // Sanity check: als startEquity meer dan 50% afwijkt van currentEq,
+        // is het waarschijnlijk van een ander account → niet betrouwbaar
+        const sane = Number.isFinite(startEq) && startEq > 0 &&
+          st.dayKey === dayKey &&
+          Math.abs(startEq - currentEq) / startEq < 0.5;
+        if (!sane) startEq = currentEq; // fallback: vandaag nog geen betrouwbare start
+        const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
+        trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
+        trade_gates.daily_loss.start_equity = Number(startEq.toFixed(2));
+        trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
+        if (ddPct >= maxDailyLossPct) {
+          trade_gates.daily_loss.pass = false;
+          setBlocked("daily_loss");
         }
-      } catch { /* ignore */ }
-      if (!Number.isFinite(startBal)) {
-        try {
-          const st = readJsonFileSafe(riskStatePath("risk-day", symbol), {});
-          if (st.dayKey === dayKey && sanityCheck(Number(st.startEquity))) {
-            startBal = Number(st.startEquity);
-          }
-        } catch { /* ignore */ }
-      }
-
-      // Totaal verlies vandaag = gerealiseerd + floating
-      const totalPnl = realizedPnl + (Number.isFinite(floatingPnl) ? floatingPnl : 0);
-      // Gebruik currentEq als referentie als startBal niet beschikbaar is
-      const refBal = Number.isFinite(startBal) ? startBal : (Number.isFinite(currentEq) ? currentEq : 0);
-      const ddPct = refBal > 0 ? Math.max(0, (-totalPnl / refBal) * 100.0) : 0;
-
-      trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
-      trade_gates.daily_loss.start_equity = Number.isFinite(startBal) ? Number(startBal.toFixed(2)) : null;
-      trade_gates.daily_loss.current_equity = Number.isFinite(currentEq) ? Number(currentEq.toFixed(2)) : null;
-      trade_gates.daily_loss.realized_pnl = Number(realizedPnl.toFixed(2));
-      trade_gates.daily_loss.floating_pnl = Number.isFinite(floatingPnl) ? Number(floatingPnl.toFixed(2)) : 0;
-      trade_gates.daily_loss.total_pnl = Number(totalPnl.toFixed(2));
-      if (ddPct >= maxDailyLossPct) {
-        trade_gates.daily_loss.pass = false;
-        setBlocked("daily_loss");
       }
     } catch { /* best effort */ }
 
@@ -6426,7 +6348,6 @@ app.get("/api/mc/state", async (req, res) => {
       gateway,
       ea_positions: eaPositions,
       bots,
-      open_trades,
       signals,
       trade_gates,
     });
@@ -6645,13 +6566,9 @@ app.get("/mc", async (req, res) => {
     <div class="gates-row" id="gates-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
     <div id="gates-verdict"></div>
   </div>
-  <div class="card" id="card-open-trades">
-    <div class="card-title"><span class="card-title-icon">&#128293;</span> Open Trades</div>
-    <div id="open-trades-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
-  </div>
   <div class="card">
     <div class="card-title"><span class="card-title-icon">&#128200;</span> Recente Trades (laatste 10)</div>
-    <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Resultaat</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="6">laden...</td></tr></tbody></table></div>
+    <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="5">laden...</td></tr></tbody></table></div>
   </div>
 </div>
 <script>
@@ -6803,17 +6720,12 @@ async function load(){
         const fresh=ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<5*60000;
         const hasPos=ea.has_position;
         const cls=fresh?'fresh':(hasPos?'has-pos':'');
-        const fpnl=ea.floating_pnl;
-        const hasFpnl=fpnl!=null&&!isNaN(fpnl);
-        const fpnlColor=hasFpnl?(fpnl>=0?'#22c55e':'#ef4444'):'var(--muted)';
-        const fpnlStr=hasFpnl?((fpnl>=0?'+':'')+fpnl.toFixed(2)+' USD'):'—';
         return '<div class="ea-card '+cls+'">'+
           '<div class="ea-name">'+(EA_NAMES[ea.account_login]||ea.account_login)+'</div>'+
           '<div class="ea-equity">'+(ea.equity!=null?'$'+ea.equity.toFixed(2):'—')+'</div>'+
           '<div class="ea-row"><span>Symbol</span><span>'+ea.symbol+'</span></div>'+
           '<div class="ea-row"><span>Server</span><span style="font-size:.7rem">'+ea.server+'</span></div>'+
           '<div class="ea-row"><span>Positie</span><span><span class="badge '+(hasPos?'badge-orange':'badge-gray')+'">'+(hasPos?'&#9650; IN POSITIE':'geen')+'</span></span></div>'+
-          (hasPos&&hasFpnl?'<div class="ea-row"><span>Floating P&L</span><span style="font-weight:700;color:'+fpnlColor+';font-variant-numeric:tabular-nums">'+fpnlStr+'</span></div>':'')+
           '<div class="ea-row"><span>Update</span><span><span class="badge '+(fresh?'badge-green':'badge-red')+'">'+(ea.updated_at_ms?ageFmt(ea.updated_at_ms)+' geleden':'—')+'</span></span></div>'+
           '</div>';
       }).join('');
@@ -6907,7 +6819,7 @@ async function load(){
         {key:'news_blackout',label:'Nieuws',         detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
         {key:'open_trade_lock',label:'Open Positie', detail:g.open_trade_lock.reason||''},
         {key:'cooldown',     label:'Cooldown',       detail:!g.cooldown.pass?g.cooldown.remaining_min+'m resterend':''},
-        {key:'daily_loss',   label:'Dag Verlies',    detail:g.daily_loss.dd_pct+'% van max '+g.daily_loss.max+'%'+(g.daily_loss.total_pnl!=null?' | P&L: '+(g.daily_loss.total_pnl>=0?'+':'')+g.daily_loss.total_pnl+' USD':'')+(g.daily_loss.start_equity?' (start $'+g.daily_loss.start_equity+')':'')},
+        {key:'daily_loss',   label:'Dag Verlies',    detail:g.daily_loss.dd_pct+'% van max '+g.daily_loss.max+'%'+(g.daily_loss.start_equity?' (start $'+g.daily_loss.start_equity+')':'')},
         {key:'consec_losses',label:'Opeenvolgend',   detail:g.consec_losses.losses+' / max '+g.consec_losses.max},
         {key:'trend_bias',   label:'Trend Bias',     detail:g.trend_bias.bias},
       ];
@@ -6927,40 +6839,10 @@ async function load(){
       }
     }
 
-    // Open Trades — gebruik floating P&L van EA positie (equity - balance)
-    const otBody=document.getElementById('open-trades-body');
-    const eaForPnl=(d.ea_positions||[]).find(ea=>ea.has_position&&ea.floating_pnl!=null);
-    const floatingPnl=eaForPnl?eaForPnl.floating_pnl:null;
-    if(!d.open_trades||d.open_trades.length===0){
-      otBody.innerHTML='<div style="color:var(--muted);font-size:.85rem;padding:8px 0">Geen open trades</div>';
-    } else {
-      const pnlPerTrade=(floatingPnl!=null&&d.open_trades.length>0)?Math.round(floatingPnl/d.open_trades.length*100)/100:null;
-      let totalHtml='';
-      if(floatingPnl!=null){
-        const fc=floatingPnl>=0?'#22c55e':'#ef4444';
-        totalHtml='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;margin-bottom:10px;background:rgba('+(floatingPnl>=0?'34,197,94':'239,68,68')+',0.1);border-radius:10px;border:1px solid rgba('+(floatingPnl>=0?'34,197,94':'239,68,68')+',0.25)">'+
-          '<span style="font-size:.85rem;color:var(--muted)">Totaal floating P&L</span>'+
-          '<span style="font-size:1.3rem;font-weight:800;color:'+fc+';font-variant-numeric:tabular-nums">'+(floatingPnl>=0?'+':'')+floatingPnl.toFixed(2)+' USD</span>'+
-        '</div>';
-      }
-      otBody.innerHTML=totalHtml+d.open_trades.map(t=>{
-        const dur=Math.round((Date.now()-t.created_at_ms)/60000);
-        const durStr=dur<60?dur+'m':Math.floor(dur/60)+'u '+dur%60+'m';
-        return '<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:rgba(59,130,246,0.08);border-radius:10px;margin-bottom:8px;border:1px solid rgba(59,130,246,0.15)">'+
-          '<span class="badge '+(t.direction==='BUY'?'badge-green':'badge-orange')+'" style="font-size:.85rem">'+t.direction+'</span>'+
-          '<span style="font-size:.85rem;color:var(--muted)">'+t.symbol+'</span>'+
-          '<span style="font-size:.8rem;color:var(--muted)">SL: '+(t.sl!=null?t.sl.toFixed(2):'—')+'</span>'+
-          '<span style="font-size:.8rem;color:var(--muted)">TP: '+(t.tp!=null?t.tp.toFixed(2):'—')+'</span>'+
-          '<span style="font-size:.75rem;color:var(--muted);margin-left:auto">'+durStr+'</span>'+
-          '<span class="badge badge-cyan" style="font-size:.7rem">LIVE</span>'+
-        '</div>';
-      }).join('');
-    }
-
     // Signals
     const tbody=document.getElementById('signals-tbody');
     if(!d.signals||d.signals.length===0){
-      tbody.innerHTML='<tr><td colspan="6" style="color:var(--muted)">Geen trades gevonden</td></tr>';
+      tbody.innerHTML='<tr><td colspan="5" style="color:var(--muted)">Geen trades gevonden</td></tr>';
     } else {
       tbody.innerHTML=d.signals.map(s=>{
         const outcome=s.close_outcome||s.status;
@@ -6968,17 +6850,11 @@ async function load(){
         if(outcome==='active')badge='badge-cyan';
         else if(/tp/i.test(outcome))badge='badge-green';
         else if(/sl/i.test(outcome))badge='badge-red';
-        const res=s.close_result;
-        const pnlNum=res?parseFloat(res):null;
-        const hasPnl=pnlNum!==null&&!isNaN(pnlNum);
-        const pnlColor=hasPnl?(pnlNum>=0?'#22c55e':'#ef4444'):'var(--muted)';
-        const pnlStr=hasPnl?((pnlNum>=0?'+':'')+pnlNum.toFixed(2)):'—';
         return '<tr>'+
           '<td>'+fmtDate(s.created_at_ms)+'</td>'+
           '<td><span class="badge '+(s.direction==='BUY'?'badge-green':'badge-orange')+'">'+s.direction+'</span></td>'+
           '<td style="font-variant-numeric:tabular-nums">'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
           '<td style="font-variant-numeric:tabular-nums">'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
-          '<td style="font-variant-numeric:tabular-nums;color:'+pnlColor+';font-weight:600">'+pnlStr+'</td>'+
           '<td><span class="badge '+badge+'">'+outcome+'</span></td>'+
           '</tr>';
       }).join('');
