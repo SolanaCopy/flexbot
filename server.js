@@ -6526,7 +6526,7 @@ app.get("/mc", async (req, res) => {
       <div class="ea-grid" id="ea-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
     </div>
     <div class="card">
-      <div class="card-title"><span class="card-title-icon">&#127970;</span> Agent Kantoor</div>
+      <div class="card-title"><span class="card-title-icon">&#127970;</span> Agent Office</div>
       <div class="office-room">
         <div id="bots-body"><div style="color:var(--muted);font-size:.8rem;padding:20px 12px">laden...</div></div>
         <div class="office-floor"></div>
@@ -6534,7 +6534,7 @@ app.get("/mc", async (req, res) => {
     </div>
   </div>
   <div class="card">
-    <div class="card-title"><span class="card-title-icon">&#128679;</span> Trade Gates — Waarom geen trade?</div>
+    <div class="card-title"><span class="card-title-icon">&#128679;</span> Trade Gates — Why no trade?</div>
     <div class="gates-row" id="gates-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
     <div id="gates-verdict"></div>
   </div>
@@ -6577,8 +6577,8 @@ async function sendCommand(botId, cmd){
     });
     const d=await r.json();
     if(d.ok) alert('Commando '+cmd+' verstuurd naar '+botId);
-    else alert('Fout: '+(d.error||JSON.stringify(d)));
-  }catch(e){alert('Fout: '+e.message);}
+    else alert('Error: '+(d.error||JSON.stringify(d)));
+  }catch(e){alert('Error: '+e.message);}
 }
 
 // Pixel art sprites (base64)
@@ -6620,7 +6620,7 @@ async function load(){
     const r=await fetch(BASE+'/api/mc/state?key='+encodeURIComponent(KEY));
     if(!r.ok){
       const eb=document.getElementById('error-banner');
-      eb.textContent='Fout bij laden: HTTP '+r.status;
+      eb.textContent='Load error: HTTP '+r.status;
       eb.style.display='block';
       return;
     }
@@ -6633,7 +6633,7 @@ async function load(){
       const open=!d.market.blocked;
       const chip=document.getElementById('mkt-chip');
       chip.className='hdr-chip '+(open?'open':'closed');
-      document.getElementById('mkt-label').textContent='Forex Markt: '+(open?'OPEN':'GESLOTEN')+(d.market.reason?' ('+d.market.reason+')':'');
+      document.getElementById('mkt-label').textContent='Forex Market: '+(open?'OPEN':'CLOSED')+(d.market.reason?' ('+d.market.reason+')':'');
     }
 
     // Gateway chip — probeer eerst direct localhost te pingen (browser → lokale gateway)
@@ -6658,7 +6658,7 @@ async function load(){
       if(d.gateway){
         const gs=d.gateway.status;
         gwChip.className='hdr-chip '+(gs==='online'?'online':gs==='idle'?'idle':'offline');
-        gwLbl.textContent='Gateway: '+(gs==='online'?'ONLINE':gs==='idle'?'IDLE':'DOWN')+(d.gateway.age_mins?', '+d.gateway.age_mins+'m geleden':'');
+        gwLbl.textContent='Gateway: '+(gs==='online'?'ONLINE':gs==='idle'?'IDLE':'DOWN')+(d.gateway.age_mins?', '+d.gateway.age_mins+'m ago':'');
       } else {
         gwChip.className='hdr-chip unknown';
         gwLbl.textContent='Gateway: onbekend';
@@ -6670,7 +6670,7 @@ async function load(){
     const eaEl=document.getElementById('ea-body');
     const activeEa=(d.ea_positions||[]).filter(ea=>ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<24*60*60*1000);
     if(activeEa.length===0){
-      eaEl.innerHTML='<span style="color:var(--muted);font-size:.8rem">Geen actieve EA verbindingen</span>';
+      eaEl.innerHTML='<span style="color:var(--muted);font-size:.8rem">No active EA connections</span>';
     } else {
       eaEl.innerHTML=activeEa.map(ea=>{
         const fresh=ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<5*60000;
@@ -6681,20 +6681,20 @@ async function load(){
           '<div class="ea-equity">'+(ea.equity!=null?'$'+ea.equity.toFixed(2):'—')+'</div>'+
           '<div class="ea-row"><span>Symbol</span><span>'+ea.symbol+'</span></div>'+
           '<div class="ea-row"><span>Server</span><span style="font-size:.7rem">'+ea.server+'</span></div>'+
-          '<div class="ea-row"><span>Positie</span><span><span class="badge '+(hasPos?'badge-orange':'badge-gray')+'">'+(hasPos?'&#9650; IN POSITIE':'geen')+'</span></span></div>'+
-          '<div class="ea-row"><span>Update</span><span><span class="badge '+(fresh?'badge-green':'badge-red')+'">'+(ea.updated_at_ms?ageFmt(ea.updated_at_ms)+' geleden':'—')+'</span></span></div>'+
+          '<div class="ea-row"><span>Position</span><span><span class="badge '+(hasPos?'badge-orange':'badge-gray')+'">'+(hasPos?'&#9650; IN POSITION':'none')+'</span></span></div>'+
+          '<div class="ea-row"><span>Update</span><span><span class="badge '+(fresh?'badge-green':'badge-red')+'">'+(ea.updated_at_ms?ageFmt(ea.updated_at_ms)+' ago':'—')+'</span></span></div>'+
           '</div>';
       }).join('');
     }
 
-    // Bots — pixel art kantoor
+    // Bots — pixel art office
     const BOT_IDS=['bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
     const BOT_CHAR_IDX={'bot-default':0,'bot-affiliate':1,'bot-fxcopie':2,'bot-builder':3};
     const botMap={};
     (d.bots||[]).forEach(b=>{botMap[b.bot_id]=b;});
     const botsEl=document.getElementById('bots-body');
 
-    // Pixel art kantoor
+    // Pixel art office
     const officeHtml='<div class="px-office">'+BOT_IDS.map(id=>{
       const b=botMap[id];
       // Status per bot:
@@ -6708,8 +6708,8 @@ async function load(){
         status=b.status;
       }else if(gwResolved){
         // Parse last_action om te bepalen of bot recent actief was
-        // Format: "Telegram activiteit 12m geleden" of "Telegram activiteit 44u geleden"
-        const actMatch=b&&b.last_action?b.last_action.match(/(\d+)(m|u)\s*geleden/):null;
+        // Format: "Telegram activity 12m ago" or "Telegram activity 44h ago"
+        const actMatch=b&&b.last_action?b.last_action.match(/(\d+)(m|u)\s*(?:geleden|ago)/):null;
         const actMins=actMatch?(actMatch[2]==='u'?Number(actMatch[1])*60:Number(actMatch[1])):Infinity;
         status=actMins<30?'online':'idle';
       }
@@ -6723,7 +6723,7 @@ async function load(){
         '<div class="ws-btns">'+
           '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Start">&#9654;</button>'+
           '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Stop">&#9646;&#9646;</button>'+
-          '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Herstart">&#8635;</button>'+
+          '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Restart">&#8635;</button>'+
         '</div>'+
       '</div>';
     }).join('')+'</div>';
@@ -6734,12 +6734,12 @@ async function load(){
     if(d.trade_gates){
       const g=d.trade_gates;
       const gates=[
-        {key:'market',       label:'Markt',         detail:g.market.reason||''},
-        {key:'news_blackout',label:'Nieuws',         detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
-        {key:'open_trade_lock',label:'Open Positie', detail:g.open_trade_lock.reason||''},
-        {key:'cooldown',     label:'Cooldown',       detail:!g.cooldown.pass?g.cooldown.remaining_min+'m resterend':''},
-        {key:'daily_loss',   label:'Dag Verlies',    detail:g.daily_loss.dd_pct+'% van max '+g.daily_loss.max+'%'+(g.daily_loss.start_equity?' (start $'+g.daily_loss.start_equity+')':'')},
-        {key:'consec_losses',label:'Opeenvolgend',   detail:g.consec_losses.losses+' / max '+g.consec_losses.max},
+        {key:'market',       label:'Market',        detail:g.market.reason||''},
+        {key:'news_blackout',label:'News',          detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
+        {key:'open_trade_lock',label:'Open Position', detail:g.open_trade_lock.reason||''},
+        {key:'cooldown',     label:'Cooldown',       detail:!g.cooldown.pass?g.cooldown.remaining_min+'m remaining':''},
+        {key:'daily_loss',   label:'Daily Loss',     detail:g.daily_loss.dd_pct+'% of max '+g.daily_loss.max+'%'+(g.daily_loss.start_equity?' (start $'+g.daily_loss.start_equity+')':'')},
+        {key:'consec_losses',label:'Consecutive',   detail:g.consec_losses.losses+' / max '+g.consec_losses.max},
         {key:'trend_bias',   label:'Trend Bias',     detail:g.trend_bias.bias},
       ];
       document.getElementById('gates-body').innerHTML=gates.map(gt=>{
@@ -6752,7 +6752,7 @@ async function load(){
       }).join('');
       const vEl=document.getElementById('gates-verdict');
       if(g.verdict==='ready'){
-        vEl.innerHTML='<div class="verdict-bar verdict-ready">&#9989; READY — Alle gates open</div>';
+        vEl.innerHTML='<div class="verdict-bar verdict-ready">&#9989; READY — All gates open</div>';
       } else {
         vEl.innerHTML='<div class="verdict-bar verdict-blocked">&#128721; BLOCKED — '+g.block_reason+'</div>';
       }
@@ -6761,7 +6761,7 @@ async function load(){
     // Signals
     const tbody=document.getElementById('signals-tbody');
     if(!d.signals||d.signals.length===0){
-      tbody.innerHTML='<tr><td colspan="5" style="color:var(--muted)">Geen trades gevonden</td></tr>';
+      tbody.innerHTML='<tr><td colspan="5" style="color:var(--muted)">No trades found</td></tr>';
     } else {
       tbody.innerHTML=d.signals.map(s=>{
         const outcome=s.close_outcome||s.status;
@@ -6781,7 +6781,7 @@ async function load(){
 
   }catch(e){
     const eb=document.getElementById('error-banner');
-    eb.textContent='Fout: '+e.message;
+    eb.textContent='Error: '+e.message;
     eb.style.display='block';
   }
 }
