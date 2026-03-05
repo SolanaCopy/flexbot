@@ -6205,12 +6205,32 @@ app.get("/api/mc/state", async (req, res) => {
       } catch { /* ignore */ }
     }
 
+    // Open trades (active signals)
+    let open_trades = [];
+    if (db) {
+      try {
+        const otRows = await db.execute(
+          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, close_result FROM signals WHERE status='active' ORDER BY created_at_ms DESC"
+        );
+        open_trades = (otRows.rows || []).map((r) => ({
+          id: String(r.id),
+          symbol: String(r.symbol),
+          direction: String(r.direction),
+          sl: r.sl != null ? Number(r.sl) : null,
+          tp: (() => { try { return JSON.parse(String(r.tp_json))[0]; } catch { return null; } })(),
+          status: String(r.status),
+          created_at_ms: Number(r.created_at_ms),
+          close_result: r.close_result != null ? String(r.close_result) : null,
+        }));
+      } catch { /* ignore */ }
+    }
+
     // Recent signals (last 10)
     let signals = [];
     if (db) {
       try {
         const rows = await db.execute(
-          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome FROM signals ORDER BY created_at_ms DESC LIMIT 10"
+          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome, close_result FROM signals ORDER BY created_at_ms DESC LIMIT 10"
         );
         signals = (rows.rows || []).map((r) => ({
           id: String(r.id),
@@ -6222,6 +6242,7 @@ app.get("/api/mc/state", async (req, res) => {
           created_at_ms: Number(r.created_at_ms),
           closed_at_ms: r.closed_at_ms != null ? Number(r.closed_at_ms) : null,
           close_outcome: r.close_outcome != null ? String(r.close_outcome) : null,
+          close_result: r.close_result != null ? String(r.close_result) : null,
         }));
       } catch { /* ignore */ }
     }
@@ -6348,6 +6369,7 @@ app.get("/api/mc/state", async (req, res) => {
       gateway,
       ea_positions: eaPositions,
       bots,
+      open_trades,
       signals,
       trade_gates,
     });
@@ -6566,9 +6588,13 @@ app.get("/mc", async (req, res) => {
     <div class="gates-row" id="gates-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
     <div id="gates-verdict"></div>
   </div>
+  <div class="card" id="card-open-trades">
+    <div class="card-title"><span class="card-title-icon">&#128293;</span> Open Trades</div>
+    <div id="open-trades-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+  </div>
   <div class="card">
     <div class="card-title"><span class="card-title-icon">&#128200;</span> Recente Trades (laatste 10)</div>
-    <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="5">laden...</td></tr></tbody></table></div>
+    <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Resultaat</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="6">laden...</td></tr></tbody></table></div>
   </div>
 </div>
 <script>
@@ -6839,10 +6865,35 @@ async function load(){
       }
     }
 
+    // Open Trades
+    const otBody=document.getElementById('open-trades-body');
+    if(!d.open_trades||d.open_trades.length===0){
+      otBody.innerHTML='<div style="color:var(--muted);font-size:.85rem;padding:8px 0">Geen open trades</div>';
+    } else {
+      otBody.innerHTML=d.open_trades.map(t=>{
+        const dur=Math.round((Date.now()-t.created_at_ms)/60000);
+        const durStr=dur<60?dur+'m':Math.floor(dur/60)+'u '+dur%60+'m';
+        const res=t.close_result;
+        const pnlNum=res?parseFloat(res):null;
+        const hasPnl=pnlNum!==null&&!isNaN(pnlNum);
+        const pnlColor=hasPnl?(pnlNum>=0?'#22c55e':'#ef4444'):'var(--muted)';
+        const pnlStr=hasPnl?((pnlNum>=0?'+':'')+pnlNum.toFixed(2)):'—';
+        return '<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:rgba(59,130,246,0.08);border-radius:10px;margin-bottom:8px;border:1px solid rgba(59,130,246,0.15)">'+
+          '<span class="badge '+(t.direction==='BUY'?'badge-green':'badge-orange')+'" style="font-size:.85rem">'+t.direction+'</span>'+
+          '<span style="font-size:.85rem;color:var(--muted)">'+t.symbol+'</span>'+
+          '<span style="font-size:.8rem;color:var(--muted)">SL: '+(t.sl!=null?t.sl.toFixed(2):'—')+'</span>'+
+          '<span style="font-size:.8rem;color:var(--muted)">TP: '+(t.tp!=null?t.tp.toFixed(2):'—')+'</span>'+
+          '<span style="font-size:1.1rem;font-weight:700;color:'+pnlColor+';margin-left:auto;font-variant-numeric:tabular-nums">'+pnlStr+'</span>'+
+          '<span style="font-size:.75rem;color:var(--muted)">'+durStr+'</span>'+
+          '<span class="badge badge-cyan" style="font-size:.7rem">LIVE</span>'+
+        '</div>';
+      }).join('');
+    }
+
     // Signals
     const tbody=document.getElementById('signals-tbody');
     if(!d.signals||d.signals.length===0){
-      tbody.innerHTML='<tr><td colspan="5" style="color:var(--muted)">Geen trades gevonden</td></tr>';
+      tbody.innerHTML='<tr><td colspan="6" style="color:var(--muted)">Geen trades gevonden</td></tr>';
     } else {
       tbody.innerHTML=d.signals.map(s=>{
         const outcome=s.close_outcome||s.status;
@@ -6850,11 +6901,17 @@ async function load(){
         if(outcome==='active')badge='badge-cyan';
         else if(/tp/i.test(outcome))badge='badge-green';
         else if(/sl/i.test(outcome))badge='badge-red';
+        const res=s.close_result;
+        const pnlNum=res?parseFloat(res):null;
+        const hasPnl=pnlNum!==null&&!isNaN(pnlNum);
+        const pnlColor=hasPnl?(pnlNum>=0?'#22c55e':'#ef4444'):'var(--muted)';
+        const pnlStr=hasPnl?((pnlNum>=0?'+':'')+pnlNum.toFixed(2)):'—';
         return '<tr>'+
           '<td>'+fmtDate(s.created_at_ms)+'</td>'+
           '<td><span class="badge '+(s.direction==='BUY'?'badge-green':'badge-orange')+'">'+s.direction+'</span></td>'+
           '<td style="font-variant-numeric:tabular-nums">'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
           '<td style="font-variant-numeric:tabular-nums">'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
+          '<td style="font-variant-numeric:tabular-nums;color:'+pnlColor+';font-weight:600">'+pnlStr+'</td>'+
           '<td><span class="badge '+badge+'">'+outcome+'</span></td>'+
           '</tr>';
       }).join('');
