@@ -6166,7 +6166,17 @@ app.get("/api/mc/state", async (req, res) => {
         });
         eaPositions = (rows.rows || []).map((r) => {
           const eq = r.equity != null ? Number(r.equity) : null;
-          const bal = r.balance != null ? Number(r.balance) : null;
+          let bal = r.balance != null ? Number(r.balance) : null;
+          // Fallback: als balance niet in DB staat, gebruik startBalance uit dagbestand
+          if (!Number.isFinite(bal)) {
+            try {
+              const sym = String(r.symbol || "XAUUSD").toUpperCase();
+              const bds = readJsonFileSafe(riskStatePath("balance-day", sym), {});
+              if (Number.isFinite(Number(bds.startBalance)) && Number(bds.startBalance) > 0) {
+                bal = Number(bds.startBalance);
+              }
+            } catch { /* ignore */ }
+          }
           const floatingPnl = (Number.isFinite(eq) && Number.isFinite(bal)) ? Math.round((eq - bal) * 100) / 100 : null;
           return {
             account_login: String(r.account_login),
