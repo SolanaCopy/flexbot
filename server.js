@@ -6359,17 +6359,19 @@ app.get("/api/mc/state", async (req, res) => {
       const floatingPnl = latestEa?.floating_pnl ?? 0;
       const currentEq = latestEa?.equity ?? NaN;
 
-      // Start balance: probeer balance-day, dan risk-day
+      // Start balance: probeer balance-day, dan risk-day — met sanity check
+      const sanityCheck = (val) => Number.isFinite(val) && val > 0 && Number.isFinite(currentEq) &&
+        Math.abs(val - currentEq) / Math.max(val, currentEq) < 0.5;
       try {
         const bds = readJsonFileSafe(riskStatePath("balance-day", symbol), {});
-        if (bds.dayKey === dayKey && Number.isFinite(Number(bds.startBalance)) && Number(bds.startBalance) > 0) {
+        if (bds.dayKey === dayKey && sanityCheck(Number(bds.startBalance))) {
           startBal = Number(bds.startBalance);
         }
       } catch { /* ignore */ }
       if (!Number.isFinite(startBal)) {
         try {
           const st = readJsonFileSafe(riskStatePath("risk-day", symbol), {});
-          if (st.dayKey === dayKey && Number.isFinite(Number(st.startEquity)) && Number(st.startEquity) > 0) {
+          if (st.dayKey === dayKey && sanityCheck(Number(st.startEquity))) {
             startBal = Number(st.startEquity);
           }
         } catch { /* ignore */ }
@@ -6377,6 +6379,7 @@ app.get("/api/mc/state", async (req, res) => {
 
       // Totaal verlies vandaag = gerealiseerd + floating
       const totalPnl = realizedPnl + (Number.isFinite(floatingPnl) ? floatingPnl : 0);
+      // Gebruik currentEq als referentie als startBal niet beschikbaar is
       const refBal = Number.isFinite(startBal) ? startBal : (Number.isFinite(currentEq) ? currentEq : 0);
       const ddPct = refBal > 0 ? Math.max(0, (-totalPnl / refBal) * 100.0) : 0;
 
