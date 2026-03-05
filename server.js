@@ -3599,7 +3599,7 @@ function buildAutoReply(text) {
 
   // Greetings
   if (/^(yo|hey|hi|hello)\b/.test(t.trim())) {
-    return "Yo";
+    return "Yo — tell me.";
   }
 
   // Daily stop
