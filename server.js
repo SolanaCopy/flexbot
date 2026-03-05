@@ -6336,17 +6336,31 @@ app.get("/api/mc/state", async (req, res) => {
       const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.equity != null);
       const currentEq = latestEa ? latestEa.equity : NaN;
       if (Number.isFinite(currentEq) && currentEq > 0) {
-        // Lees start-of-day equity uit state bestand
-        const fp = riskStatePath("risk-day", symbol);
         const dayKey = dayKeyInTz(riskTz);
-        const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
-        let startEq = Number(st?.startEquity);
-        // Sanity check: als startEquity meer dan 50% afwijkt van currentEq,
-        // is het waarschijnlijk van een ander account → niet betrouwbaar
-        const sane = Number.isFinite(startEq) && startEq > 0 &&
-          st.dayKey === dayKey &&
-          Math.abs(startEq - currentEq) / startEq < 0.5;
-        if (!sane) startEq = currentEq; // fallback: vandaag nog geen betrouwbare start
+        let startEq = NaN;
+
+        // Probeer eerst balance-day (meest betrouwbaar: echte account balance aan het begin van de dag)
+        try {
+          const bds = readJsonFileSafe(riskStatePath("balance-day", symbol), {});
+          if (bds.dayKey === dayKey && Number.isFinite(Number(bds.startBalance)) && Number(bds.startBalance) > 0) {
+            startEq = Number(bds.startBalance);
+          }
+        } catch { /* ignore */ }
+
+        // Fallback: risk-day (start equity)
+        if (!Number.isFinite(startEq)) {
+          try {
+            const st = readJsonFileSafe(riskStatePath("risk-day", symbol), {});
+            if (st.dayKey === dayKey && Number.isFinite(Number(st.startEquity)) && Number(st.startEquity) > 0 &&
+                Math.abs(Number(st.startEquity) - currentEq) / Number(st.startEquity) < 0.5) {
+              startEq = Number(st.startEquity);
+            }
+          } catch { /* ignore */ }
+        }
+
+        // Laatste fallback: currentEq (geen verlies meetbaar)
+        if (!Number.isFinite(startEq)) startEq = currentEq;
+
         const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
         trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
         trade_gates.daily_loss.start_equity = Number(startEq.toFixed(2));
