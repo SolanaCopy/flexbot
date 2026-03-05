@@ -3597,6 +3597,11 @@ function buildAutoReply(text) {
     return "Check the EA banner + Toolbox→Experts. If it says DISCONNECTED: Tools→Options→EA→Allow WebRequest + make sure BaseUrl is correct. Otherwise send a screenshot of Experts + banner.";
   }
 
+  // Greetings
+  if (/^(yo|hey|hi|hello)\b/.test(t.trim())) {
+    return "Yo";
+  }
+
   // Daily stop
   if (t.includes("daily stop") || t.includes("daily") || t.includes("drawdown") || t.includes("dd")) {
     return "See DAILY STOP on the banner? Flexbot stops opening new trades until the next trading day (protection).";
@@ -3687,13 +3692,12 @@ async function handleTelegramUpdate(req, res) {
     const wantsNews = auto === "NEWS_CHECK";
 
     // For the owner: reply to ANY message (still with cooldown) so it feels responsive.
-    // For others: only reply to questions/mentions to avoid spam.
-    // Exceptions:
-    // - allow "myfxbook" keyword to return trophy list even without a question mark.
-    // - allow news keywords to always trigger the formatted news reply.
+    // For others: reply in the target group without requiring an @mention.
+    // We still avoid spam by only replying when:
+    // - it's a question (contains '?'), OR
+    // - it matches an auto-reply intent (keywords like setup/news/myfxbook/etc).
     const isQuestion = String(text).includes("?");
-    const mentionsFlex = /\bflexbot\b|\bflex\b/i.test(String(text));
-    if (!isOwner && !wantsTrophy && !wantsNews && !isQuestion && !mentionsFlex) return res.json({ ok: true });
+    if (!isOwner && !wantsTrophy && !wantsNews && !auto && !isQuestion) return res.json({ ok: true });
 
     // Cooldown: per-user and per-group
     if (!tgCooldownOk(`u:${userId}`, isOwner ? 30 * 1000 : 10 * 60 * 1000)) return res.json({ ok: true });
