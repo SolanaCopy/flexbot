@@ -6490,6 +6490,7 @@ app.get("/mc", async (req, res) => {
   /* Character animation: front walk row 0, 4 frames, 16px each scaled 4x */
   .px-char.walk{background-position:0 0;animation:pxWalk .6s steps(4) infinite}
   .px-char.idle-char{background-position:0 0}
+  .px-char.seated-back{background-position:0 -192px}
   @keyframes pxWalk{from{background-position:0 0}to{background-position:-256px 0}}
   /* Status labels */
   .ws-name{font-size:.57rem;color:var(--muted);text-align:center;margin-top:3px;font-family:monospace;letter-spacing:.07em}
@@ -6630,7 +6631,7 @@ const PX_SPRITES={
 function makeWorkstation(charIdx, status, showPlant){
   var charSprite = status!=='offline' ? PX_SPRITES.chars[charIdx] : '';
   var pcSprite = status!=='offline' ? PX_SPRITES.fullPcCoffeeOn : PX_SPRITES.fullPcCoffeeOff;
-  var charClass = status==='online' ? 'walk' : 'idle-char';
+  var charClass = status==='online' ? 'seated-back' : 'idle-char';
   var html = '<div class="px-scene">';
   // PC setup (monitor + keyboard + coffee) on desk
   html += '<img class="px-sprite px-pc" src="'+pcSprite+'">';
