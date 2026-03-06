@@ -4520,7 +4520,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   // Layout
   const panelX = 560;
-  const panelY = 210;
+  const panelY = 250; // moved down slightly (Boss request)
   const panelW = 480;
   const panelH = 450;
 
@@ -6857,7 +6857,58 @@ setInterval(load,30000);
 // END MISSION CONTROL
 // ============================================================
 
+async function runPreviewRenders() {
+  // Dev-only: generate closed card previews without starting the server.
+  // Usage (PowerShell):
+  //   $env:FLEXBOT_RENDER_PREVIEW="1"; node server.js
+  const outDir = path.join(__dirname, "tmp");
+  try { fs.mkdirSync(outDir, { recursive: true }); } catch {}
+
+  const samples = [
+    {
+      name: "closed_win",
+      payload: {
+        id: "PREVIEW12345678",
+        symbol: "XAUUSD",
+        direction: "BUY",
+        entry: 2034.12,
+        sl: 2027.55,
+        tp: [2046.9],
+        outcome: "TP1",
+        result: "+27.50",
+      },
+    },
+    {
+      name: "closed_loss",
+      payload: {
+        id: "PREVIEW87654321",
+        symbol: "XAUUSD",
+        direction: "SELL",
+        entry: 2034.12,
+        sl: 2041.55,
+        tp: [2022.9],
+        outcome: "SL",
+        result: "-25.00",
+      },
+    },
+  ];
+
+  for (const s of samples) {
+    const svg = createClosedCardSvgV3(s.payload);
+    const pngBuf = renderSvgToPngBuffer(svg);
+    const outPath = path.join(outDir, `${s.name}.png`);
+    fs.writeFileSync(outPath, pngBuf);
+    console.log("preview_written", outPath);
+  }
+}
+
 async function main() {
+  // Preview render mode (no server listen)
+  if (String(process.env.FLEXBOT_RENDER_PREVIEW || "").trim() === "1") {
+    await runPreviewRenders();
+    return;
+  }
+
   await warmLoadFromDb();
   const port = process.env.PORT || 3000;
   app.listen(port, "0.0.0.0", () => console.log("listening", port));
