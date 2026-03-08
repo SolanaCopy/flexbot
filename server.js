@@ -4710,7 +4710,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
     } catch { return null; }
   })();
 
-  const showCorner = Boolean(cornerDataUri && !twoCols);
+  const showCorner = false;
 
   const normalizeOut = v => {
     const s = String(v || "").trim().toLowerCase();
@@ -4743,28 +4743,70 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   const col2X = twoCols ? col1X + 504 : col1X;
   const textFs = twoCols ? 22 : 26;
 
+  // Layout offsets for aligned columns
+  const numW = twoCols ? 30 : 36;
+  const dirBadgeX = twoCols ? 44 : 54;
+  const dirBadgeW = twoCols ? 68 : 78;
+  const outBadgeX = twoCols ? 120 : 140;
+  const outBadgeW = twoCols ? 48 : 52;
+  const resOffX = twoCols ? 160 : 182;
+  const badgeH = twoCols ? 26 : 30;
+  const badgeR = twoCols ? 6 : 7;
+
   const linesSvg = showLines.map((t, i) => {
     const col = twoCols ? (i >= linesPerCol ? 1 : 0) : 0;
     const row = twoCols ? (i % linesPerCol) : i;
     const baseX = col === 1 ? col2X : col1X;
     const rowY = listStartY + row * lineH;
     const textY = rowY + lineH * 0.72;
+    const badgeY = rowY + (lineH - badgeH) / 2 - 1;
     const raw = textForLine(t);
     const parts = raw.split("|").map(x => x.trim());
-    const left = esc(parts[0] || raw);
+    const leftRaw = parts[0] || raw;
     const outRaw = parts[1] || "";
     const res = parts[2] || "";
     const out = normalizeOut(outRaw);
     const outFill = colOut(out);
     const resFill = colPnl(res, out);
-    const rowBg = row % 2 === 0 ? "rgba(255,255,255,0.022)" : "transparent";
+    const rowBg = row % 2 === 0 ? "rgba(255,255,255,0.028)" : "transparent";
+    const isResNeg = String(res).includes("-");
+
+    // Parse number and direction from left part (e.g. "1) BUY")
+    const leftMatch = leftRaw.match(/^(\d+)\)\s*(BUY|SELL)/i);
+    const num = leftMatch ? leftMatch[1] : "";
+    const dir = leftMatch ? leftMatch[2].toUpperCase() : leftRaw;
+    const dirColor = dir === "BUY" ? "#00d084" : dir === "SELL" ? "#ff4757" : "#ffffff";
+    const outBg = out === "TP" ? "rgba(0,208,132,0.12)" : out === "SL" ? "rgba(255,71,87,0.12)" : "rgba(255,255,255,0.05)";
+    const outStroke = out === "TP" ? "rgba(0,208,132,0.30)" : out === "SL" ? "rgba(255,71,87,0.30)" : "rgba(255,255,255,0.10)";
+    const dirBg = dir === "BUY" ? "rgba(0,208,132,0.12)" : dir === "SELL" ? "rgba(255,71,87,0.12)" : "rgba(255,255,255,0.05)";
+    const dirStroke = dir === "BUY" ? "rgba(0,208,132,0.30)" : dir === "SELL" ? "rgba(255,71,87,0.30)" : "rgba(255,255,255,0.10)";
+
     return [
+      // Row bg + colored left accent
       `<rect x="${baseX - 8}" y="${rowY}" width="${colW}" height="${lineH - 2}" rx="6" fill="${rowBg}"/>`,
-      `<text x="${baseX}" y="${textY}" font-family="Inter,Segoe UI,Arial" font-size="${textFs}" fill="rgba(255,255,255,0.85)" font-weight="700" style="font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1;">`,
-      `<tspan fill="rgba(255,255,255,0.58)">${left}</tspan>`,
-      outRaw ? `<tspan fill="rgba(255,255,255,0.22)">  ·  </tspan><tspan fill="${outFill}" font-weight="900">${esc(out)}</tspan>` : "",
-      res ? `<tspan fill="rgba(255,255,255,0.22)">  ·  </tspan><tspan fill="${resFill}" font-weight="900" font-family="JetBrains Mono,Consolas,monospace">${esc(res)}</tspan>` : "",
-      `</text>`,
+      `<rect x="${baseX - 8}" y="${rowY + 4}" width="2.5" height="${lineH - 10}" rx="1.25" fill="${dirColor}" opacity="0.3"/>`,
+      // Trade number (subtle)
+      `<text x="${baseX + numW}" y="${textY}" text-anchor="end" font-family="JetBrains Mono,Consolas,monospace" font-size="${textFs - 6}" fill="rgba(255,255,255,0.22)" font-weight="600">${esc(num)}</text>`,
+      // Direction badge
+      `<rect x="${baseX + dirBadgeX}" y="${badgeY}" width="${dirBadgeW}" height="${badgeH}" rx="${badgeR}" fill="${dirBg}" stroke="${dirStroke}" stroke-width="1"/>`,
+      `<text x="${baseX + dirBadgeX + dirBadgeW / 2}" y="${textY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${textFs - 2}" fill="${dirColor}" font-weight="900" letter-spacing="1">${esc(dir)}</text>`,
+      // Outcome badge
+      outRaw ? `<rect x="${baseX + outBadgeX}" y="${badgeY}" width="${outBadgeW}" height="${badgeH}" rx="${badgeR}" fill="${outBg}" stroke="${outStroke}" stroke-width="1"/>` : "",
+      outRaw ? `<text x="${baseX + outBadgeX + outBadgeW / 2}" y="${textY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${textFs - 2}" fill="${outFill}" font-weight="900">${esc(out)}</text>` : "",
+      // PnL amount with subtle glow
+      res ? (() => {
+        const resMatch = res.match(/^([+-]?)([\d.]+)\s*(.*)/);
+        const sign = resMatch ? resMatch[1] : "";
+        const amt = resMatch ? resMatch[2] : res;
+        const unit = resMatch ? resMatch[3] : "";
+        const unitX = baseX + resOffX + (twoCols ? 116 : 128);
+        return [
+          `<text x="${unitX}" y="${textY}" text-anchor="end" font-family="JetBrains Mono,Consolas,monospace" font-size="${textFs}" fill="${resFill}" font-weight="700" style="font-variant-numeric: tabular-nums;">${esc(sign + amt)}</text>`,
+          unit ? `<text x="${unitX + 6}" y="${textY}" font-family="Inter,Segoe UI,Arial" font-size="${textFs - 6}" fill="rgba(255,255,255,0.25)" font-weight="500" letter-spacing="0.5">${esc(unit)}</text>` : "",
+        ].join("\n");
+      })() : "",
+      // Subtle row separator
+      `<line x1="${baseX}" y1="${rowY + lineH - 2}" x2="${baseX + colW - 24}" y2="${rowY + lineH - 2}" stroke="rgba(255,255,255,0.025)" stroke-width="0.5"/>`,
     ].filter(Boolean).join("\n");
   }).join("\n");
 
@@ -4783,89 +4825,119 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
 <defs>
-  <linearGradient id="bg" x1="0" y1="0" x2="0.5" y2="1">
-    <stop offset="0" stop-color="#080b14"/>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.3" y2="1">
+    <stop offset="0" stop-color="#0c1018"/>
+    <stop offset="0.4" stop-color="#080c14"/>
     <stop offset="1" stop-color="#04060c"/>
   </linearGradient>
-  <radialGradient id="aura" cx="15%" cy="10%" r="65%">
-    <stop offset="0" stop-color="#f0a030" stop-opacity="0.09"/>
+  <radialGradient id="auraGold" cx="5%" cy="0%" r="55%">
+    <stop offset="0" stop-color="#f0a030" stop-opacity="0.10"/>
+    <stop offset="0.6" stop-color="#f0a030" stop-opacity="0.03"/>
     <stop offset="1" stop-color="#f0a030" stop-opacity="0"/>
   </radialGradient>
-  <radialGradient id="pnlAura" cx="62%" cy="30%" r="50%">
-    <stop offset="0" stop-color="${pnlColor}" stop-opacity="0.07"/>
+  <radialGradient id="auraPnl" cx="50%" cy="25%" r="55%">
+    <stop offset="0" stop-color="${pnlColor}" stop-opacity="0.06"/>
     <stop offset="1" stop-color="${pnlColor}" stop-opacity="0"/>
   </radialGradient>
   <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="rgba(255,255,255,0.07)"/>
+    <stop offset="0" stop-color="rgba(255,255,255,0.08)"/>
     <stop offset="1" stop-color="rgba(255,255,255,0.02)"/>
   </linearGradient>
-  <linearGradient id="goldLine" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#ffd060"/>
-    <stop offset="0.5" stop-color="#f0a030"/>
-    <stop offset="1" stop-color="#c97d10"/>
+  <linearGradient id="glassPnl" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="rgba(255,255,255,0.06)"/>
+    <stop offset="0.5" stop-color="${pnlColor}08"/>
+    <stop offset="1" stop-color="rgba(255,255,255,0.01)"/>
   </linearGradient>
-  <pattern id="dots" width="40" height="40" patternUnits="userSpaceOnUse">
-    <circle cx="20" cy="20" r="0.9" fill="rgba(255,255,255,0.06)"/>
+  <linearGradient id="goldBar" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffd06000"/>
+    <stop offset="0.15" stop-color="#ffd060"/>
+    <stop offset="0.5" stop-color="#e8a020"/>
+    <stop offset="0.85" stop-color="#c97d10"/>
+    <stop offset="1" stop-color="#c97d1000"/>
+  </linearGradient>
+  <linearGradient id="headerLine" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#f0a030" stop-opacity="0.40"/>
+    <stop offset="0.5" stop-color="#f0a030" stop-opacity="0.12"/>
+    <stop offset="1" stop-color="#f0a030" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="footerFade" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#00000000"/>
+    <stop offset="1" stop-color="rgba(0,0,0,0.55)"/>
+  </linearGradient>
+  <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+    <circle cx="24" cy="24" r="0.6" fill="rgba(255,255,255,0.04)"/>
   </pattern>
   <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
-    <feDropShadow dx="0" dy="6" stdDeviation="14" flood-color="#000" flood-opacity="0.75"/>
+    <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000" flood-opacity="0.70"/>
+  </filter>
+  <filter id="shSm" x="-10%" y="-10%" width="120%" height="120%">
+    <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000" flood-opacity="0.50"/>
   </filter>
   <filter id="glowPnl" x="-40%" y="-40%" width="180%" height="180%">
-    <feGaussianBlur stdDeviation="7" result="b"/>
-    <feColorMatrix in="b" type="matrix" values="${isNeg ? "1 0 0 0 0.45  0 0 0 0 0  0 0 0 0 0.05  0 0 0 0.4 0" : "0 0 0 0 0  1 0 0 0 0.45  0 0 0 0 0.25  0 0 0 0.4 0"}" result="g"/>
+    <feGaussianBlur stdDeviation="8" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="${isNeg ? "1.2 0 0 0 0.4  0 0 0 0 0  0 0 0 0 0.05  0 0 0 0.45 0" : "0 0 0 0 0  1.2 0 0 0 0.4  0 0 0 0 0.2  0 0 0 0.45 0"}" result="g"/>
     <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
   </filter>
   <filter id="glowGold" x="-40%" y="-40%" width="180%" height="180%">
-    <feGaussianBlur stdDeviation="5" result="b"/>
-    <feColorMatrix in="b" type="matrix" values="1 0 0 0 0.4  0.5 0 0 0 0.25  0 0 0 0 0  0 0 0 0.35 0" result="g"/>
+    <feGaussianBlur stdDeviation="6" result="b"/>
+    <feColorMatrix in="b" type="matrix" values="1.2 0 0 0 0.35  0.6 0 0 0 0.2  0 0 0 0 0  0 0 0 0.4 0" result="g"/>
     <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
   </filter>
 </defs>
 
+<!-- Background layers -->
 <rect width="${W}" height="${H}" fill="url(#bg)"/>
-<rect width="${W}" height="${H}" fill="url(#dots)"/>
-<rect width="${W}" height="${H}" fill="url(#aura)"/>
-<rect width="${W}" height="${H}" fill="url(#pnlAura)"/>
-<rect x="0" y="0" width="5" height="${H}" fill="url(#goldLine)"/>
-<rect x="22" y="22" width="${W - 44}" height="${H - 44}" rx="26" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="1.5"/>
+<rect width="${W}" height="${H}" fill="url(#grid)"/>
+<rect width="${W}" height="${H}" fill="url(#auraGold)"/>
+<rect width="${W}" height="${H}" fill="url(#auraPnl)"/>
 
-<text x="50" y="78" font-family="Inter,Segoe UI,Arial" font-size="42" fill="#f0a030" font-weight="900" letter-spacing="1.5" filter="url(#glowGold)">FLEXBOT</text>
-<text x="${W - 50}" y="78" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(255,255,255,0.40)" font-weight="600" letter-spacing="4">DAILY RECAP</text>
-<line x1="50" y1="96" x2="${W - 50}" y2="96" stroke="rgba(240,160,48,0.15)" stroke-width="1"/>
+<!-- Left gold accent bar -->
+<rect x="0" y="0" width="4" height="${H}" fill="url(#goldBar)"/>
 
-${sub ? `<text x="${W / 2}" y="138" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="28" fill="rgba(255,255,255,0.58)" font-weight="500">${esc(sub)}</text>` : ""}
+<!-- Outer frame -->
+<rect x="18" y="18" width="${W - 36}" height="${H - 36}" rx="28" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="1"/>
+<rect x="19" y="19" width="${W - 38}" height="${H - 38}" rx="27" fill="none" stroke="rgba(240,160,48,0.06)" stroke-width="0.5"/>
 
+<!-- Header -->
+<text x="${pad}" y="76" font-family="Inter,Segoe UI,Arial" font-size="38" fill="#f0a030" font-weight="900" letter-spacing="2" filter="url(#glowGold)">FLEXBOT</text>
+<text x="${W - pad}" y="76" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="14" fill="rgba(255,255,255,0.30)" font-weight="600" letter-spacing="5">DAILY RECAP</text>
+<line x1="${pad}" y1="98" x2="${W - pad}" y2="98" stroke="url(#headerLine)" stroke-width="1"/>
+${sub ? `<text x="${W / 2}" y="132" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="26" fill="rgba(255,255,255,0.65)" font-weight="600" letter-spacing="2">${esc(sub)}</text>` : ""}
+
+<!-- Stat cards -->
 <g filter="url(#sh)">
-  <rect x="${stat1X}" y="${statsY}" width="${stat1W}" height="${statsH}" rx="18" fill="url(#glass)" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
-  <text x="${stat1X + stat1W / 2}" y="${statsY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.42)" letter-spacing="2.5">TRADES</text>
-  <text x="${stat1X + stat1W / 2}" y="${statsY + 120}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="78" fill="#ffffff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(closedCount ?? "-"))}</text>
+  <rect x="${stat1X}" y="${statsY}" width="${stat1W}" height="${statsH}" rx="16" fill="url(#glass)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+  <text x="${stat1X + stat1W / 2}" y="${statsY + 40}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="14" fill="rgba(255,255,255,0.35)" letter-spacing="3" font-weight="600">TRADES</text>
+  <text x="${stat1X + stat1W / 2}" y="${statsY + 115}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="72" fill="#ffffff" font-weight="900" style="font-variant-numeric: tabular-nums;">${esc(String(closedCount ?? "-"))}</text>
 
-  <rect x="${stat2X}" y="${statsY}" width="${stat2W}" height="${statsH}" rx="18" fill="url(#glass)" stroke="${borderColor}" stroke-width="1.5"/>
-  <text x="${stat2X + stat2W / 2}" y="${statsY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.42)" letter-spacing="2.5">TOTAL PnL</text>
-  <text x="${stat2X + stat2W / 2}" y="${statsY + 122}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${fitFs(pnlBig, stat2W - 40, 62, 28)}" fill="${pnlColor}" font-weight="900" filter="url(#glowPnl)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="16" fill="rgba(255,255,255,0.38)" font-weight="400"> USD</tspan></text>
+  <rect x="${stat2X}" y="${statsY}" width="${stat2W}" height="${statsH}" rx="16" fill="url(#glassPnl)" stroke="${borderColor}" stroke-width="1.5"/>
+  <text x="${stat2X + stat2W / 2}" y="${statsY + 40}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="14" fill="rgba(255,255,255,0.35)" letter-spacing="3" font-weight="600">TOTAL P&amp;L</text>
+  <text x="${stat2X + stat2W / 2}" y="${statsY + 117}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${fitFs(pnlBig, stat2W - 40, 58, 26)}" fill="${pnlColor}" font-weight="900" filter="url(#glowPnl)" style="font-variant-numeric: tabular-nums;">${pnlBig}<tspan font-size="14" fill="rgba(255,255,255,0.30)" font-weight="400"> USD</tspan></text>
 
-  ${pnlPct ? `<rect x="${stat3X}" y="${statsY}" width="${stat1W}" height="${statsH}" rx="18" fill="url(#glass)" stroke="${borderColor}" stroke-width="1"/>
-  <text x="${stat3X + stat1W / 2}" y="${statsY + 44}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.42)" letter-spacing="2.5">CHANGE</text>
-  <text x="${stat3X + stat1W / 2}" y="${stat3X > 0 ? statsY + 122 : statsY + 122}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${fitFs(pnlPct, stat1W - 32, 62, 28)}" fill="${pnlColor}" font-weight="900" filter="url(#glowPnl)" style="font-variant-numeric: tabular-nums;">${esc(pnlPct)}</text>` : ""}
+  ${pnlPct ? `<rect x="${stat3X}" y="${statsY}" width="${stat1W}" height="${statsH}" rx="16" fill="url(#glassPnl)" stroke="${borderColor}" stroke-width="1"/>
+  <text x="${stat3X + stat1W / 2}" y="${statsY + 40}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="14" fill="rgba(255,255,255,0.35)" letter-spacing="3" font-weight="600">CHANGE</text>
+  <text x="${stat3X + stat1W / 2}" y="${statsY + 117}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${fitFs(pnlPct, stat1W - 32, 58, 26)}" fill="${pnlColor}" font-weight="900" filter="url(#glowPnl)" style="font-variant-numeric: tabular-nums;">${esc(pnlPct)}</text>` : ""}
 </g>
 
-<line x1="${pad}" y1="${statsY + statsH + 26}" x2="${W - pad}" y2="${statsY + statsH + 26}" stroke="rgba(240,160,48,0.09)" stroke-width="1"/>
-<rect x="${W / 2 - 58}" y="${statsY + statsH + 15}" width="116" height="22" rx="11" fill="rgba(240,160,48,0.07)" stroke="rgba(240,160,48,0.16)" stroke-width="1"/>
-<text x="${W / 2}" y="${statsY + statsH + 30}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="12" fill="rgba(240,160,48,0.55)" letter-spacing="3.5" font-weight="700">TRADES</text>
+<!-- Trades section divider -->
+<line x1="${pad}" y1="${statsY + statsH + 32}" x2="${pad + 50}" y2="${statsY + statsH + 32}" stroke="rgba(240,160,48,0.25)" stroke-width="1"/>
+<text x="${pad + 62}" y="${statsY + statsH + 37}" font-family="Inter,Segoe UI,Arial" font-size="11" fill="rgba(240,160,48,0.45)" letter-spacing="4" font-weight="700">TRADES</text>
+<line x1="${pad + 138}" y1="${statsY + statsH + 32}" x2="${W - pad}" y2="${statsY + statsH + 32}" stroke="rgba(255,255,255,0.04)" stroke-width="0.5"/>
 
-${twoCols ? `<text x="${col1X}" y="${listStartY - 14}" font-family="Inter,Segoe UI,Arial" font-size="16" fill="rgba(240,160,48,0.50)" font-weight="700" letter-spacing="1">#1–${linesPerCol}</text>
-<text x="${col2X}" y="${listStartY - 14}" font-family="Inter,Segoe UI,Arial" font-size="16" fill="rgba(240,160,48,0.50)" font-weight="700" letter-spacing="1">#${linesPerCol + 1}–${showLines.length}</text>` : ""}
+<!-- Column headers (two-col mode) -->
+${twoCols ? `<text x="${col1X}" y="${listStartY - 14}" font-family="Inter,Segoe UI,Arial" font-size="13" fill="rgba(240,160,48,0.40)" font-weight="700" letter-spacing="2">#1 – ${linesPerCol}</text>
+<text x="${col2X}" y="${listStartY - 14}" font-family="Inter,Segoe UI,Arial" font-size="13" fill="rgba(240,160,48,0.40)" font-weight="700" letter-spacing="2">#${linesPerCol + 1} – ${showLines.length}</text>` : ""}
 
+<!-- Trade rows -->
 ${linesSvg}
 
-${showCorner ? `<g opacity="0.62"><image x="570" y="590" width="470" height="470" href="${cornerDataUri}" preserveAspectRatio="xMidYMid meet"/></g>` : ""}
-
-<rect x="0" y="${H - 60}" width="${W}" height="60" fill="rgba(0,0,0,0.40)"/>
-<line x1="5" y1="${H - 60}" x2="${W}" y2="${H - 60}" stroke="rgba(240,160,48,0.18)" stroke-width="1"/>
+<!-- Footer -->
+<rect x="0" y="${H - 70}" width="${W}" height="70" fill="url(#footerFade)"/>
+<line x1="4" y1="${H - 70}" x2="${W}" y2="${H - 70}" stroke="rgba(240,160,48,0.12)" stroke-width="0.5"/>
 ${logoDataUri
-  ? `<g opacity="0.88"><image x="${(W - 200) / 2}" y="${H - 52}" width="200" height="44" href="${logoDataUri}" preserveAspectRatio="xMidYMid meet"/></g>`
-  : `<text x="${W / 2}" y="${H - 18}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="22" fill="rgba(240,160,48,0.80)" letter-spacing="8" font-weight="900">FLEXBOT</text>`}
-${pageLabel ? `<text x="${W - pad}" y="${H - 18}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="17" fill="rgba(255,255,255,0.32)">${esc(pageLabel)}</text>` : ""}
+  ? `<g opacity="0.85"><image x="${(W - 180) / 2}" y="${H - 54}" width="180" height="38" href="${logoDataUri}" preserveAspectRatio="xMidYMid meet"/></g>`
+  : `<text x="${W / 2}" y="${H - 22}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(240,160,48,0.65)" letter-spacing="10" font-weight="900">FLEXBOT</text>`}
+${pageLabel ? `<text x="${W - pad}" y="${H - 22}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="15" fill="rgba(255,255,255,0.25)">${esc(pageLabel)}</text>` : ""}
 </svg>`;
 }
 
