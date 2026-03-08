@@ -6440,6 +6440,19 @@ app.get("/api/mc/state", async (req, res) => {
   }
 });
 
+// POST /api/mc/reset-daily  (?key=DASHBOARD_KEY) — reset daily loss state
+app.post("/api/mc/reset-daily", (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const symbol = String(req.query.symbol || "XAUUSD");
+    const fp = riskStatePath("risk-day", symbol);
+    writeJsonFileSafe(fp, { dayKey: "", startEquity: null, updatedAtMs: 0 });
+    return res.json({ ok: true, reset: fp });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /mc  (?key=DASHBOARD_KEY) — HTML dashboard
 app.get("/mc", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
