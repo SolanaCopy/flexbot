@@ -6533,40 +6533,38 @@ app.get("/mc", async (req, res) => {
   .ea-row{display:flex;justify-content:space-between;align-items:center;font-size:.75rem;color:var(--muted2);margin-top:5px}
   .ea-row span:last-child{color:var(--text)}
 
-  /* ── Agent Office (modern cards) ── */
-  .agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
-  .agent-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px;transition:all .3s ease;position:relative;overflow:hidden}
-  .agent-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;opacity:.6;transition:all .3s}
-  .agent-card.online::before{background:linear-gradient(90deg,transparent,var(--green),transparent)}
-  .agent-card.idle::before{background:linear-gradient(90deg,transparent,var(--orange),transparent)}
-  .agent-card.offline::before{background:linear-gradient(90deg,transparent,#2d3748,transparent)}
-  .agent-card:hover{border-color:var(--cyan);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
-  /* Avatar with status ring */
-  .agent-avatar{position:relative;width:56px;height:56px;flex-shrink:0}
-  .agent-avatar-ring{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .3s}
-  .agent-card.online .agent-avatar-ring{background:conic-gradient(var(--green) 0%,#052e16 30%,var(--green) 60%,#052e16 100%);animation:ringRotate 3s linear infinite}
-  .agent-card.idle .agent-avatar-ring{background:conic-gradient(var(--orange) 0%,#1c0a00 30%,var(--orange) 60%,#1c0a00 100%);animation:ringRotate 6s linear infinite}
-  .agent-card.offline .agent-avatar-ring{background:#1e2535}
-  @keyframes ringRotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
-  .agent-avatar-inner{width:48px;height:48px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:800;color:var(--cyan);letter-spacing:.03em;text-transform:uppercase}
-  .agent-card.offline .agent-avatar-inner{color:var(--muted)}
-  /* Status dot on avatar */
-  .agent-status-dot{position:absolute;bottom:2px;right:2px;width:12px;height:12px;border-radius:50%;border:2px solid var(--surface2)}
-  .agent-card.online .agent-status-dot{background:var(--green);box-shadow:0 0 8px var(--green)}
-  .agent-card.idle .agent-status-dot{background:var(--orange);box-shadow:0 0 8px var(--orange)}
-  .agent-card.offline .agent-status-dot{background:#2d3748}
-  /* Agent info */
-  .agent-name{font-size:.85rem;font-weight:700;color:#fff;text-transform:capitalize}
-  .agent-status-label{font-size:.62rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
-  .agent-card.online .agent-status-label{color:var(--green)}
-  .agent-card.idle .agent-status-label{color:var(--orange)}
-  .agent-card.offline .agent-status-label{color:#2d3748}
-  .agent-meta{width:100%;display:flex;flex-direction:column;gap:4px;font-size:.68rem;color:var(--muted2)}
-  .agent-meta-row{display:flex;justify-content:space-between;align-items:center}
-  .agent-meta-row span:last-child{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
-  /* Control buttons */
-  .agent-btns{display:flex;gap:4px;width:100%}
-  .btn{border:none;border-radius:6px;padding:5px 0;font-size:.65rem;cursor:pointer;font-weight:700;transition:all .15s;letter-spacing:.03em;flex:1;text-align:center}
+  /* ── Bot office (pixel art) ── */
+  .office-room{background:#0a0e1a;border-radius:10px;overflow:hidden;border:1px solid #131b30;position:relative}
+  .office-floor{height:10px;background:#0a0e1a;border-top:1px solid #14203a}
+  /* Wall decoration strip */
+  .px-wall{display:flex;align-items:flex-end;justify-content:center;gap:0;padding:8px 12px 0;background:#121a2e;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0px,rgba(255,255,255,.012) 1px,transparent 1px,transparent 32px);border-bottom:2px solid #1a2440;position:relative;z-index:1;min-height:72px}
+  .px-wall-item{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;flex-shrink:0}
+  /* Office floor area with workstations */
+  .px-office-wrap{display:flex;align-items:flex-end;background:#0a0e1a;position:relative;z-index:2;padding:0 4px 0}
+  .px-side-deco{flex-shrink:0;image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;align-self:flex-end;margin-bottom:4px}
+  .px-office{display:grid;grid-template-columns:repeat(4,1fr);gap:0;padding:12px 4px 4px;flex:1;min-width:0}
+  .px-station{display:flex;flex-direction:column;align-items:center;position:relative}
+  .px-scene{position:relative;width:140px;height:130px;margin:0 auto}
+  /* Sprite rendering */
+  .px-sprite{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;position:absolute}
+  .px-desk{width:128px;height:128px;bottom:0;left:6px}
+  .px-pc{width:96px;height:96px;bottom:38px;left:22px;z-index:3}
+  .px-chair{width:64px;height:64px;bottom:2px;left:38px;z-index:1}
+  .px-char{width:64px;height:64px;bottom:12px;left:38px;z-index:2;background-size:448px 384px}
+  .px-plant-sm{width:48px;height:96px;position:absolute;right:-6px;bottom:0;z-index:4;image-rendering:pixelated;image-rendering:crisp-edges}
+  /* Character animation: front walk row 0, 4 frames, 16px each scaled 4x */
+  .px-char.walk{background-position:0 0;animation:pxWalk .6s steps(4) infinite}
+  .px-char.idle-char{background-position:0 0}
+  .px-char.seated-back{background-position:0 -192px}
+  @keyframes pxWalk{from{background-position:0 0}to{background-position:-256px 0}}
+  /* Status labels */
+  .ws-name{font-size:.57rem;color:var(--muted);text-align:center;margin-top:3px;font-family:monospace;letter-spacing:.07em}
+  .ws-stat{font-size:.55rem;font-weight:800;text-align:center;letter-spacing:.07em}
+  .ws-stat.online{color:var(--green)}
+  .ws-stat.idle{color:var(--orange)}
+  .ws-stat.offline{color:#2d3748}
+  .ws-btns{display:flex;gap:3px;margin-top:4px;justify-content:center}
+  .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-weight:700;transition:all .15s;letter-spacing:.03em}
   .btn-start{background:#052e16;color:var(--green);border:1px solid #166534}
   .btn-stop{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
   .btn-restart{background:#0c1a2e;color:var(--blue);border:1px solid #1d4ed8}
@@ -6618,7 +6616,10 @@ app.get("/mc", async (req, res) => {
     </div>
     <div class="card">
       <div class="card-title"><span class="card-title-icon">&#127970;</span> Agent Office</div>
-      <div class="agent-grid" id="bots-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+      <div class="office-room">
+        <div id="bots-body"><div style="color:var(--muted);font-size:.8rem;padding:20px 12px">laden...</div></div>
+        <div class="office-floor"></div>
+      </div>
     </div>
   </div>
   <div class="card">
@@ -6791,14 +6792,27 @@ async function load(){
       }).join('');
     }
 
-    // Bots — modern agent cards
+    // Bots — pixel art office
     const BOT_IDS=['bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
-    const BOT_ICONS={'bot-default':'D','bot-affiliate':'A','bot-fxcopie':'F','bot-builder':'B'};
+    const BOT_CHAR_IDX={'bot-default':0,'bot-affiliate':1,'bot-fxcopie':2,'bot-builder':3};
     const botMap={};
     (d.bots||[]).forEach(b=>{botMap[b.bot_id]=b;});
     const botsEl=document.getElementById('bots-body');
 
-    const cardsHtml=BOT_IDS.map(id=>{
+    // Pixel art kantoor
+    // Wall decoration strip
+    const wallHtml='<div class="px-wall">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.fullBookshelfTall+'" style="width:32px;height:64px">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.windowDoubleWhite+'" style="width:64px;height:64px">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.chartSm1+'" style="width:64px;height:64px">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.clockWall+'" style="width:32px;height:64px">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.chartSm2+'" style="width:64px;height:64px">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.windowDoubleWhite+'" style="width:64px;height:64px">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.coffeeMachine+'" style="width:32px;height:64px">'+
+    '</div>';
+
+    // Build workstation grid
+    const stationsHtml=BOT_IDS.map((id,idx)=>{
       const b=botMap[id];
       const hbFresh=b&&b.age_mins<15;
       let status='offline';
@@ -6810,22 +6824,14 @@ async function load(){
         status=actMins<30?'online':'idle';
       }
       const shortName=id.replace('bot-','');
-      const icon=BOT_ICONS[id]||'?';
-      const lastAction=b&&b.last_action?b.last_action:'—';
-      const heartbeat=b?ageFmt(b.updated_at_ms):'—';
-
-      return '<div class="agent-card '+status+'">'+
-        '<div class="agent-avatar">'+
-          '<div class="agent-avatar-ring"><div class="agent-avatar-inner">'+icon+'</div></div>'+
-          '<div class="agent-status-dot"></div>'+
-        '</div>'+
-        '<div class="agent-name">'+shortName+'</div>'+
-        '<div class="agent-status-label">'+status.toUpperCase()+'</div>'+
-        '<div class="agent-meta">'+
-          '<div class="agent-meta-row"><span>Laatste actie</span><span>'+lastAction+'</span></div>'+
-          '<div class="agent-meta-row"><span>Heartbeat</span><span>'+heartbeat+'</span></div>'+
-        '</div>'+
-        '<div class="agent-btns">'+
+      const statusLabel=status==='online'?'\\u25cf ONLINE':status==='idle'?'\\u25cf IDLE':'\\u25cb OFFLINE';
+      const charIdx=BOT_CHAR_IDX[id]||0;
+      const showPlant=idx===0||idx===3;
+      return '<div class="px-station">'+
+        makeWorkstation(charIdx,status,showPlant)+
+        '<div class="ws-name">'+shortName+'</div>'+
+        '<div class="ws-stat '+status+'">'+statusLabel+'</div>'+
+        '<div class="ws-btns">'+
           '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Start">&#9654;</button>'+
           '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Stop">&#9646;&#9646;</button>'+
           '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Restart">&#8635;</button>'+
@@ -6833,7 +6839,15 @@ async function load(){
       '</div>';
     }).join('');
 
-    botsEl.innerHTML=cardsHtml;
+    // Assemble office: wall + floor with side decorations + workstations
+    const officeHtml=wallHtml+
+      '<div class="px-office-wrap">'+
+        '<img class="px-side-deco" src="'+PX_SPRITES.plant2+'" style="width:48px;height:96px">'+
+        '<div class="px-office">'+stationsHtml+'</div>'+
+        '<img class="px-side-deco" src="'+PX_SPRITES.waterCooler+'" style="width:48px;height:96px">'+
+      '</div>';
+
+    botsEl.innerHTML=officeHtml;
 
     // Trade Gates
     if(d.trade_gates){
