@@ -6718,7 +6718,10 @@ function makeWorkstation(charIdx, status, showPlant){
 
 async function load(){
   try{
-    const r=await fetch(BASE+'/api/mc/state?key='+encodeURIComponent(KEY));
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),15000);
+    const r=await fetch(BASE+'/api/mc/state?key='+encodeURIComponent(KEY),{signal:ctrl.signal});
+    clearTimeout(timer);
     if(!r.ok){
       const eb=document.getElementById('error-banner');
       eb.textContent='Load error: HTTP '+r.status;
@@ -6802,7 +6805,7 @@ async function load(){
       if(hbFresh){
         status=b.status;
       }else if(gwResolved){
-        const actMatch=b&&b.last_action?b.last_action.match(/(\d+)(m|u)\s*(?:geleden|ago)/):null;
+        const actMatch=b&&b.last_action?b.last_action.match(/(\\d+)(m|u)\\s*(?:geleden|ago)/):null;
         const actMins=actMatch?(actMatch[2]==='u'?Number(actMatch[1])*60:Number(actMatch[1])):Infinity;
         status=actMins<30?'online':'idle';
       }
@@ -6823,9 +6826,9 @@ async function load(){
           '<div class="agent-meta-row"><span>Heartbeat</span><span>'+heartbeat+'</span></div>'+
         '</div>'+
         '<div class="agent-btns">'+
-          '<button class="btn btn-start" onclick="sendCommand(\''+id+'\',\'start\')" title="Start">&#9654;</button>'+
-          '<button class="btn btn-stop" onclick="sendCommand(\''+id+'\',\'stop\')" title="Stop">&#9646;&#9646;</button>'+
-          '<button class="btn btn-restart" onclick="sendCommand(\''+id+'\',\'restart\')" title="Restart">&#8635;</button>'+
+          '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Start">&#9654;</button>'+
+          '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Stop">&#9646;&#9646;</button>'+
+          '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Restart">&#8635;</button>'+
         '</div>'+
       '</div>';
     }).join('');
