@@ -6320,8 +6320,7 @@ app.get("/api/mc/state", async (req, res) => {
     // ── Trade Gates evaluatie ──
     const symbol = "XAUUSD";
     const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
-    const maxDailyLossPctRaw = Number(process.env.MAX_DAILY_LOSS_PCT || 15);
-    const maxDailyLossPct = Number.isFinite(maxDailyLossPctRaw) && maxDailyLossPctRaw > 0 ? maxDailyLossPctRaw : 3.8;
+    const maxDailyLossPct = 5;
     const maxConsecLossRaw = Number(process.env.MAX_CONSEC_LOSSES || 3);
     const maxConsecLosses = Number.isFinite(maxConsecLossRaw) && maxConsecLossRaw > 0 ? Math.floor(maxConsecLossRaw) : 3;
 
@@ -6381,27 +6380,21 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
-    // Daily loss — lees equity van Flexbot test account, vergelijk met start-of-day
+    // Daily loss — gebruik start-of-day balance (na 00:00 reset), max 5% drawdown
     try {
       const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.equity != null);
       const currentEq = latestEa ? latestEa.equity : NaN;
       if (Number.isFinite(currentEq) && currentEq > 0) {
-        // Lees start-of-day equity uit state bestand
-        const fp = riskStatePath("risk-day", symbol);
-        const dayKey = dayKeyInTz(riskTz);
-        const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
-        let startEq = Number(st?.startEquity);
-        // Sanity check: als startEquity meer dan 50% afwijkt van currentEq,
-        // is het waarschijnlijk van een ander account → niet betrouwbaar
-        const sane = Number.isFinite(startEq) && startEq > 0 &&
-          st.dayKey === dayKey &&
-          Math.abs(startEq - currentEq) / startEq < 0.5;
-        if (!sane) startEq = currentEq; // fallback: vandaag nog geen betrouwbare start
-        const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
+        const dayState = getAndUpdateDailyEquityStart({ symbol, tz: riskTz, equityUsd: currentEq });
+        const startEq = Number(dayState.startEquity);
+        const ddPct = Number.isFinite(startEq) && startEq > 0
+          ? Math.max(0, ((startEq - currentEq) / startEq) * 100.0)
+          : 0;
         trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
-        trade_gates.daily_loss.start_equity = Number(startEq.toFixed(2));
+        trade_gates.daily_loss.start_equity = Number.isFinite(startEq) ? Number(startEq.toFixed(2)) : null;
         trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
-        if (ddPct >= maxDailyLossPct) {
+        trade_gates.daily_loss.max = 5;
+        if (ddPct >= 5) {
           trade_gates.daily_loss.pass = false;
           setBlocked("daily_loss");
         }
