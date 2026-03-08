@@ -4520,7 +4520,7 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
 
   // Layout
   const panelX = 560;
-  const panelY = 250; // moved down slightly (Boss request)
+  const panelY = 310; // moved down (Boss request)
   const panelW = 480;
   const panelH = 450;
 
