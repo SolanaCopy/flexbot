@@ -4061,8 +4061,14 @@ async function tgSendVideo({ chatId, video, caption }) {
   return json;
 }
 
-async function fetchJson(url) {
-  const r = await fetchFn(url);
+async function fetchJson(url, timeoutMs) {
+  const opts = {};
+  if (timeoutMs) {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), timeoutMs);
+    opts.signal = ctrl.signal;
+  }
+  const r = await fetchFn(url, opts);
   if (!r.ok) {
     const text = await r.text().catch(() => "");
     throw new Error(`http_${r.status}: ${text}`);
@@ -6348,7 +6354,7 @@ app.get("/api/mc/state", async (req, res) => {
 
     // News blackout
     try {
-      const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=30`);
+      const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=30`, 5000);
       if (blackoutR?.ok && blackoutR.blackout) {
         trade_gates.news_blackout.pass = false;
         trade_gates.news_blackout.next_event = blackoutR.next_event || null;
@@ -6372,7 +6378,7 @@ app.get("/api/mc/state", async (req, res) => {
     // Cooldown
     try {
       const cooldownMin = Number(process.env.AUTO_SCALP_COOLDOWN_MIN || 15);
-      const cd = await fetchJson(`${BASE_URL}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`);
+      const cd = await fetchJson(`${BASE_URL}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`, 5000);
       if (cd?.ok && cd.remaining_ms > 0) {
         trade_gates.cooldown.pass = false;
         trade_gates.cooldown.remaining_min = Math.ceil(cd.remaining_ms / 60000);
@@ -6424,7 +6430,7 @@ app.get("/api/mc/state", async (req, res) => {
 
     // Trend bias
     try {
-      const candlesR = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`);
+      const candlesR = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`, 5000);
       if (candlesR?.ok && Array.isArray(candlesR?.candles)) {
         const biasR = trendBiasFromCandles(candlesR.candles, 20, 50);
         trade_gates.trend_bias.bias = biasR.bias || "none";
