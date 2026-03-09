@@ -6380,23 +6380,33 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
-    // Daily loss — gebruik start-of-day balance (na 00:00 reset), max 5% drawdown
+    // Daily loss — read-only: lees state bestand zonder te schrijven
     try {
       const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.equity != null);
       const currentEq = latestEa ? latestEa.equity : NaN;
       if (Number.isFinite(currentEq) && currentEq > 0) {
-        const dayState = getAndUpdateDailyEquityStart({ symbol, tz: riskTz, equityUsd: currentEq });
-        const startEq = Number(dayState.startEquity);
-        const ddPct = Number.isFinite(startEq) && startEq > 0
-          ? Math.max(0, ((startEq - currentEq) / startEq) * 100.0)
-          : 0;
-        trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
-        trade_gates.daily_loss.start_equity = Number.isFinite(startEq) ? Number(startEq.toFixed(2)) : null;
-        trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
-        trade_gates.daily_loss.max = 5;
-        if (ddPct >= 5) {
-          trade_gates.daily_loss.pass = false;
-          setBlocked("daily_loss");
+        const fp = riskStatePath("risk-day", symbol);
+        const dayKey = dayKeyInTz(riskTz);
+        const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
+        let startEq = Number(st?.startEquity);
+        // Alleen geldig als het van vandaag is
+        const valid = Number.isFinite(startEq) && startEq > 0 && st.dayKey === dayKey;
+        if (valid) {
+          const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
+          trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
+          trade_gates.daily_loss.start_equity = Number(startEq.toFixed(2));
+          trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
+          trade_gates.daily_loss.max = 5;
+          if (ddPct >= 5) {
+            trade_gates.daily_loss.pass = false;
+            setBlocked("daily_loss");
+          }
+        } else {
+          // Geen geldige start equity voor vandaag — niet blokkeren
+          trade_gates.daily_loss.dd_pct = 0;
+          trade_gates.daily_loss.start_equity = null;
+          trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
+          trade_gates.daily_loss.max = 5;
         }
       }
     } catch { /* best effort */ }
