@@ -6563,16 +6563,22 @@ app.get("/mc", async (req, res) => {
   .ea-row span:last-child{color:var(--text)}
 
   /* ── Bot office (pixel art) ── */
-  .office-room{background:#0a0e1a;border-radius:10px;overflow:hidden;border:1px solid #131b30;position:relative}
-  .office-floor{height:10px;background:#0a0e1a;border-top:1px solid #14203a}
+  .office-room{background:linear-gradient(180deg,#0c1220 0%,#070b14 100%);border-radius:12px;overflow:hidden;border:1px solid #1a2440;position:relative}
+  .office-room::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.02) 3px,rgba(0,0,0,.02) 4px);pointer-events:none;z-index:10}
+  .office-floor{height:6px;background:linear-gradient(180deg,#0e1525,#080c16);border-top:1px solid #14203a}
   /* Wall decoration strip */
-  .px-wall{display:flex;align-items:flex-end;justify-content:center;gap:0;padding:8px 12px 0;background:#121a2e;background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0px,rgba(255,255,255,.012) 1px,transparent 1px,transparent 32px);border-bottom:2px solid #1a2440;position:relative;z-index:1;min-height:72px}
-  .px-wall-item{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;flex-shrink:0}
+  .px-wall{display:flex;align-items:flex-end;justify-content:center;gap:4px;padding:10px 16px 0;background:linear-gradient(180deg,#0f1729 0%,#121a2e 100%);background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.015) 0px,rgba(255,255,255,.015) 1px,transparent 1px,transparent 40px);border-bottom:2px solid #1a2440;position:relative;z-index:1;min-height:78px}
+  .px-wall-item{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;flex-shrink:0;opacity:.85;transition:opacity .3s}
+  .office-room:hover .px-wall-item{opacity:1}
   /* Office floor area with workstations */
-  .px-office-wrap{display:flex;align-items:flex-end;background:#0a0e1a;position:relative;z-index:2;padding:0 4px 0}
-  .px-side-deco{flex-shrink:0;image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;align-self:flex-end;margin-bottom:4px}
-  .px-office{display:grid;grid-template-columns:repeat(4,1fr);gap:0;padding:12px 4px 4px;flex:1;min-width:0}
-  .px-station{display:flex;flex-direction:column;align-items:center;position:relative}
+  .px-office-wrap{display:flex;align-items:flex-end;background:transparent;position:relative;z-index:2;padding:0 8px}
+  .px-side-deco{flex-shrink:0;image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;align-self:flex-end;margin-bottom:4px;opacity:.7}
+  .px-office{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:14px 8px 6px;flex:1;min-width:0}
+  @media(max-width:700px){.px-office{grid-template-columns:repeat(2,1fr);gap:10px}}
+  .px-station{display:flex;flex-direction:column;align-items:center;position:relative;padding:6px 2px 8px;border-radius:8px;transition:all .3s}
+  .px-station:hover{background:rgba(255,255,255,.03)}
+  .px-station.st-online{background:rgba(74,222,128,.03);box-shadow:0 0 20px rgba(74,222,128,.05)}
+  .px-station.st-idle{background:rgba(251,191,36,.02)}
   .px-scene{position:relative;width:140px;height:130px;margin:0 auto}
   /* Sprite rendering */
   .px-sprite{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;position:absolute}
@@ -6581,18 +6587,25 @@ app.get("/mc", async (req, res) => {
   .px-chair{width:64px;height:64px;bottom:2px;left:38px;z-index:1}
   .px-char{width:64px;height:64px;bottom:12px;left:38px;z-index:2;background-size:448px 384px}
   .px-plant-sm{width:48px;height:96px;position:absolute;right:-6px;bottom:0;z-index:4;image-rendering:pixelated;image-rendering:crisp-edges}
-  /* Character animation: front walk row 0, 4 frames, 16px each scaled 4x */
+  /* Character animation */
   .px-char.walk{background-position:0 0;animation:pxWalk .6s steps(4) infinite}
   .px-char.idle-char{background-position:0 0}
   .px-char.seated-back{background-position:0 -192px}
   @keyframes pxWalk{from{background-position:0 0}to{background-position:-256px 0}}
-  /* Status labels */
-  .ws-name{font-size:.57rem;color:var(--muted);text-align:center;margin-top:3px;font-family:monospace;letter-spacing:.07em}
-  .ws-stat{font-size:.55rem;font-weight:800;text-align:center;letter-spacing:.07em}
+  /* Status nameplate */
+  .ws-nameplate{margin-top:6px;text-align:center;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)}
+  .ws-name{font-size:.62rem;color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+  .ws-stat{font-size:.5rem;font-weight:800;letter-spacing:.1em;margin-top:1px}
   .ws-stat.online{color:var(--green)}
   .ws-stat.idle{color:var(--orange)}
   .ws-stat.offline{color:#2d3748}
-  .ws-btns{display:flex;gap:3px;margin-top:4px;justify-content:center}
+  /* Status LED */
+  .ws-led{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:3px;vertical-align:middle}
+  .ws-led.online{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .ws-led.idle{background:var(--orange);box-shadow:0 0 4px var(--orange)}
+  .ws-led.offline{background:#2d3748}
+  /* Control buttons */
+  .ws-btns{display:flex;gap:3px;margin-top:5px;justify-content:center}
   .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-weight:700;transition:all .15s;letter-spacing:.03em}
   .btn-start{background:#052e16;color:var(--green);border:1px solid #166534}
   .btn-stop{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
@@ -6852,13 +6865,14 @@ async function load(){
         status=actMins<10?'online':'idle';
       }
       const shortName=id.replace('bot-','');
-      const statusLabel=status==='online'?'\\u25cf ONLINE':status==='idle'?'\\u25cf IDLE':'\\u25cb OFFLINE';
       const charIdx=BOT_CHAR_IDX[id]||0;
       const showPlant=idx===0||idx===3;
-      return '<div class="px-station">'+
+      return '<div class="px-station st-'+status+'">'+
         makeWorkstation(charIdx,status,showPlant)+
-        '<div class="ws-name">'+shortName+'</div>'+
-        '<div class="ws-stat '+status+'">'+statusLabel+'</div>'+
+        '<div class="ws-nameplate">'+
+          '<div class="ws-name">'+shortName+'</div>'+
+          '<div class="ws-stat '+status+'"><span class="ws-led '+status+'"></span>'+status.toUpperCase()+'</div>'+
+        '</div>'+
         '<div class="ws-btns">'+
           '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Start">&#9654;</button>'+
           '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Stop">&#9646;&#9646;</button>'+
