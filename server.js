@@ -6842,15 +6842,16 @@ async function load(){
     const botsEl=document.getElementById('bots-body');
 
     // Pixel art kantoor
-    // Wall decoration strip
+    // Wall decoration strip — symmetrische indeling
     const wallHtml='<div class="px-wall">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.coffeeMachine+'" style="width:32px;height:64px">'+
       '<img class="px-wall-item" src="'+PX_SPRITES.fullBookshelfTall+'" style="width:32px;height:64px">'+
       '<img class="px-wall-item" src="'+PX_SPRITES.windowDoubleWhite+'" style="width:64px;height:64px">'+
       '<img class="px-wall-item" src="'+PX_SPRITES.chartSm1+'" style="width:64px;height:64px">'+
       '<img class="px-wall-item" src="'+PX_SPRITES.clockWall+'" style="width:32px;height:64px">'+
       '<img class="px-wall-item" src="'+PX_SPRITES.chartSm2+'" style="width:64px;height:64px">'+
       '<img class="px-wall-item" src="'+PX_SPRITES.windowDoubleWhite+'" style="width:64px;height:64px">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.coffeeMachine+'" style="width:32px;height:64px">'+
+      '<img class="px-wall-item" src="'+PX_SPRITES.fullBookshelfTall+'" style="width:32px;height:64px">'+
     '</div>';
 
     // Build workstation grid
@@ -6866,7 +6867,7 @@ async function load(){
       }
       const shortName=id.replace('bot-','');
       const charIdx=BOT_CHAR_IDX[id]||0;
-      const showPlant=idx===0||idx===3;
+      const showPlant=true;
       return '<div class="px-station st-'+status+'">'+
         makeWorkstation(charIdx,status,showPlant)+
         '<div class="ws-nameplate">'+
@@ -6884,9 +6885,15 @@ async function load(){
     // Assemble office: wall + floor with side decorations + workstations
     const officeHtml=wallHtml+
       '<div class="px-office-wrap">'+
-        '<img class="px-side-deco" src="'+PX_SPRITES.plant2+'" style="width:48px;height:96px">'+
+        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">'+
+          '<img class="px-side-deco" src="'+PX_SPRITES.plant3+'" style="width:40px;height:80px">'+
+          '<img class="px-side-deco" src="'+PX_SPRITES.waterCooler+'" style="width:40px;height:80px">'+
+        '</div>'+
         '<div class="px-office">'+stationsHtml+'</div>'+
-        '<img class="px-side-deco" src="'+PX_SPRITES.waterCooler+'" style="width:48px;height:96px">'+
+        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">'+
+          '<img class="px-side-deco" src="'+PX_SPRITES.coffeeMachine+'" style="width:32px;height:64px">'+
+          '<img class="px-side-deco" src="'+PX_SPRITES.plant2+'" style="width:40px;height:80px">'+
+        '</div>'+
       '</div>';
 
     botsEl.innerHTML=officeHtml;
