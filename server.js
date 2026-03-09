@@ -6562,70 +6562,77 @@ app.get("/mc", async (req, res) => {
   .ea-row{display:flex;justify-content:space-between;align-items:center;font-size:.75rem;color:var(--muted2);margin-top:5px}
   .ea-row span:last-child{color:var(--text)}
 
-  /* ── Bot office (pixel art) ── */
-  .office-room{background:linear-gradient(180deg,#0c1220 0%,#070b14 100%);border-radius:12px;overflow:hidden;border:1px solid #1a2440;position:relative}
-  /* Ambient ceiling lights */
-  .office-room::before{content:'';position:absolute;top:0;left:0;right:0;height:120px;background:radial-gradient(ellipse 25% 60% at 20% 0%,rgba(34,211,238,.04),transparent),radial-gradient(ellipse 25% 60% at 50% 0%,rgba(251,191,36,.03),transparent),radial-gradient(ellipse 25% 60% at 80% 0%,rgba(34,211,238,.04),transparent);pointer-events:none;z-index:5;animation:ambientShift 8s ease-in-out infinite alternate}
-  @keyframes ambientShift{0%{opacity:.7}50%{opacity:1}100%{opacity:.8}}
-  .office-floor{height:8px;background:linear-gradient(180deg,#0e1525,#080c16);border-top:1px solid #14203a;position:relative}
-  .office-floor::after{content:'';position:absolute;top:0;left:10%;right:10%;height:1px;background:linear-gradient(90deg,transparent,rgba(34,211,238,.08),transparent)}
-  /* Wall decoration strip */
-  .px-wall{display:flex;align-items:flex-end;justify-content:center;gap:6px;padding:12px 16px 0;background:linear-gradient(180deg,#0d1525 0%,#111d33 100%);border-bottom:2px solid #1a2440;position:relative;z-index:1;min-height:82px}
-  /* Wall texture */
-  .px-wall::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(255,255,255,.008) 0px,rgba(255,255,255,.008) 1px,transparent 1px,transparent 48px),repeating-linear-gradient(0deg,rgba(255,255,255,.005) 0px,rgba(255,255,255,.005) 1px,transparent 1px,transparent 24px);pointer-events:none}
-  .px-wall-item{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;flex-shrink:0;transition:all .3s;filter:brightness(.9)}
-  .px-wall-item:hover{filter:brightness(1.1);transform:scale(1.05)}
-  /* Office floor area with workstations */
-  .px-office-wrap{display:flex;align-items:flex-end;background:transparent;position:relative;z-index:2;padding:0 8px}
-  .px-side-deco{flex-shrink:0;image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;align-self:flex-end;margin-bottom:4px;opacity:.75;transition:opacity .5s}
-  .office-room:hover .px-side-deco{opacity:.9}
-  .px-office{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:16px 8px 8px;flex:1;min-width:0}
-  @media(max-width:700px){.px-office{grid-template-columns:repeat(2,1fr);gap:12px}}
-  .px-station{display:flex;flex-direction:column;align-items:center;position:relative;padding:8px 4px 10px;border-radius:10px;transition:all .4s ease}
-  .px-station:hover{transform:translateY(-2px)}
-  /* Station glow per status */
-  .px-station.st-online{background:radial-gradient(ellipse at 50% 30%,rgba(74,222,128,.06),transparent 70%);box-shadow:0 4px 24px rgba(74,222,128,.08)}
-  .px-station.st-idle{background:radial-gradient(ellipse at 50% 30%,rgba(251,191,36,.04),transparent 70%);box-shadow:0 4px 20px rgba(251,191,36,.05)}
-  .px-station.st-offline{opacity:.5;filter:grayscale(.3)}
-  .px-station.st-offline:hover{opacity:.7}
-  .px-scene{position:relative;width:140px;height:130px;margin:0 auto}
-  /* Sprite rendering */
-  .px-sprite{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;position:absolute}
-  .px-desk{width:128px;height:128px;bottom:0;left:6px}
-  .px-pc{width:96px;height:96px;bottom:38px;left:22px;z-index:3}
-  /* Monitor glow for active bots */
-  .st-online .px-pc,.st-idle .px-pc{filter:drop-shadow(0 0 6px rgba(34,211,238,.3))}
-  .st-online .px-pc{animation:monitorGlow 3s ease-in-out infinite alternate}
-  @keyframes monitorGlow{0%{filter:drop-shadow(0 0 4px rgba(34,211,238,.2))}100%{filter:drop-shadow(0 0 10px rgba(34,211,238,.4))}}
-  .px-chair{width:64px;height:64px;bottom:2px;left:38px;z-index:1}
-  .px-char{width:64px;height:64px;bottom:12px;left:38px;z-index:2;background-size:448px 384px;transition:opacity .3s}
-  .px-plant-sm{width:48px;height:96px;position:absolute;right:-6px;bottom:0;z-index:4;image-rendering:pixelated;image-rendering:crisp-edges;animation:plantSway 4s ease-in-out infinite alternate}
-  @keyframes plantSway{0%{transform:rotate(0deg)}50%{transform:rotate(1deg)}100%{transform:rotate(-1deg)}}
-  /* Character animation */
-  .px-char.walk{background-position:0 0;animation:pxWalk .6s steps(4) infinite}
-  .px-char.idle-char{background-position:0 0;animation:charBreathe 3s ease-in-out infinite}
-  .px-char.seated-back{background-position:0 -192px;animation:charBreathe 3s ease-in-out infinite}
-  @keyframes pxWalk{from{background-position:0 0}to{background-position:-256px 0}}
-  @keyframes charBreathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-1px)}}
-  /* Status nameplate */
-  .ws-nameplate{margin-top:8px;text-align:center;padding:4px 12px;border-radius:8px;backdrop-filter:blur(4px);transition:all .3s}
-  .st-online .ws-nameplate{background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.15)}
-  .st-idle .ws-nameplate{background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.12)}
-  .st-offline .ws-nameplate{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05)}
-  .ws-name{font-size:.65rem;color:#fff;font-family:'Segoe UI',system-ui,sans-serif;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
-  .ws-stat{font-size:.5rem;font-weight:800;letter-spacing:.1em;margin-top:2px}
-  .ws-stat.online{color:var(--green)}
-  .ws-stat.idle{color:var(--orange)}
-  .ws-stat.offline{color:#2d3748}
-  /* Status LED */
-  .ws-led{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:3px;vertical-align:middle}
-  .ws-led.online{background:var(--green);box-shadow:0 0 6px var(--green);animation:ledPulse 2s ease-in-out infinite}
-  .ws-led.idle{background:var(--orange);box-shadow:0 0 4px var(--orange);animation:ledPulse 3s ease-in-out infinite}
-  .ws-led.offline{background:#2d3748}
-  @keyframes ledPulse{0%,100%{opacity:1;box-shadow:0 0 4px currentColor}50%{opacity:.6;box-shadow:0 0 8px currentColor}}
+  /* ── Command Center ── */
+  .cmd-center{background:#060a12;border-radius:14px;overflow:hidden;border:1px solid #0f1d35;position:relative;padding:0}
+  /* Animated grid background */
+  .cmd-center::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(34,211,238,.03) 39px,rgba(34,211,238,.03) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(34,211,238,.03) 39px,rgba(34,211,238,.03) 40px);pointer-events:none;z-index:0}
+  /* Scan line */
+  .cmd-center::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(34,211,238,.4),transparent);z-index:10;pointer-events:none;animation:scanLine 4s linear infinite}
+  @keyframes scanLine{0%{top:0;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:100%;opacity:0}}
+  /* Header bar */
+  .cmd-header{display:flex;align-items:center;gap:10px;padding:12px 18px;background:linear-gradient(90deg,rgba(34,211,238,.06),transparent 50%,rgba(34,211,238,.06));border-bottom:1px solid rgba(34,211,238,.1);position:relative;z-index:1}
+  .cmd-header-dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);animation:cmdDotPulse 2s ease-in-out infinite}
+  @keyframes cmdDotPulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .cmd-header-title{font-size:.7rem;color:var(--cyan);font-family:'Courier New',monospace;font-weight:700;letter-spacing:.15em;text-transform:uppercase}
+  .cmd-header-sys{margin-left:auto;font-size:.6rem;color:rgba(34,211,238,.4);font-family:'Courier New',monospace;letter-spacing:.08em}
+  /* Terminal grid */
+  .cmd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px;position:relative;z-index:1}
+  @media(max-width:700px){.cmd-grid{grid-template-columns:repeat(2,1fr);gap:10px}}
+  /* Terminal card per bot */
+  .cmd-term{background:rgba(8,16,28,.9);border:1px solid rgba(34,211,238,.12);border-radius:10px;padding:14px 12px;position:relative;overflow:hidden;transition:all .4s ease}
+  .cmd-term::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:.3;transition:opacity .3s}
+  .cmd-term:hover{transform:translateY(-3px);border-color:rgba(34,211,238,.25)}
+  .cmd-term:hover::before{opacity:.7}
+  /* Status variants */
+  .cmd-term.t-online{border-color:rgba(74,222,128,.2);box-shadow:0 0 20px rgba(74,222,128,.06),inset 0 0 30px rgba(74,222,128,.02)}
+  .cmd-term.t-online::before{background:linear-gradient(90deg,transparent,var(--green),transparent);opacity:.5}
+  .cmd-term.t-idle{border-color:rgba(251,191,36,.15);box-shadow:0 0 16px rgba(251,191,36,.04),inset 0 0 20px rgba(251,191,36,.02)}
+  .cmd-term.t-idle::before{background:linear-gradient(90deg,transparent,var(--orange),transparent);opacity:.4}
+  .cmd-term.t-offline{opacity:.45;filter:saturate(.3)}
+  .cmd-term.t-offline:hover{opacity:.65}
+  /* Bot avatar ring */
+  .cmd-avatar{width:48px;height:48px;border-radius:50%;margin:0 auto 10px;position:relative;display:flex;align-items:center;justify-content:center}
+  .cmd-avatar-ring{position:absolute;inset:-3px;border-radius:50%;border:2px solid rgba(34,211,238,.3);animation:ringRotate 6s linear infinite}
+  .t-online .cmd-avatar-ring{border-color:rgba(74,222,128,.5);border-top-color:transparent;animation-duration:3s}
+  .t-idle .cmd-avatar-ring{border-color:rgba(251,191,36,.4);border-top-color:transparent;animation-duration:5s}
+  .t-offline .cmd-avatar-ring{border-color:rgba(255,255,255,.08);animation:none}
+  @keyframes ringRotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+  .cmd-avatar-icon{font-size:1.3rem;filter:grayscale(0);transition:filter .3s}
+  .t-offline .cmd-avatar-icon{filter:grayscale(1);opacity:.4}
+  /* Inner glow behind avatar */
+  .cmd-avatar::after{content:'';position:absolute;inset:4px;border-radius:50%;background:radial-gradient(circle,rgba(34,211,238,.1),transparent 70%)}
+  .t-online .cmd-avatar::after{background:radial-gradient(circle,rgba(74,222,128,.15),transparent 70%)}
+  .t-idle .cmd-avatar::after{background:radial-gradient(circle,rgba(251,191,36,.1),transparent 70%)}
+  /* Bot name */
+  .cmd-name{text-align:center;font-size:.72rem;color:#fff;font-family:'Courier New',monospace;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+  /* Status badge */
+  .cmd-status{text-align:center;margin-bottom:8px}
+  .cmd-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 10px;border-radius:99px;font-size:.55rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-family:'Courier New',monospace}
+  .cmd-badge.b-online{background:rgba(74,222,128,.1);color:var(--green);border:1px solid rgba(74,222,128,.2)}
+  .cmd-badge.b-idle{background:rgba(251,191,36,.08);color:var(--orange);border:1px solid rgba(251,191,36,.15)}
+  .cmd-badge.b-offline{background:rgba(255,255,255,.03);color:#2d3748;border:1px solid rgba(255,255,255,.05)}
+  .cmd-dot{width:5px;height:5px;border-radius:50%}
+  .cmd-dot.d-online{background:var(--green);box-shadow:0 0 6px var(--green);animation:cmdDotPulse 2s ease-in-out infinite}
+  .cmd-dot.d-idle{background:var(--orange);box-shadow:0 0 4px var(--orange);animation:cmdDotPulse 3s ease-in-out infinite}
+  .cmd-dot.d-offline{background:#2d3748}
+  /* Stats bar */
+  .cmd-stats{display:flex;justify-content:space-between;font-size:.55rem;color:rgba(34,211,238,.4);font-family:'Courier New',monospace;margin-bottom:8px;padding:4px 0;border-top:1px solid rgba(34,211,238,.06)}
+  .cmd-stats span:last-child{color:rgba(255,255,255,.5)}
+  /* Activity bar (mini signal strength) */
+  .cmd-signal{display:flex;gap:2px;justify-content:center;margin-bottom:8px;height:16px;align-items:flex-end}
+  .cmd-bar{width:4px;border-radius:1px;background:rgba(34,211,238,.15);transition:all .3s}
+  .t-online .cmd-bar{background:var(--green);animation:barPulse 1.5s ease-in-out infinite}
+  .t-idle .cmd-bar{background:var(--orange);opacity:.5}
+  .t-offline .cmd-bar{background:rgba(255,255,255,.05)}
+  .cmd-bar:nth-child(1){height:4px;animation-delay:0s}
+  .cmd-bar:nth-child(2){height:7px;animation-delay:.15s}
+  .cmd-bar:nth-child(3){height:11px;animation-delay:.3s}
+  .cmd-bar:nth-child(4){height:8px;animation-delay:.45s}
+  .cmd-bar:nth-child(5){height:5px;animation-delay:.6s}
+  @keyframes barPulse{0%,100%{opacity:.4}50%{opacity:1}}
   /* Control buttons */
-  .ws-btns{display:flex;gap:3px;margin-top:6px;justify-content:center;opacity:.6;transition:opacity .3s}
-  .px-station:hover .ws-btns{opacity:1}
+  .cmd-btns{display:flex;gap:4px;justify-content:center;opacity:0;transition:opacity .3s}
+  .cmd-term:hover .cmd-btns{opacity:1}
   .btn{border:none;border-radius:5px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-weight:700;transition:all .15s;letter-spacing:.03em}
   .btn-start{background:#052e16;color:var(--green);border:1px solid #166534}
   .btn-stop{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
@@ -6677,10 +6684,9 @@ app.get("/mc", async (req, res) => {
       <div class="ea-grid" id="ea-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
     </div>
     <div class="card">
-      <div class="card-title"><span class="card-title-icon">&#127970;</span> Agent Office</div>
-      <div class="office-room">
+      <div class="card-title"><span class="card-title-icon">&#128752;</span> Command Center</div>
+      <div class="cmd-center">
         <div id="bots-body"><div style="color:var(--muted);font-size:.8rem;padding:20px 12px">laden...</div></div>
-        <div class="office-floor"></div>
       </div>
     </div>
   </div>
@@ -6755,29 +6761,8 @@ const PX_SPRITES={
   waterCooler:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAgCAYAAAAbifjMAAACB0lEQVR4AdXBsUsbUQDA4V/ONzgU3mQ6FJLFwPVOMtSIRlwKLhUsBkEQxBYHIVjsEApZhCgOhaBDCAgdDyEgSpwui9CleAVDQSExEBdvdLt/wGsDF/o4zpLg1O/j/xfjCYVKzUdxsL0aI0KMCIVKzS+uZFF9PXE42F6NETJCSKFS84srWSzb5brrcd31uO56bC1N8JiYLjmNs10UIygKlZpfXMli2S6GKRmLjzIWH+Xd1Ess22VraYLHxHTJaZztEtCIYJgSVfPewzAlUTSeSUNxub+DZbtkkpKwTFJi2S6X+zuoBBEs22V9IYHKsl2iCCIYpsSyXVSGKWm3PMI0Atn4uI9ifSHB+kICw5QYpkSVjY/7BDQitFseYe2WRxQNRb5a5rS4gWFKmvcezXuPdsuj3fIwTMlpcQPn4S6GQiMkXy2zt7hMJinJJCWGKTFMyd7iMvlqGeuk7qMQBPS1HGk9xU2nS75a5n16HlW+WqYnrafQ13I4h2V6BCFpPcW/3HS6qAQR8vNLfJvKsHnVpOd16Qe3pTmOLs4J03jC5lWTvtvSHE8RRNDXcgxKEOHzxw8MShBy0+kyDIHi+89LhiVQvJ2ZZRCd4zp9Gs8kUBx9+sKwNALOw90kA3Ie7iYJxPjrDcP5xR+/AeXon2ASSnJ3AAAAAElFTkSuQmCC'
 };
 
-function makeWorkstation(charIdx, status, showPlant){
-  var charSprite = status!=='offline' ? PX_SPRITES.chars[charIdx] : '';
-  var pcSprite = status!=='offline' ? PX_SPRITES.fullPcCoffeeOn : PX_SPRITES.fullPcCoffeeOff;
-  var charClass = status==='online' ? 'seated-back' : 'idle-char';
-  var html = '<div class="px-scene">';
-  // PC setup (monitor + keyboard + coffee) on desk
-  html += '<img class="px-sprite px-pc" src="'+pcSprite+'">';
-  // Desk
-  html += '<img class="px-sprite px-desk" src="'+PX_SPRITES.desk+'">';
-  // Chair (back view)
-  html += '<img class="px-sprite px-chair" src="'+PX_SPRITES.chairBack+'">';
-  // Character (only if not offline)
-  if(charSprite){
-    html += '<div class="px-sprite px-char '+charClass+'" style="background-image:url('+charSprite+')"></div>';
-  }
-  // Optional small plant next to station
-  if(showPlant){
-    var plantSrc = charIdx%2===0 ? PX_SPRITES.plant2 : PX_SPRITES.plant3;
-    html += '<img class="px-plant-sm" src="'+plantSrc+'">';
-  }
-  html += '</div>';
-  return html;
-}
+var BOT_ICONS={'bot-default':'\u{1F916}','bot-affiliate':'\u{1F4E2}','bot-fxcopie':'\u{1F4C8}','bot-builder':'\u{1F527}'};
+var BOT_LABELS={'bot-default':'Main Bot','bot-affiliate':'Affiliate','bot-fxcopie':'FX Copier','bot-builder':'Builder'};
 
 async function load(){
   try{
@@ -6854,47 +6839,34 @@ async function load(){
       }).join('');
     }
 
-    // Bots — pixel art office
+    // Bots — Command Center
     const BOT_IDS=['bot-default','bot-affiliate','bot-fxcopie','bot-builder'];
-    const BOT_CHAR_IDX={'bot-default':0,'bot-affiliate':1,'bot-fxcopie':2,'bot-builder':3};
     const botMap={};
     (d.bots||[]).forEach(b=>{botMap[b.bot_id]=b;});
     const botsEl=document.getElementById('bots-body');
 
-    // Pixel art kantoor
-    // Wall decoration strip — symmetrische indeling
-    const wallHtml='<div class="px-wall">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.coffeeMachine+'" style="width:32px;height:64px">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.fullBookshelfTall+'" style="width:32px;height:64px">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.windowDoubleWhite+'" style="width:64px;height:64px">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.chartSm1+'" style="width:64px;height:64px">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.clockWall+'" style="width:32px;height:64px">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.chartSm2+'" style="width:64px;height:64px">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.windowDoubleWhite+'" style="width:64px;height:64px">'+
-      '<img class="px-wall-item" src="'+PX_SPRITES.fullBookshelfTall+'" style="width:32px;height:64px">'+
-    '</div>';
+    const onlineCount=BOT_IDS.reduce((n,id)=>{const b=botMap[id];return n+(b&&b.age_mins<15?1:0);},0);
 
-    // Build workstation grid
-    const stationsHtml=BOT_IDS.map((id,idx)=>{
+    // Build terminal cards
+    const termsHtml=BOT_IDS.map((id)=>{
       const b=botMap[id];
       const hbFresh=b&&b.age_mins<15;
       let status='offline';
       if(hbFresh){
-        // Bot draait — check of hij recent actief is (chat) of idle
         const actMatch=b&&b.last_action?b.last_action.match(/(\\d+)(m|u)\\s*(?:geleden|ago)/):null;
         const actMins=actMatch?(actMatch[2]==='u'?Number(actMatch[1])*60:Number(actMatch[1])):Infinity;
         status=actMins<10?'online':'idle';
       }
-      const shortName=id.replace('bot-','');
-      const charIdx=BOT_CHAR_IDX[id]||0;
-      const showPlant=true;
-      return '<div class="px-station st-'+status+'">'+
-        makeWorkstation(charIdx,status,showPlant)+
-        '<div class="ws-nameplate">'+
-          '<div class="ws-name">'+shortName+'</div>'+
-          '<div class="ws-stat '+status+'"><span class="ws-led '+status+'"></span>'+status.toUpperCase()+'</div>'+
-        '</div>'+
-        '<div class="ws-btns">'+
+      const icon=BOT_ICONS[id]||'\u{1F916}';
+      const label=BOT_LABELS[id]||id.replace('bot-','');
+      const hbAge=b?ageFmt(Date.now()-b.age_mins*60000):'--';
+      return '<div class="cmd-term t-'+status+'">'+
+        '<div class="cmd-avatar"><div class="cmd-avatar-ring"></div><span class="cmd-avatar-icon">'+icon+'</span></div>'+
+        '<div class="cmd-name">'+label+'</div>'+
+        '<div class="cmd-status"><span class="cmd-badge b-'+status+'"><span class="cmd-dot d-'+status+'"></span>'+status.toUpperCase()+'</span></div>'+
+        '<div class="cmd-signal"><div class="cmd-bar"></div><div class="cmd-bar"></div><div class="cmd-bar"></div><div class="cmd-bar"></div><div class="cmd-bar"></div></div>'+
+        '<div class="cmd-stats"><span>HB</span><span>'+hbAge+'</span></div>'+
+        '<div class="cmd-btns">'+
           '<button class="btn btn-start" data-bot="'+id+'" data-cmd="start" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Start">&#9654;</button>'+
           '<button class="btn btn-stop" data-bot="'+id+'" data-cmd="stop" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Stop">&#9646;&#9646;</button>'+
           '<button class="btn btn-restart" data-bot="'+id+'" data-cmd="restart" onclick="sendCommand(this.dataset.bot,this.dataset.cmd)" title="Restart">&#8635;</button>'+
@@ -6902,21 +6874,13 @@ async function load(){
       '</div>';
     }).join('');
 
-    // Assemble office: wall + floor with side decorations + workstations
-    const officeHtml=wallHtml+
-      '<div class="px-office-wrap">'+
-        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">'+
-          '<img class="px-side-deco" src="'+PX_SPRITES.plant3+'" style="width:40px;height:80px">'+
-          '<img class="px-side-deco" src="'+PX_SPRITES.waterCooler+'" style="width:40px;height:80px">'+
-        '</div>'+
-        '<div class="px-office">'+stationsHtml+'</div>'+
-        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px">'+
-          '<img class="px-side-deco" src="'+PX_SPRITES.coffeeMachine+'" style="width:32px;height:64px">'+
-          '<img class="px-side-deco" src="'+PX_SPRITES.plant2+'" style="width:40px;height:80px">'+
-        '</div>'+
-      '</div>';
-
-    botsEl.innerHTML=officeHtml;
+    botsEl.innerHTML=
+      '<div class="cmd-header">'+
+        '<div class="cmd-header-dot"></div>'+
+        '<span class="cmd-header-title">System Monitor</span>'+
+        '<span class="cmd-header-sys">'+onlineCount+'/'+BOT_IDS.length+' online</span>'+
+      '</div>'+
+      '<div class="cmd-grid">'+termsHtml+'</div>';
 
     // Trade Gates
     if(d.trade_gates){
