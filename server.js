@@ -6277,8 +6277,8 @@ app.get("/api/mc/state", async (req, res) => {
           const updMs = r.updated_at_ms != null ? Number(r.updated_at_ms) : 0;
           const ageMins = (nowMs - updMs) / 60000;
           const reported = String(r.status || "offline");
-          // Use reported status; only override if heartbeat is very stale (>15 min)
-          const status = ageMins < 15 ? reported : ageMins < 60 ? "idle" : "offline";
+          // Heartbeat vers (<15 min) → gerapporteerde status; anders offline
+          const status = ageMins < 15 ? reported : "offline";
           const entry = {
             bot_id: String(r.bot_id),
             name: String(r.name || r.bot_id),
@@ -6830,11 +6830,10 @@ async function load(){
       const hbFresh=b&&b.age_mins<15;
       let status='offline';
       if(hbFresh){
-        status=b.status;
-      }else if(gwResolved){
+        // Bot draait — check of hij recent actief is (chat) of idle
         const actMatch=b&&b.last_action?b.last_action.match(/(\\d+)(m|u)\\s*(?:geleden|ago)/):null;
         const actMins=actMatch?(actMatch[2]==='u'?Number(actMatch[1])*60:Number(actMatch[1])):Infinity;
-        status=actMins<30?'online':'idle';
+        status=actMins<10?'online':'idle';
       }
       const shortName=id.replace('bot-','');
       const statusLabel=status==='online'?'\\u25cf ONLINE':status==='idle'?'\\u25cf IDLE':'\\u25cb OFFLINE';
