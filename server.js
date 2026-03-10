@@ -149,13 +149,67 @@ function ema(values, period) {
 }
 
 function trendBiasFromCandles(candles, fast = 20, slow = 50) {
-  if (!Array.isArray(candles) || candles.length < slow + 2) return { ok: false, bias: "none" };
+  if (!Array.isArray(candles) || candles.length < slow + 2) return { ok: false, bias: "none", strength: 0 };
   const closes = candles.map((c) => Number(c.close)).filter((x) => Number.isFinite(x));
-  if (closes.length < slow + 2) return { ok: false, bias: "none" };
+  if (closes.length < slow + 2) return { ok: false, bias: "none", strength: 0 };
   const eFast = ema(closes.slice(-Math.max(fast * 3, slow + 2)), fast);
   const eSlow = ema(closes.slice(-Math.max(slow * 3, slow + 2)), slow);
-  if (!Number.isFinite(eFast) || !Number.isFinite(eSlow)) return { ok: false, bias: "none" };
-  return { ok: true, bias: eFast >= eSlow ? "BUY" : "SELL" };
+  if (!Number.isFinite(eFast) || !Number.isFinite(eSlow)) return { ok: false, bias: "none", strength: 0 };
+  // strength: how far apart the EMAs are relative to price (0-1 scale, capped)
+  const mid = (eFast + eSlow) / 2;
+  const gap = Math.abs(eFast - eSlow);
+  const strength = mid > 0 ? Math.min(gap / mid * 100, 1.0) : 0;
+  return { ok: true, bias: eFast >= eSlow ? "BUY" : "SELL", strength };
+}
+
+// ATR (Average True Range) from OHLC candles
+function atr(candles, period = 14) {
+  if (!Array.isArray(candles) || candles.length < period + 1) return NaN;
+  const trs = [];
+  for (let i = 1; i < candles.length; i++) {
+    const h = Number(candles[i].high);
+    const l = Number(candles[i].low);
+    const pc = Number(candles[i - 1].close);
+    if (!Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(pc)) continue;
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  if (trs.length < period) return NaN;
+  // Use EMA-style ATR (Wilder smoothing)
+  let a = trs.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
+  return a;
+}
+
+// RSI (Relative Strength Index)
+function rsi(candles, period = 14) {
+  if (!Array.isArray(candles) || candles.length < period + 1) return NaN;
+  const closes = candles.map((c) => Number(c.close)).filter((x) => Number.isFinite(x));
+  if (closes.length < period + 1) return NaN;
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) avgGain += d; else avgLoss += Math.abs(d);
+  }
+  avgGain /= period;
+  avgLoss /= period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + (d > 0 ? d : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (d < 0 ? Math.abs(d) : 0)) / period;
+  }
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+// Find recent swing high/low for smarter SL placement
+function findSwingLevels(candles, lookback = 20) {
+  if (!Array.isArray(candles) || candles.length < lookback) return null;
+  const recent = candles.slice(-lookback);
+  const highs = recent.map((c) => Number(c.high)).filter((v) => Number.isFinite(v));
+  const lows = recent.map((c) => Number(c.low)).filter((v) => Number.isFinite(v));
+  if (highs.length === 0 || lows.length === 0) return null;
+  return { swingHigh: Math.max(...highs), swingLow: Math.min(...lows) };
 }
 
 function riskStatePath(kind, symbol) {
@@ -5267,7 +5321,14 @@ async function autoScalpRunHandler(req, res) {
     const biasR = trendBiasFromCandles(arr, 20, 50);
     if (!biasR.ok) return res.json({ ok: true, acted: false, reason: "no_trend_bias" });
     const direction = biasR.bias;
+    const trendStrength = biasR.strength || 0;
 
+    // ATR for volatility-aware SL/TP
+    const atrVal = atr(arr, 14);
+    const rsiVal = rsi(arr, 14);
+
+    // Swing levels for structure-based SL
+    const swings = findSwingLevels(arr, 20);
 
     // Risk model: generate SL/TP for an assumed lotsize (default 1.00) so that
     // the trade risks ~1% of equity (FTMO-style), using a simple XAUUSD value model.
@@ -5355,14 +5416,51 @@ async function autoScalpRunHandler(req, res) {
     const targetRiskUsd = equityUsd * (riskPct2 / 100.0);
     let slDist = targetRiskUsd / (usdPer1PricePerLot * assumedLots);
 
+    // --- IMPROVED SL: use ATR + swing structure ---
+    // Prefer ATR-based SL (1.5× ATR) if available; fallback to equity-based
+    const atrSlDist = Number.isFinite(atrVal) && atrVal > 0 ? atrVal * 1.5 : 0;
+    if (atrSlDist > 0) slDist = atrSlDist;
+
     // Convert to points and clamp into [minSlPts, maxSlPts]
     let slPts = slDist / point;
     if (!Number.isFinite(slPts) || slPts <= 0) return res.json({ ok: true, acted: false, reason: "bad_sl_pts", slPts });
     slPts = Math.max(minSlPts, Math.min(maxSlPts, slPts));
     slDist = slPts * point;
 
-    const sl = direction === "SELL" ? entry + slDist : entry - slDist;
-    const tp = direction === "SELL" ? entry - slDist * 1.5 : entry + slDist * 1.5;
+    // Structure-based SL: place behind swing high/low + buffer
+    const slBuffer = 2.0 * point * 100; // 2 dollar buffer past swing
+    let sl;
+    if (direction === "BUY" && swings && swings.swingLow < entry) {
+      // SL below recent swing low
+      sl = Math.min(entry - slDist, swings.swingLow - slBuffer);
+      // But don't let it be too far (max 1.5× the ATR-based distance)
+      if (Math.abs(entry - sl) > slDist * 1.5) sl = entry - slDist;
+    } else if (direction === "SELL" && swings && swings.swingHigh > entry) {
+      // SL above recent swing high
+      sl = Math.max(entry + slDist, swings.swingHigh + slBuffer);
+      if (Math.abs(entry - sl) > slDist * 1.5) sl = entry + slDist;
+    } else {
+      sl = direction === "SELL" ? entry + slDist : entry - slDist;
+    }
+
+    // --- IMPROVED TP: dynamic RR based on trend strength + RSI ---
+    // Base RR = 1.5, boost up to 2.5 for strong trends
+    let rrMultiplier = 1.5;
+    // Stronger trend = higher TP target
+    if (trendStrength > 0.3) rrMultiplier = 2.0;
+    if (trendStrength > 0.5) rrMultiplier = 2.5;
+    // RSI adjustment: reduce TP if entering near extreme
+    // BUY with RSI > 65 = overbought territory, reduce TP; SELL with RSI < 35 = oversold
+    if (Number.isFinite(rsiVal)) {
+      if (direction === "BUY" && rsiVal > 65) rrMultiplier = Math.max(1.2, rrMultiplier - 0.5);
+      if (direction === "SELL" && rsiVal < 35) rrMultiplier = Math.max(1.2, rrMultiplier - 0.5);
+      // Conversely, favorable RSI = keep or boost RR
+      if (direction === "BUY" && rsiVal < 40) rrMultiplier = Math.min(3.0, rrMultiplier + 0.3);
+      if (direction === "SELL" && rsiVal > 60) rrMultiplier = Math.min(3.0, rrMultiplier + 0.3);
+    }
+
+    const actualSlDist = Math.abs(entry - sl);
+    const tp = direction === "SELL" ? entry - actualSlDist * rrMultiplier : entry + actualSlDist * rrMultiplier;
 
     // Hard consistency guard (should never fail, but protects against NaNs / sign mistakes)
     if (direction === "BUY" && !(sl < entry && tp > entry)) {
@@ -5405,7 +5503,7 @@ async function autoScalpRunHandler(req, res) {
     // We intentionally do NOT post here to avoid ghost signals.
     // Posting happens in POST /signal/executed when ok_mod=true.
 
-    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: false, signal_id: created.id });
+    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: false, signal_id: created.id, atr: atrVal, rsi: rsiVal, rr: rrMultiplier, trend_strength: trendStrength });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_scalp_failed", message: String(e?.message || e) });
   }
