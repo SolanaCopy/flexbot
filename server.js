@@ -5318,7 +5318,7 @@ async function autoScalpRunHandler(req, res) {
     const rangeLow = Math.min(...last12.map((c) => Number(c.low)));
     const entry = Number(last12[last12.length - 1].close);
 
-    const biasR = trendBiasFromCandles(arr, 20, 50);
+    const biasR = trendBiasFromCandles(arr, 10, 30);
     if (!biasR.ok) return res.json({ ok: true, acted: false, reason: "no_trend_bias" });
     const direction = biasR.bias;
 
