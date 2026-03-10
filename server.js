@@ -3,9 +3,11 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-// Public base URL for self-calls inside automation endpoints.
+// Public base URL for external links / webhooks.
 // On Render you can set PUBLIC_BASE_URL=https://flexbot-qpf2.onrender.com
 const BASE_URL = (process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").trim();
+// Internal base URL for self-referential API calls (avoids deadlock on single-threaded hosts)
+const INTERNAL_BASE = `http://localhost:${process.env.PORT || 3000}`;
 
 // --- Master broadcast gate (prevents other EA instances from posting to your Telegram group) ---
 // Configure in Render env:
@@ -5231,12 +5233,12 @@ async function autoScalpRunHandler(req, res) {
     if (lock.ok && lock.locked) return res.json({ ok: true, acted: false, reason: lock.reason });
 
     // 1) blackout
-    const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=30`);
+    const blackoutR = await fetchJson(`${INTERNAL_BASE}/news/blackout?currency=USD&impact=high&window_min=30`);
     if (!blackoutR?.ok) return res.status(502).json({ ok: false, error: "blackout_check_failed" });
     if (blackoutR.blackout) return res.json({ ok: true, acted: false, reason: "blackout" });
 
     // 2) cooldown
-    const cd = await fetchJson(`${BASE_URL}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`);
+    const cd = await fetchJson(`${INTERNAL_BASE}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`);
     if (!cd?.ok) return res.status(502).json({ ok: false, error: "cooldown_status_failed" });
     if (!cd.has_last_trade) return res.json({ ok: true, acted: false, reason: "no_last_trade" });
     if (cd.remaining_ms > 0) return res.json({ ok: true, acted: false, reason: "cooldown" });
@@ -5247,12 +5249,12 @@ async function autoScalpRunHandler(req, res) {
     const refMs = Math.floor(Date.now() / scalpBucketMs) * scalpBucketMs;
 
     // 3) claim lock (once per bucket)
-    const claim = await fetchJson(`${BASE_URL}/ea/auto/claim?symbol=${encodeURIComponent(symbol)}&kind=auto_scalp_v1&ref_ms=${encodeURIComponent(String(refMs))}`);
+    const claim = await fetchJson(`${INTERNAL_BASE}/ea/auto/claim?symbol=${encodeURIComponent(symbol)}&kind=auto_scalp_v1&ref_ms=${encodeURIComponent(String(refMs))}`);
     if (!claim?.ok) return res.status(502).json({ ok: false, error: "claim_failed" });
     if (!claim.notify) return res.json({ ok: true, acted: false, reason: "claimed" });
 
     // 4) candles (5m)
-    const candles = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`);
+    const candles = await fetchJson(`${INTERNAL_BASE}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`);
     if (!candles?.ok || !Array.isArray(candles?.candles)) return res.status(502).json({ ok: false, error: "candles_failed" });
     const arr = candles.candles;
     if (arr.length < 12) return res.status(502).json({ ok: false, error: "candles_insufficient" });
@@ -5593,8 +5595,8 @@ async function autoDailyPlanHandler(req, res) {
       globalThis.__flexbotPlanLast.set(symbol, Date.now());
     }
 
-    const p = await fetchJson(`${BASE_URL}/price?symbol=${encodeURIComponent(symbol)}`);
-    const c15 = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=15m&limit=192`);
+    const p = await fetchJson(`${INTERNAL_BASE}/price?symbol=${encodeURIComponent(symbol)}`);
+    const c15 = await fetchJson(`${INTERNAL_BASE}/candles?symbol=${encodeURIComponent(symbol)}&interval=15m&limit=192`);
     if (!p?.ok || !c15?.ok || !Array.isArray(c15?.candles) || c15.candles.length < 32)
       return res.status(502).json({ ok: false, error: "data_failed" });
 
@@ -6354,7 +6356,7 @@ app.get("/api/mc/state", async (req, res) => {
 
     // News blackout
     try {
-      const blackoutR = await fetchJson(`${BASE_URL}/news/blackout?currency=USD&impact=high&window_min=30`, 5000);
+      const blackoutR = await fetchJson(`${INTERNAL_BASE}/news/blackout?currency=USD&impact=high&window_min=30`, 5000);
       if (blackoutR?.ok && blackoutR.blackout) {
         trade_gates.news_blackout.pass = false;
         trade_gates.news_blackout.next_event = blackoutR.next_event || null;
@@ -6378,7 +6380,7 @@ app.get("/api/mc/state", async (req, res) => {
     // Cooldown
     try {
       const cooldownMin = Number(process.env.AUTO_SCALP_COOLDOWN_MIN || 15);
-      const cd = await fetchJson(`${BASE_URL}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`, 5000);
+      const cd = await fetchJson(`${INTERNAL_BASE}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`, 5000);
       if (cd?.ok && cd.remaining_ms > 0) {
         trade_gates.cooldown.pass = false;
         trade_gates.cooldown.remaining_min = Math.ceil(cd.remaining_ms / 60000);
@@ -6430,7 +6432,7 @@ app.get("/api/mc/state", async (req, res) => {
 
     // Trend bias
     try {
-      const candlesR = await fetchJson(`${BASE_URL}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`, 5000);
+      const candlesR = await fetchJson(`${INTERNAL_BASE}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`, 5000);
       if (candlesR?.ok && Array.isArray(candlesR?.candles)) {
         const biasR = trendBiasFromCandles(candlesR.candles, 20, 50);
         trade_gates.trend_bias.bias = biasR.bias || "none";
