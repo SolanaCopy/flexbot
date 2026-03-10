@@ -5321,14 +5321,6 @@ async function autoScalpRunHandler(req, res) {
     const biasR = trendBiasFromCandles(arr, 20, 50);
     if (!biasR.ok) return res.json({ ok: true, acted: false, reason: "no_trend_bias" });
     const direction = biasR.bias;
-    const trendStrength = biasR.strength || 0;
-
-    // ATR for volatility-aware SL/TP
-    const atrVal = atr(arr, 14);
-    const rsiVal = rsi(arr, 14);
-
-    // Swing levels for structure-based SL
-    const swings = findSwingLevels(arr, 20);
 
     // Risk model: generate SL/TP for an assumed lotsize (default 1.00) so that
     // the trade risks ~1% of equity (FTMO-style), using a simple XAUUSD value model.
@@ -5416,51 +5408,14 @@ async function autoScalpRunHandler(req, res) {
     const targetRiskUsd = equityUsd * (riskPct2 / 100.0);
     let slDist = targetRiskUsd / (usdPer1PricePerLot * assumedLots);
 
-    // --- IMPROVED SL: use ATR + swing structure ---
-    // Prefer ATR-based SL (1.5× ATR) if available; fallback to equity-based
-    const atrSlDist = Number.isFinite(atrVal) && atrVal > 0 ? atrVal * 1.5 : 0;
-    if (atrSlDist > 0) slDist = atrSlDist;
-
     // Convert to points and clamp into [minSlPts, maxSlPts]
     let slPts = slDist / point;
     if (!Number.isFinite(slPts) || slPts <= 0) return res.json({ ok: true, acted: false, reason: "bad_sl_pts", slPts });
     slPts = Math.max(minSlPts, Math.min(maxSlPts, slPts));
     slDist = slPts * point;
 
-    // Structure-based SL: place behind swing high/low + buffer
-    const slBuffer = 2.0 * point * 100; // 2 dollar buffer past swing
-    let sl;
-    if (direction === "BUY" && swings && swings.swingLow < entry) {
-      // SL below recent swing low
-      sl = Math.min(entry - slDist, swings.swingLow - slBuffer);
-      // But don't let it be too far (max 1.5× the ATR-based distance)
-      if (Math.abs(entry - sl) > slDist * 1.5) sl = entry - slDist;
-    } else if (direction === "SELL" && swings && swings.swingHigh > entry) {
-      // SL above recent swing high
-      sl = Math.max(entry + slDist, swings.swingHigh + slBuffer);
-      if (Math.abs(entry - sl) > slDist * 1.5) sl = entry + slDist;
-    } else {
-      sl = direction === "SELL" ? entry + slDist : entry - slDist;
-    }
-
-    // --- IMPROVED TP: dynamic RR based on trend strength + RSI ---
-    // Base RR = 1.5, boost up to 2.5 for strong trends
-    let rrMultiplier = 1.5;
-    // Stronger trend = higher TP target
-    if (trendStrength > 0.3) rrMultiplier = 2.0;
-    if (trendStrength > 0.5) rrMultiplier = 2.5;
-    // RSI adjustment: reduce TP if entering near extreme
-    // BUY with RSI > 65 = overbought territory, reduce TP; SELL with RSI < 35 = oversold
-    if (Number.isFinite(rsiVal)) {
-      if (direction === "BUY" && rsiVal > 65) rrMultiplier = Math.max(1.2, rrMultiplier - 0.5);
-      if (direction === "SELL" && rsiVal < 35) rrMultiplier = Math.max(1.2, rrMultiplier - 0.5);
-      // Conversely, favorable RSI = keep or boost RR
-      if (direction === "BUY" && rsiVal < 40) rrMultiplier = Math.min(3.0, rrMultiplier + 0.3);
-      if (direction === "SELL" && rsiVal > 60) rrMultiplier = Math.min(3.0, rrMultiplier + 0.3);
-    }
-
-    const actualSlDist = Math.abs(entry - sl);
-    const tp = direction === "SELL" ? entry - actualSlDist * rrMultiplier : entry + actualSlDist * rrMultiplier;
+    const sl = direction === "SELL" ? entry + slDist : entry - slDist;
+    const tp = direction === "SELL" ? entry - slDist * 1.5 : entry + slDist * 1.5;
 
     // Hard consistency guard (should never fail, but protects against NaNs / sign mistakes)
     if (direction === "BUY" && !(sl < entry && tp > entry)) {
@@ -5503,7 +5458,7 @@ async function autoScalpRunHandler(req, res) {
     // We intentionally do NOT post here to avoid ghost signals.
     // Posting happens in POST /signal/executed when ok_mod=true.
 
-    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: false, signal_id: created.id, atr: atrVal, rsi: rsiVal, rr: rrMultiplier, trend_strength: trendStrength });
+    return res.json({ ok: true, acted: true, symbol, direction, sl, tp, ref_ms: refMs, posted: false, signal_id: created.id });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_scalp_failed", message: String(e?.message || e) });
   }
