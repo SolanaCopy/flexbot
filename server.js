@@ -2974,26 +2974,6 @@ app.post("/seed", (req, res) => {
   }
 });
 
-// DELETE old seeded candles that have wrong timestamp format (no .000Z)
-app.delete("/candles/cleanup-seeded", async (req, res) => {
-  try {
-    const db = await getDb();
-    if (!db) return res.status(500).json({ ok: false, error: "no_db" });
-    const result = await db.execute("DELETE FROM candles WHERE seeded = 1");
-    // also clear in-memory seeded candles
-    for (const [symKey, intervalMap] of candleStore.entries()) {
-      for (const [intKey, store] of intervalMap.entries()) {
-        if (store && Array.isArray(store.history)) {
-          store.history = store.history.filter(c => !c.seeded);
-        }
-      }
-    }
-    return res.json({ ok: true, deleted: result.rowsAffected || 0 });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e) });
-  }
-});
-
 // TradingView-ish chart rendering (png/jpg) + green/red candles
 async function renderChart(req, res, format /* "png" | "jpg" */) {
   const symbol = req.query.symbol ? String(req.query.symbol) : "XAUUSD";
