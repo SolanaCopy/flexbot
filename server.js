@@ -5420,6 +5420,9 @@ async function autoScalpRunHandler(req, res) {
     const tpDistPts = tpDist / point;
     const rr = slDist2 > 0 ? tpDist / slDist2 : Infinity;
 
+    // Safety guards (with fixed SL/TP these should always pass, but protect against NaN)
+    const minTpPts = Number(process.env.AUTO_SCALP_MIN_TP_PTS || 200);
+    const maxRr = Number(process.env.AUTO_SCALP_MAX_RR || 5);
     if (tpDistPts < minTpPts) {
       return res.json({ ok: true, acted: false, reason: "tp_too_close", tpDistPts, minTpPts });
     }
