@@ -5322,16 +5322,8 @@ async function autoScalpRunHandler(req, res) {
     if (!biasR.ok) return res.json({ ok: true, acted: false, reason: "no_trend_bias" });
     const direction = biasR.bias;
 
-    // RSI filter: skip BUY when overbought (>70), skip SELL when oversold (<30)
-    const rsiOBRaw = Number(process.env.AUTO_SCALP_RSI_OB || 70);
-    const rsiOSRaw = Number(process.env.AUTO_SCALP_RSI_OS || 30);
-    const rsiOB = Number.isFinite(rsiOBRaw) && rsiOBRaw > 0 ? rsiOBRaw : 70;
-    const rsiOS = Number.isFinite(rsiOSRaw) && rsiOSRaw > 0 ? rsiOSRaw : 30;
-    const rsiVal = rsi(arr, 14);
-    if (Number.isFinite(rsiVal)) {
-      if (direction === "BUY" && rsiVal > rsiOB) return res.json({ ok: true, acted: false, reason: "rsi_overbought", rsi: Number(rsiVal.toFixed(1)), limit: rsiOB });
-      if (direction === "SELL" && rsiVal < rsiOS) return res.json({ ok: true, acted: false, reason: "rsi_oversold", rsi: Number(rsiVal.toFixed(1)), limit: rsiOS });
-    }
+    // RSI filter: DISABLED (backtest showed better results without it)
+    // const rsiVal = rsi(arr, 14);
 
     // Risk model: generate SL/TP for an assumed lotsize (default 1.00) so that
     // the trade risks ~1% of equity (FTMO-style), using a simple XAUUSD value model.
