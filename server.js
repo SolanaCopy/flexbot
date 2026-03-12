@@ -7552,6 +7552,32 @@ async function loadBridge(){
     } else {
       tb.innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center">Geen signalen</td></tr>';
     }
+    // Trade history from bridge
+    const trb=document.getElementById('trades-body');
+    const trades=d.trades||[];
+    if(trades.length>0){
+      let th='<table style="width:100%;border-collapse:collapse;font-size:.75rem"><thead><tr><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border)">Tijd</th><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border)">Type</th><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border)">Symbol</th><th style="text-align:left;padding:6px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border)">Richting</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border)">P/L</th><th style="text-align:right;padding:6px 10px;color:var(--muted);font-size:.6rem;text-transform:uppercase;border-bottom:1px solid var(--border)">Equity</th></tr></thead><tbody>';
+      trades.slice().reverse().forEach(t=>{
+        const isOpen=t.type==='open';
+        const emoji=isOpen?'🟢':t.outcome&&t.outcome.includes('TP')?'✅':'❌';
+        const plColor=t.pl!=null?(t.pl>=0?'var(--green)':'var(--red)'):'var(--muted)';
+        const plText=t.pl!=null?(t.pl>=0?'+':'')+t.pl.toFixed(2):'—';
+        th+='<tr style="border-bottom:1px solid rgba(255,255,255,.04)">';
+        th+='<td style="padding:6px 10px;font-variant-numeric:tabular-nums">'+fmtTime(t.ts)+'</td>';
+        th+='<td style="padding:6px 10px">'+emoji+' '+(isOpen?'Open':'Close')+'</td>';
+        th+='<td style="padding:6px 10px;color:#fff;font-weight:700">'+(t.symbol||'—')+'</td>';
+        th+='<td style="padding:6px 10px;color:'+(t.direction==='BUY'||t.direction==='SELL'?(t.direction==='BUY'?'var(--green)':'var(--red)'):'var(--muted)')+';font-weight:700">'+(t.direction||'—')+'</td>';
+        th+='<td style="padding:6px 10px;text-align:right;color:'+plColor+';font-weight:700">'+plText+'</td>';
+        th+='<td style="padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums">'+(t.equity?'€'+Number(t.equity).toLocaleString('nl-NL',{minimumFractionDigits:2}):'—')+'</td>';
+        th+='</tr>';
+      });
+      th+='</tbody></table>';
+      if(d.trade_count>trades.length) th+='<div style="text-align:center;padding:6px;font-size:.6rem;color:var(--muted)">Toont '+trades.length+' van '+d.trade_count+' trades</div>';
+      trb.innerHTML=th;
+    } else {
+      trb.innerHTML='<div class="sig-none" style="text-align:center">Nog geen trades geregistreerd</div>';
+    }
+
     // EA status from bridge
     const eb=document.getElementById('ea-body');
     const ea=d.ea;
@@ -7582,7 +7608,7 @@ async function loadMC(){
     const d=await r.json();
     document.getElementById('refresh-time').textContent='Vernieuwd '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-    document.getElementById('trades-body').innerHTML='<div class="sig-none" style="text-align:center">Geen trades</div>';
+    // trades are rendered from bridge data in loadBridge()
 
   }catch(e){
     document.getElementById('error-banner').textContent='Error: '+e.message;
