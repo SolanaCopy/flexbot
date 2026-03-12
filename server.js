@@ -6818,15 +6818,15 @@ app.get("/mc", async (req, res) => {
   .btn:hover{filter:brightness(1.4);transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.3)}
 
   /* ── Trade Gates ── */
-  .gates-row{display:flex;flex-wrap:wrap;gap:8px}
-  .gate-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;font-size:.72rem;font-weight:700;letter-spacing:.03em;transition:all .3s}
-  .gate-chip .gate-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-  .gate-pass{background:#052e16;color:var(--green);border:1px solid #166534}
-  .gate-pass .gate-dot{background:var(--green);box-shadow:0 0 6px var(--green)}
-  .gate-fail{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
-  .gate-fail .gate-dot{background:var(--red);box-shadow:0 0 6px var(--red)}
-  .gate-detail{font-size:.62rem;color:var(--muted2);font-weight:400;margin-left:2px}
-  .verdict-bar{margin-top:10px;padding:8px 14px;border-radius:8px;font-size:.8rem;font-weight:800;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+  .gates-row{display:flex;flex-direction:column;gap:3px}
+  .gate-chip{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;font-size:.65rem;font-weight:700;letter-spacing:.02em;transition:all .3s}
+  .gate-chip .gate-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .gate-pass{background:rgba(74,222,128,.05);color:var(--green)}
+  .gate-pass .gate-dot{background:var(--green);box-shadow:0 0 4px var(--green)}
+  .gate-fail{background:rgba(248,113,113,.05);color:var(--red)}
+  .gate-fail .gate-dot{background:var(--red);box-shadow:0 0 4px var(--red)}
+  .gate-detail{font-size:.55rem;color:var(--muted2);font-weight:400;margin-left:auto;text-align:right}
+  .verdict-bar{margin-top:8px;padding:6px 10px;border-radius:6px;font-size:.68rem;font-weight:800;letter-spacing:.04em;display:flex;align-items:center;gap:6px}
   .verdict-ready{background:#052e16;color:var(--green);border:1px solid #166534}
   .verdict-blocked{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
 
@@ -7112,27 +7112,27 @@ async function load(){
     if(d.trade_gates){
       const g=d.trade_gates;
       const gates=[
-        {key:'market',       label:'Market',        detail:g.market.reason||''},
-        {key:'news_blackout',label:'News',          detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
+        {key:'market',       label:'Market',         detail:g.market.reason||''},
+        {key:'news_blackout',label:'News Blackout',   detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
         {key:'open_trade_lock',label:'Open Position', detail:g.open_trade_lock.reason||''},
-        {key:'cooldown',     label:'Cooldown',       detail:!g.cooldown.pass?g.cooldown.remaining_min+'m remaining':''},
-        {key:'daily_loss',   label:'Daily Loss',     detail:g.daily_loss.start_equity?g.daily_loss.dd_pct+'% of max '+g.daily_loss.max+'% (equity $'+g.daily_loss.current_equity+' / start $'+g.daily_loss.start_equity+')':'no data today'},
-        {key:'consec_losses',label:'Consecutive',   detail:g.consec_losses.losses+' / max '+g.consec_losses.max},
-        {key:'trend_bias',   label:'Trend Bias',     detail:g.trend_bias.bias},
+        {key:'cooldown',     label:'Cooldown',        detail:!g.cooldown.pass?g.cooldown.remaining_min+'m':''},
+        {key:'daily_loss',   label:'Daily Loss',      detail:g.daily_loss.start_equity?g.daily_loss.dd_pct+'%':'—'},
+        {key:'consec_losses',label:'Opeenv. Verlies', detail:g.consec_losses.losses+'/'+g.consec_losses.max},
+        {key:'trend_bias',   label:'Trend Bias',      detail:g.trend_bias.bias},
       ];
       document.getElementById('gates-body').innerHTML=gates.map(gt=>{
         const pass=g[gt.key].pass;
         return '<div class="gate-chip '+(pass?'gate-pass':'gate-fail')+'">'+
           '<div class="gate-dot"></div>'+
-          gt.label+
-          (gt.detail?' <span class="gate-detail">('+gt.detail+')</span>':'')+
+          '<span>'+gt.label+'</span>'+
+          (gt.detail?'<span class="gate-detail">'+gt.detail+'</span>':'')+
         '</div>';
       }).join('');
       const vEl=document.getElementById('gates-verdict');
       if(g.verdict==='ready'){
-        vEl.innerHTML='<div class="verdict-bar verdict-ready">&#9989; READY — All gates open</div>';
+        vEl.innerHTML='<div class="verdict-bar verdict-ready">&#9989; READY</div>';
       } else {
-        vEl.innerHTML='<div class="verdict-bar verdict-blocked">&#128721; BLOCKED — '+g.block_reason+'</div>';
+        vEl.innerHTML='<div class="verdict-bar verdict-blocked">&#128721; '+g.block_reason+'</div>';
       }
     }
 
@@ -7144,57 +7144,59 @@ async function load(){
       const di=isBuy?'&#9650;':isSell?'&#9660;':'&#9679;';
       const emaDiff=p.ema_fast_10&&p.ema_slow_30?Math.abs(p.ema_fast_10-p.ema_slow_30).toFixed(2):'—';
       let h='';
-      // Header: Price + Trend badge
-      h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
-      h+='<div><div style="font-size:.48rem;color:#64748b;text-transform:uppercase;letter-spacing:.1em">XAUUSD</div><div style="font-size:1.3rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1">'+(p.price||'—')+'</div></div>';
-      h+='<div style="background:'+(isBuy?'rgba(74,222,128,.08)':isSell?'rgba(248,113,113,.08)':'rgba(255,255,255,.04)')+';border:1px solid '+(isBuy?'rgba(74,222,128,.2)':isSell?'rgba(248,113,113,.2)':'rgba(255,255,255,.1)')+';border-radius:8px;padding:6px 14px;text-align:center"><div style="font-size:1rem;color:'+dc+';line-height:1">'+di+'</div><div style="font-size:.7rem;font-weight:900;color:'+dc+';letter-spacing:.04em">'+p.trend+'</div></div>';
+      // Price header
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+      h+='<div><div style="font-size:.5rem;color:#64748b;text-transform:uppercase;letter-spacing:.1em">XAUUSD</div><div style="font-size:1.4rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1">'+(p.price||'—')+'</div></div>';
+      h+='<div style="background:'+(isBuy?'rgba(74,222,128,.06)':isSell?'rgba(248,113,113,.06)':'rgba(255,255,255,.03)')+';border:1px solid '+(isBuy?'rgba(74,222,128,.15)':isSell?'rgba(248,113,113,.15)':'rgba(255,255,255,.08)')+';border-radius:6px;padding:4px 12px;text-align:center;line-height:1.1"><span style="font-size:.9rem;color:'+dc+'">'+di+'</span> <span style="font-size:.72rem;font-weight:900;color:'+dc+';letter-spacing:.04em">'+p.trend+'</span></div>';
       h+='</div>';
-      // EMA row: Fast | Slow | Gap
-      h+='<div style="display:flex;gap:1px;border-radius:6px;overflow:hidden;margin-bottom:6px">';
-      h+='<div style="flex:1;background:rgba(96,165,250,.04);padding:5px 8px;border-left:2px solid #3b82f6"><div style="font-size:.45rem;color:#64748b">EMA 10 <span style="color:#3b82f6;font-weight:700">F</span></div><div style="font-size:.78rem;font-weight:800;color:#60a5fa;font-variant-numeric:tabular-nums">'+(p.ema_fast_10||'—')+'</div></div>';
-      h+='<div style="flex:1;background:rgba(251,191,36,.04);padding:5px 8px;border-left:2px solid #d97706"><div style="font-size:.45rem;color:#64748b">EMA 30 <span style="color:#d97706;font-weight:700">S</span></div><div style="font-size:.78rem;font-weight:800;color:#fbbf24;font-variant-numeric:tabular-nums">'+(p.ema_slow_30||'—')+'</div></div>';
-      h+='<div style="flex:.6;background:rgba(255,255,255,.02);padding:5px 8px"><div style="font-size:.45rem;color:#64748b">Gap</div><div style="font-size:.78rem;font-weight:800;color:'+dc+';font-variant-numeric:tabular-nums">'+emaDiff+'</div></div>';
+      // EMA indicators - vertical list like gates
+      h+='<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:8px">';
+      h+='<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:rgba(96,165,250,.04);border-left:2px solid #3b82f6"><span style="font-size:.58rem;color:#64748b;flex:1">EMA 10 <span style="color:#3b82f6;font-weight:700">Fast</span></span><span style="font-size:.72rem;font-weight:800;color:#60a5fa;font-variant-numeric:tabular-nums">'+(p.ema_fast_10||'—')+'</span></div>';
+      h+='<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:rgba(251,191,36,.04);border-left:2px solid #d97706"><span style="font-size:.58rem;color:#64748b;flex:1">EMA 30 <span style="color:#d97706;font-weight:700">Slow</span></span><span style="font-size:.72rem;font-weight:800;color:#fbbf24;font-variant-numeric:tabular-nums">'+(p.ema_slow_30||'—')+'</span></div>';
+      h+='<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;background:rgba(255,255,255,.02)"><span style="font-size:.58rem;color:#64748b;flex:1">EMA Gap</span><span style="font-size:.72rem;font-weight:800;color:'+dc+';font-variant-numeric:tabular-nums">'+emaDiff+'</span></div>';
       h+='</div>';
-      // Trade levels: Entry | SL | TP | RR
-      h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr .6fr;gap:1px;border-radius:6px;overflow:hidden;margin-bottom:6px">';
-      h+='<div style="background:rgba(255,255,255,.03);padding:5px 6px;text-align:center"><div style="font-size:.42rem;color:#64748b;text-transform:uppercase">Entry</div><div style="font-size:.75rem;font-weight:800;font-variant-numeric:tabular-nums">'+(p.next_entry||'—')+'</div></div>';
-      h+='<div style="background:rgba(248,113,113,.04);padding:5px 6px;text-align:center;border-bottom:2px solid rgba(248,113,113,.3)"><div style="font-size:.42rem;color:#f87171;text-transform:uppercase;font-weight:700">SL</div><div style="font-size:.75rem;font-weight:800;color:#f87171;font-variant-numeric:tabular-nums">'+(p.next_sl||'—')+'</div></div>';
-      h+='<div style="background:rgba(74,222,128,.04);padding:5px 6px;text-align:center;border-bottom:2px solid rgba(74,222,128,.3)"><div style="font-size:.42rem;color:#4ade80;text-transform:uppercase;font-weight:700">TP</div><div style="font-size:.75rem;font-weight:800;color:#4ade80;font-variant-numeric:tabular-nums">'+(p.next_tp||'—')+'</div></div>';
-      h+='<div style="background:rgba(167,139,250,.04);padding:5px 6px;text-align:center"><div style="font-size:.42rem;color:#64748b;text-transform:uppercase">RR</div><div style="font-size:.75rem;font-weight:800;color:#a78bfa">'+p.rr+'x</div></div>';
+      // Trade levels grid 2x2
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:8px">';
+      h+='<div style="background:rgba(255,255,255,.03);padding:5px 10px;border-radius:6px;display:flex;align-items:center;justify-content:space-between"><span style="font-size:.5rem;color:#64748b;text-transform:uppercase">Entry</span><span style="font-size:.72rem;font-weight:800;font-variant-numeric:tabular-nums">'+(p.next_entry||'—')+'</span></div>';
+      h+='<div style="background:rgba(248,113,113,.04);padding:5px 10px;border-radius:6px;display:flex;align-items:center;justify-content:space-between;border-left:2px solid rgba(248,113,113,.3)"><span style="font-size:.5rem;color:#f87171;text-transform:uppercase;font-weight:700">SL</span><span style="font-size:.72rem;font-weight:800;color:#f87171;font-variant-numeric:tabular-nums">'+(p.next_sl||'—')+'</span></div>';
+      h+='<div style="background:rgba(74,222,128,.04);padding:5px 10px;border-radius:6px;display:flex;align-items:center;justify-content:space-between;border-left:2px solid rgba(74,222,128,.3)"><span style="font-size:.5rem;color:#4ade80;text-transform:uppercase;font-weight:700">TP</span><span style="font-size:.72rem;font-weight:800;color:#4ade80;font-variant-numeric:tabular-nums">'+(p.next_tp||'—')+'</span></div>';
+      h+='<div style="background:rgba(167,139,250,.04);padding:5px 10px;border-radius:6px;display:flex;align-items:center;justify-content:space-between"><span style="font-size:.5rem;color:#64748b;text-transform:uppercase">R:R</span><span style="font-size:.72rem;font-weight:800;color:#a78bfa">'+p.rr+'x</span></div>';
       h+='</div>';
-      // Range
-      h+='<div style="font-size:.55rem;color:#64748b;margin-bottom:8px;display:flex;align-items:center;gap:6px">Range <div style="flex:1;height:2px;background:rgba(255,255,255,.06);border-radius:1px"><div style="height:100%;background:linear-gradient(90deg,#f87171,#fbbf24,#4ade80);border-radius:1px;opacity:.35"></div></div><span style="color:#94a3b8;font-weight:600;font-variant-numeric:tabular-nums">'+(p.range_low||'—')+' – '+(p.range_high||'—')+'</span></div>';
-      // Status
+      // Range bar
+      h+='<div style="display:flex;align-items:center;gap:6px;padding:3px 0;margin-bottom:8px;font-size:.52rem;color:#64748b">';
+      h+='<span>Range</span>';
+      h+='<div style="flex:1;height:2px;background:rgba(255,255,255,.06);border-radius:1px"><div style="height:100%;background:linear-gradient(90deg,#f87171,#fbbf24,#4ade80);border-radius:1px;opacity:.3"></div></div>';
+      h+='<span style="color:#94a3b8;font-weight:600;font-variant-numeric:tabular-nums">'+(p.range_low||'—')+' – '+(p.range_high||'—')+'</span>';
+      h+='</div>';
+      // Status verdict
       const rc=p.ready?'#4ade80':'#f59e0b';
-      const rb=p.ready?'#052e16':'#1c1005';
-      const rBrd=p.ready?'#166534':'#854d0e';
-      h+='<div style="background:'+rb+';border:1px solid '+rBrd+';border-radius:6px;padding:6px 10px;margin-bottom:6px;display:flex;align-items:center;gap:6px">';
-      if(p.ready) h+='<div style="width:7px;height:7px;border-radius:50%;background:#4ade80;box-shadow:0 0 6px #4ade80;animation:pulse-dot 2s infinite;flex-shrink:0"></div>';
-      else h+='<span style="font-size:.65rem;flex-shrink:0">&#9203;</span>';
-      h+='<div style="flex:1"><div style="font-size:.62rem;font-weight:900;color:'+rc+';letter-spacing:.04em">'+(p.ready?'READY':'WACHT')+'</div>';
-      if(p.blockers&&p.blockers.length>0) h+='<div style="font-size:.48rem;color:rgba(255,255,255,.3);margin-top:1px;line-height:1.2">'+p.blockers.join(' · ')+'</div>';
+      h+='<div style="background:'+(p.ready?'#052e16':'#1c1005')+';border:1px solid '+(p.ready?'#166534':'#854d0e')+';border-radius:6px;padding:5px 10px;margin-bottom:6px;display:flex;align-items:center;gap:6px">';
+      if(p.ready) h+='<div style="width:6px;height:6px;border-radius:50%;background:#4ade80;box-shadow:0 0 4px #4ade80;animation:pulse-dot 2s infinite;flex-shrink:0"></div>';
+      else h+='<span style="font-size:.6rem;flex-shrink:0">&#9203;</span>';
+      h+='<div style="flex:1"><div style="font-size:.6rem;font-weight:900;color:'+rc+';letter-spacing:.04em">'+(p.ready?'READY':'WACHT')+'</div>';
+      if(p.blockers&&p.blockers.length>0) h+='<div style="font-size:.45rem;color:rgba(255,255,255,.28);margin-top:1px;line-height:1.2">'+p.blockers.join(' · ')+'</div>';
       h+='</div></div>';
-      // Cron
+      // Cron scheduler
       if(p.cron&&p.cron.last_call_ms>0){
         const ca=Math.round((Date.now()-p.cron.last_call_ms)/60000);
         const ni=Math.max(0,p.cron.interval_min-ca);
         const cp=Math.min(100,Math.round((ca/p.cron.interval_min)*100));
         const rl=p.cron.last_acted?'TRADE':(p.cron.last_result||'—').toUpperCase();
         const rcr=p.cron.last_acted?'#4ade80':p.cron.last_result==='cooldown'?'#f59e0b':'#94a3b8';
-        h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:6px 10px">';
+        h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:5px 10px">';
         h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">';
         h+='<span style="font-size:.48rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em">&#9201; Cron '+p.cron.interval_min+'m</span>';
-        h+='<span style="font-size:.55rem;font-weight:800;color:'+rcr+'">'+rl+'</span>';
+        h+='<span style="font-size:.52rem;font-weight:800;color:'+rcr+'">'+rl+'</span>';
         h+='</div>';
-        h+='<div style="height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden;margin-bottom:3px"><div style="height:100%;width:'+cp+'%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:1px"></div></div>';
-        h+='<div style="display:flex;justify-content:space-between;font-size:.48rem;color:#64748b"><span>'+ca+'m geleden</span><span style="color:#22d3ee;font-weight:700">~'+ni+'m</span></div>';
+        h+='<div style="height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden;margin-bottom:2px"><div style="height:100%;width:'+cp+'%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:1px"></div></div>';
+        h+='<div style="display:flex;justify-content:space-between;font-size:.45rem;color:#64748b"><span>'+ca+'m geleden</span><span style="color:#22d3ee;font-weight:700">~'+ni+'m</span></div>';
         h+='</div>';
       } else {
-        h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:6px 10px;text-align:center"><span style="font-size:.52rem;color:#64748b">&#9201; Wacht op cron</span></div>';
+        h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:5px 10px;text-align:center"><span style="font-size:.5rem;color:#64748b">&#9201; Wacht op cron</span></div>';
       }
       // Footer
       if(p.latest_signal_status&&p.latest_signal_status!=='none'){
-        h+='<div style="margin-top:5px;display:flex;align-items:center;gap:4px;font-size:.48rem;color:#475569">';
+        h+='<div style="margin-top:4px;display:flex;align-items:center;gap:4px;font-size:.45rem;color:#475569">';
         h+='<span style="width:4px;height:4px;border-radius:50%;background:'+(p.latest_signal_status==='new'?'#22d3ee':p.latest_signal_status==='active'?'#4ade80':'#64748b')+'"></span>';
         h+=p.latest_signal_status;
         if(p.latest_signal_age_min!=null) h+=' ('+p.latest_signal_age_min+'m)';
