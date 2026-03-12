@@ -52,8 +52,8 @@ function marketBlockedNow(tsMs = Date.now()) {
   const { weekday, minutesOfDay } = inAmsterdamParts(tsMs);
 
   // Weekend: no trading/signals.
-  // Block from Friday 23:00 until Monday 00:10 (NL time).
-  if (weekday.startsWith("vr") && minutesOfDay >= (23 * 60 + 0)) {
+  // Block from Friday 22:00 until Monday 00:10 (NL time).
+  if (weekday.startsWith("vr") && minutesOfDay >= (22 * 60)) {
     return { blocked: true, reason: "market_closed_weekend" };
   }
   if (weekday.startsWith("za")) {
@@ -66,9 +66,9 @@ function marketBlockedNow(tsMs = Date.now()) {
     return { blocked: true, reason: "market_close_window" };
   }
 
-  // Daily block window: 23:00 → 00:10 (NL time)
-  // This spans midnight, so we block when >= 23:00 OR < 00:10.
-  if (minutesOfDay >= (23 * 60 + 0) || minutesOfDay < 10) {
+  // Daily block window: 22:00 → 00:10 (NL time)
+  // Vantage broker closes XAUUSD before 23:00, so we block from 22:00.
+  if (minutesOfDay >= (22 * 60) || minutesOfDay < 10) {
     return { blocked: true, reason: "market_close_window" };
   }
 
