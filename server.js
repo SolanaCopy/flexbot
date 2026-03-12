@@ -674,6 +674,7 @@ async function persistCandle(c) {
 }
 
 const app = express();
+app.use(express.json({ type: "application/json", limit: "1mb" }));
 app.use(express.text({ type: "*/*" }));
 
 // Debug: check main-account open-position lock state
