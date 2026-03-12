@@ -6431,13 +6431,17 @@ app.get("/api/mc/state", async (req, res) => {
     } catch { /* best effort */ }
 
     // Cooldown
+    let cooldownHasLastTrade = true;
     try {
       const cooldownMin = Number(process.env.AUTO_SCALP_COOLDOWN_MIN || 15);
       const cd = await fetchJson(`${INTERNAL_BASE}/ea/cooldown/status?symbol=${encodeURIComponent(symbol)}&cooldown_min=${encodeURIComponent(String(cooldownMin))}`, 5000);
-      if (cd?.ok && cd.remaining_ms > 0) {
-        trade_gates.cooldown.pass = false;
-        trade_gates.cooldown.remaining_min = Math.ceil(cd.remaining_ms / 60000);
-        setBlocked("cooldown");
+      if (cd?.ok) {
+        if (!cd.has_last_trade) cooldownHasLastTrade = false;
+        if (cd.remaining_ms > 0) {
+          trade_gates.cooldown.pass = false;
+          trade_gates.cooldown.remaining_min = Math.ceil(cd.remaining_ms / 60000);
+          setBlocked("cooldown");
+        }
       }
     } catch { /* best effort */ }
 
@@ -6487,7 +6491,8 @@ app.get("/api/mc/state", async (req, res) => {
     try {
       const candlesR = await fetchJson(`${INTERNAL_BASE}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`, 5000);
       if (candlesR?.ok && Array.isArray(candlesR?.candles)) {
-        const biasR = trendBiasFromCandles(candlesR.candles, 20, 50);
+        // Use EMA 10/30 for trend bias — same as auto/scalp/run
+        const biasR = trendBiasFromCandles(candlesR.candles, 10, 30);
         trade_gates.trend_bias.bias = biasR.bias || "none";
         if (!biasR.ok) {
           trade_gates.trend_bias.pass = false;
@@ -6504,8 +6509,8 @@ app.get("/api/mc/state", async (req, res) => {
         const rangeHigh = Math.max(...last12.map((c) => Number(c.high)));
         const rangeLow = Math.min(...last12.map((c) => Number(c.low)));
 
-        // Compute what auto/scalp would do (uses EMA 10/30, NOT the gate's 20/50)
-        const scalpBias = trendBiasFromCandles(arr, 10, 30);
+        // Compute what auto/scalp would do (biasR is already EMA 10/30)
+        const scalpBias = biasR;
         const pointRaw = Number(process.env.XAUUSD_POINT || 0.01);
         const point = Number.isFinite(pointRaw) && pointRaw > 0 ? pointRaw : 0.01;
         const fixedSlPts = Number(process.env.AUTO_SCALP_FIXED_SL_POINTS || 1000);
@@ -6517,11 +6522,12 @@ app.get("/api/mc/state", async (req, res) => {
         const prepTp = direction === "SELL" ? prepEntry - slDist * fixedRr : direction === "BUY" ? prepEntry + slDist * fixedRr : null;
 
         // Check which gates block (matching auto/scalp logic exactly)
-        // auto/scalp checks: market → open_position_lock → blackout → cooldown → claim → candles → EMA 10/30 → daily_loss → consec_losses
+        // auto/scalp checks: market → open_position_lock → blackout → cooldown (incl no_last_trade) → claim → candles → EMA 10/30 → daily_loss → consec_losses
         const blockers = [];
         if (trade_gates.market && !trade_gates.market.pass) blockers.push("Market gesloten");
         if (trade_gates.open_trade_lock && !trade_gates.open_trade_lock.pass) blockers.push("Open positie");
         if (trade_gates.news_blackout && !trade_gates.news_blackout.pass) blockers.push("News blackout");
+        if (!cooldownHasLastTrade) blockers.push("Nog geen eerste trade (no_last_trade)");
         if (trade_gates.cooldown && !trade_gates.cooldown.pass) blockers.push(`Cooldown (${trade_gates.cooldown.remaining_min}m)`);
         if (arr.length < 12) blockers.push("Te weinig candles (" + arr.length + "/12)");
         if (!scalpBias.ok) blockers.push("Geen trend bias (EMA 10/30)");
