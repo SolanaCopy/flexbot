@@ -6874,14 +6874,16 @@ app.get("/mc", async (req, res) => {
       </div>
     </div>
   </div>
-  <div class="card">
-    <div class="card-title"><span class="card-title-icon">&#128679;</span> Trade Gates — Why no trade?</div>
-    <div class="gates-row" id="gates-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
-    <div id="gates-verdict"></div>
-  </div>
-  <div class="card" id="card-prep">
-    <div class="card-title"><span class="card-title-icon">&#128301;</span> Signaal Voorbereiding</div>
-    <div id="prep-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+  <div class="row-2">
+    <div class="card">
+      <div class="card-title"><span class="card-title-icon">&#128679;</span> Trade Gates</div>
+      <div class="gates-row" id="gates-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+      <div id="gates-verdict"></div>
+    </div>
+    <div class="card" id="card-prep">
+      <div class="card-title"><span class="card-title-icon">&#128301;</span> Signaal Voorbereiding</div>
+      <div id="prep-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+    </div>
   </div>
   <div class="card">
     <div class="card-title"><span class="card-title-icon">&#128200;</span> Recente Trades (laatste 10)</div>
@@ -7134,7 +7136,7 @@ async function load(){
       }
     }
 
-    // Signal Preparation — Compact Pro
+    // Signal Preparation — Half-width card
     if(d.signal_prep&&d.signal_prep.available){
       const p=d.signal_prep;
       const isBuy=p.trend==='BUY',isSell=p.trend==='SELL';
@@ -7142,33 +7144,35 @@ async function load(){
       const di=isBuy?'&#9650;':isSell?'&#9660;':'&#9679;';
       const emaDiff=p.ema_fast_10&&p.ema_slow_30?Math.abs(p.ema_fast_10-p.ema_slow_30).toFixed(2):'—';
       let h='';
-      // Row 1: Price | Direction | EMA fast | EMA slow | Spread
-      h+='<div style="display:flex;gap:1px;border-radius:8px;overflow:hidden;margin-bottom:8px">';
-      h+='<div style="flex:1.2;background:rgba(255,255,255,.03);padding:8px 10px"><div style="font-size:.5rem;color:#64748b;text-transform:uppercase;letter-spacing:.1em">Prijs</div><div style="font-size:1.15rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.2">'+(p.price||'—')+'</div></div>';
-      h+='<div style="flex:.6;background:'+(isBuy?'rgba(74,222,128,.06)':isSell?'rgba(248,113,113,.06)':'rgba(255,255,255,.03)')+';padding:8px 10px;text-align:center"><div style="font-size:.5rem;color:#64748b;text-transform:uppercase">Trend</div><div style="font-size:.95rem;font-weight:900;color:'+dc+';line-height:1.2">'+di+' '+p.trend+'</div></div>';
-      h+='<div style="flex:1;background:rgba(96,165,250,.04);padding:8px 10px;border-left:2px solid #3b82f6"><div style="font-size:.5rem;color:#64748b">EMA 10 <span style="color:#3b82f6;font-weight:700">F</span></div><div style="font-size:.85rem;font-weight:800;color:#60a5fa;font-variant-numeric:tabular-nums">'+(p.ema_fast_10||'—')+'</div></div>';
-      h+='<div style="flex:1;background:rgba(251,191,36,.04);padding:8px 10px;border-left:2px solid #d97706"><div style="font-size:.5rem;color:#64748b">EMA 30 <span style="color:#d97706;font-weight:700">S</span></div><div style="font-size:.85rem;font-weight:800;color:#fbbf24;font-variant-numeric:tabular-nums">'+(p.ema_slow_30||'—')+'</div></div>';
-      h+='<div style="flex:.6;background:rgba(255,255,255,.02);padding:8px 10px"><div style="font-size:.5rem;color:#64748b">Gap</div><div style="font-size:.85rem;font-weight:800;color:'+dc+';font-variant-numeric:tabular-nums">'+emaDiff+'</div></div>';
+      // Header: Price + Trend badge
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+      h+='<div><div style="font-size:.48rem;color:#64748b;text-transform:uppercase;letter-spacing:.1em">XAUUSD</div><div style="font-size:1.3rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1">'+(p.price||'—')+'</div></div>';
+      h+='<div style="background:'+(isBuy?'rgba(74,222,128,.08)':isSell?'rgba(248,113,113,.08)':'rgba(255,255,255,.04)')+';border:1px solid '+(isBuy?'rgba(74,222,128,.2)':isSell?'rgba(248,113,113,.2)':'rgba(255,255,255,.1)')+';border-radius:8px;padding:6px 14px;text-align:center"><div style="font-size:1rem;color:'+dc+';line-height:1">'+di+'</div><div style="font-size:.7rem;font-weight:900;color:'+dc+';letter-spacing:.04em">'+p.trend+'</div></div>';
       h+='</div>';
-      // Row 2: Entry | SL | TP | RR | Range
-      h+='<div style="display:flex;gap:1px;border-radius:8px;overflow:hidden;margin-bottom:8px">';
-      h+='<div style="flex:1;background:rgba(255,255,255,.03);padding:7px 10px;text-align:center"><div style="font-size:.48rem;color:#64748b;text-transform:uppercase">Entry</div><div style="font-size:.82rem;font-weight:800;font-variant-numeric:tabular-nums">'+(p.next_entry||'—')+'</div></div>';
-      h+='<div style="flex:1;background:rgba(248,113,113,.04);padding:7px 10px;text-align:center;border-bottom:2px solid rgba(248,113,113,.3)"><div style="font-size:.48rem;color:#f87171;text-transform:uppercase;font-weight:700">SL</div><div style="font-size:.82rem;font-weight:800;color:#f87171;font-variant-numeric:tabular-nums">'+(p.next_sl||'—')+'</div></div>';
-      h+='<div style="flex:1;background:rgba(74,222,128,.04);padding:7px 10px;text-align:center;border-bottom:2px solid rgba(74,222,128,.3)"><div style="font-size:.48rem;color:#4ade80;text-transform:uppercase;font-weight:700">TP</div><div style="font-size:.82rem;font-weight:800;color:#4ade80;font-variant-numeric:tabular-nums">'+(p.next_tp||'—')+'</div></div>';
-      h+='<div style="flex:.5;background:rgba(167,139,250,.04);padding:7px 10px;text-align:center"><div style="font-size:.48rem;color:#64748b;text-transform:uppercase">RR</div><div style="font-size:.82rem;font-weight:800;color:#a78bfa">'+p.rr+'x</div></div>';
-      h+='<div style="flex:1.2;background:rgba(255,255,255,.02);padding:7px 10px;text-align:center"><div style="font-size:.48rem;color:#64748b;text-transform:uppercase">Range</div><div style="font-size:.72rem;font-weight:700;color:#94a3b8;font-variant-numeric:tabular-nums">'+(p.range_low||'—')+' – '+(p.range_high||'—')+'</div></div>';
+      // EMA row: Fast | Slow | Gap
+      h+='<div style="display:flex;gap:1px;border-radius:6px;overflow:hidden;margin-bottom:6px">';
+      h+='<div style="flex:1;background:rgba(96,165,250,.04);padding:5px 8px;border-left:2px solid #3b82f6"><div style="font-size:.45rem;color:#64748b">EMA 10 <span style="color:#3b82f6;font-weight:700">F</span></div><div style="font-size:.78rem;font-weight:800;color:#60a5fa;font-variant-numeric:tabular-nums">'+(p.ema_fast_10||'—')+'</div></div>';
+      h+='<div style="flex:1;background:rgba(251,191,36,.04);padding:5px 8px;border-left:2px solid #d97706"><div style="font-size:.45rem;color:#64748b">EMA 30 <span style="color:#d97706;font-weight:700">S</span></div><div style="font-size:.78rem;font-weight:800;color:#fbbf24;font-variant-numeric:tabular-nums">'+(p.ema_slow_30||'—')+'</div></div>';
+      h+='<div style="flex:.6;background:rgba(255,255,255,.02);padding:5px 8px"><div style="font-size:.45rem;color:#64748b">Gap</div><div style="font-size:.78rem;font-weight:800;color:'+dc+';font-variant-numeric:tabular-nums">'+emaDiff+'</div></div>';
       h+='</div>';
-      // Row 3: Status bar + Cron inline
+      // Trade levels: Entry | SL | TP | RR
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr .6fr;gap:1px;border-radius:6px;overflow:hidden;margin-bottom:6px">';
+      h+='<div style="background:rgba(255,255,255,.03);padding:5px 6px;text-align:center"><div style="font-size:.42rem;color:#64748b;text-transform:uppercase">Entry</div><div style="font-size:.75rem;font-weight:800;font-variant-numeric:tabular-nums">'+(p.next_entry||'—')+'</div></div>';
+      h+='<div style="background:rgba(248,113,113,.04);padding:5px 6px;text-align:center;border-bottom:2px solid rgba(248,113,113,.3)"><div style="font-size:.42rem;color:#f87171;text-transform:uppercase;font-weight:700">SL</div><div style="font-size:.75rem;font-weight:800;color:#f87171;font-variant-numeric:tabular-nums">'+(p.next_sl||'—')+'</div></div>';
+      h+='<div style="background:rgba(74,222,128,.04);padding:5px 6px;text-align:center;border-bottom:2px solid rgba(74,222,128,.3)"><div style="font-size:.42rem;color:#4ade80;text-transform:uppercase;font-weight:700">TP</div><div style="font-size:.75rem;font-weight:800;color:#4ade80;font-variant-numeric:tabular-nums">'+(p.next_tp||'—')+'</div></div>';
+      h+='<div style="background:rgba(167,139,250,.04);padding:5px 6px;text-align:center"><div style="font-size:.42rem;color:#64748b;text-transform:uppercase">RR</div><div style="font-size:.75rem;font-weight:800;color:#a78bfa">'+p.rr+'x</div></div>';
+      h+='</div>';
+      // Range
+      h+='<div style="font-size:.55rem;color:#64748b;margin-bottom:8px;display:flex;align-items:center;gap:6px">Range <div style="flex:1;height:2px;background:rgba(255,255,255,.06);border-radius:1px"><div style="height:100%;background:linear-gradient(90deg,#f87171,#fbbf24,#4ade80);border-radius:1px;opacity:.35"></div></div><span style="color:#94a3b8;font-weight:600;font-variant-numeric:tabular-nums">'+(p.range_low||'—')+' – '+(p.range_high||'—')+'</span></div>';
+      // Status
       const rc=p.ready?'#4ade80':'#f59e0b';
       const rb=p.ready?'#052e16':'#1c1005';
       const rBrd=p.ready?'#166534':'#854d0e';
-      h+='<div style="display:flex;gap:6px;align-items:stretch">';
-      // Status
-      h+='<div style="flex:1;background:'+rb+';border:1px solid '+rBrd+';border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px">';
-      if(p.ready) h+='<div style="width:8px;height:8px;border-radius:50%;background:#4ade80;box-shadow:0 0 6px #4ade80;animation:pulse-dot 2s infinite;flex-shrink:0"></div>';
-      else h+='<span style="font-size:.75rem;flex-shrink:0">&#9203;</span>';
-      h+='<div><div style="font-size:.7rem;font-weight:900;color:'+rc+';letter-spacing:.04em">'+(p.ready?'READY':'WACHT')+'</div>';
-      if(p.blockers&&p.blockers.length>0) h+='<div style="font-size:.52rem;color:rgba(255,255,255,.35);margin-top:1px;line-height:1.3">'+p.blockers.join(' · ')+'</div>';
+      h+='<div style="background:'+rb+';border:1px solid '+rBrd+';border-radius:6px;padding:6px 10px;margin-bottom:6px;display:flex;align-items:center;gap:6px">';
+      if(p.ready) h+='<div style="width:7px;height:7px;border-radius:50%;background:#4ade80;box-shadow:0 0 6px #4ade80;animation:pulse-dot 2s infinite;flex-shrink:0"></div>';
+      else h+='<span style="font-size:.65rem;flex-shrink:0">&#9203;</span>';
+      h+='<div style="flex:1"><div style="font-size:.62rem;font-weight:900;color:'+rc+';letter-spacing:.04em">'+(p.ready?'READY':'WACHT')+'</div>';
+      if(p.blockers&&p.blockers.length>0) h+='<div style="font-size:.48rem;color:rgba(255,255,255,.3);margin-top:1px;line-height:1.2">'+p.blockers.join(' · ')+'</div>';
       h+='</div></div>';
       // Cron
       if(p.cron&&p.cron.last_call_ms>0){
@@ -7177,24 +7181,22 @@ async function load(){
         const cp=Math.min(100,Math.round((ca/p.cron.interval_min)*100));
         const rl=p.cron.last_acted?'TRADE':(p.cron.last_result||'—').toUpperCase();
         const rcr=p.cron.last_acted?'#4ade80':p.cron.last_result==='cooldown'?'#f59e0b':'#94a3b8';
-        h+='<div style="flex:1;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:8px 12px">';
-        h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">';
-        h+='<span style="font-size:.5rem;color:#64748b;text-transform:uppercase;letter-spacing:.1em">&#9201; Cron '+p.cron.interval_min+'m</span>';
-        h+='<span style="font-size:.58rem;font-weight:800;color:'+rcr+'">'+rl+'</span>';
+        h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:6px 10px">';
+        h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">';
+        h+='<span style="font-size:.48rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em">&#9201; Cron '+p.cron.interval_min+'m</span>';
+        h+='<span style="font-size:.55rem;font-weight:800;color:'+rcr+'">'+rl+'</span>';
         h+='</div>';
-        h+='<div style="height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;margin-bottom:4px"><div style="height:100%;width:'+cp+'%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:2px"></div></div>';
-        h+='<div style="display:flex;justify-content:space-between;font-size:.52rem;color:#64748b"><span>'+ca+'m geleden</span><span style="color:#22d3ee;font-weight:700">~'+ni+'m</span></div>';
+        h+='<div style="height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden;margin-bottom:3px"><div style="height:100%;width:'+cp+'%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:1px"></div></div>';
+        h+='<div style="display:flex;justify-content:space-between;font-size:.48rem;color:#64748b"><span>'+ca+'m geleden</span><span style="color:#22d3ee;font-weight:700">~'+ni+'m</span></div>';
         h+='</div>';
       } else {
-        h+='<div style="flex:1;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:center">';
-        h+='<span style="font-size:.58rem;color:#64748b">&#9201; Wacht op cron</span></div>';
+        h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:6px 10px;text-align:center"><span style="font-size:.52rem;color:#64748b">&#9201; Wacht op cron</span></div>';
       }
-      h+='</div>';
       // Footer
       if(p.latest_signal_status&&p.latest_signal_status!=='none'){
-        h+='<div style="margin-top:6px;display:flex;align-items:center;gap:5px;font-size:.55rem;color:#475569">';
-        h+='<span style="width:5px;height:5px;border-radius:50%;background:'+(p.latest_signal_status==='new'?'#22d3ee':p.latest_signal_status==='active'?'#4ade80':'#64748b')+'"></span>';
-        h+='Signaal: <b style="color:#94a3b8">'+p.latest_signal_status+'</b>';
+        h+='<div style="margin-top:5px;display:flex;align-items:center;gap:4px;font-size:.48rem;color:#475569">';
+        h+='<span style="width:4px;height:4px;border-radius:50%;background:'+(p.latest_signal_status==='new'?'#22d3ee':p.latest_signal_status==='active'?'#4ade80':'#64748b')+'"></span>';
+        h+=p.latest_signal_status;
         if(p.latest_signal_age_min!=null) h+=' ('+p.latest_signal_age_min+'m)';
         h+=' &bull; '+p.candle_count+' candles</div>';
       }
