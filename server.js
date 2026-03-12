@@ -7084,7 +7084,7 @@ setInterval(load,30000);
 
 let fxcopyBridgeState = { updated_at: 0 };
 
-app.post("/api/fxcopy/bridge", (req, res) => {
+app.post("/api/fxcopy/bridge", express.json({ limit: "1mb" }), (req, res) => {
   const body = req.body || {};
   fxcopyBridgeState = { ...body, updated_at: Date.now() };
   return res.json({ ok: true });
