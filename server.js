@@ -674,7 +674,10 @@ async function persistCandle(c) {
 }
 
 const app = express();
-app.use(express.json({ type: "application/json", limit: "1mb" }));
+// NOTE: Do NOT use global express.json() — MT5 EA sends JSON with null terminator
+// which causes express.json() to return 400 before the route handler runs.
+// Use express.text() globally and parse JSON in each handler, or add express.json()
+// only on specific non-EA routes (like /api/fxcopy/bridge).
 app.use(express.text({ type: "*/*" }));
 
 // Debug: check main-account open-position lock state
@@ -2734,15 +2737,10 @@ app.get("/ea/cooldown", async (req, res) => {
 
 app.post("/price", (req, res) => {
   try {
-    // Support both parsed JSON object (from express.json) and raw string (from express.text)
-    let parsed;
-    if (typeof req.body === "object" && req.body !== null && !Array.isArray(req.body) && req.body.symbol) {
-      parsed = req.body;
-    } else {
-      const jsonStr = firstJsonObject(req.body);
-      if (!jsonStr) return res.status(400).send("bad");
-      parsed = JSON.parse(jsonStr);
-    }
+    const jsonStr = firstJsonObject(req.body);
+    if (!jsonStr) return res.status(400).send("bad");
+
+    const parsed = JSON.parse(jsonStr);
     const { symbol, bid, ask, time, ts } = parsed;
 
     if (!symbol || bid == null || ask == null) return res.status(400).send("bad");
@@ -3992,8 +3990,14 @@ async function handleTelegramUpdate(req, res) {
   }
 }
 
-app.post("/telegram/webhook", express.json({ limit: "1mb" }), handleTelegramUpdate);
-app.post("/telegram/webhook/:secret", express.json({ limit: "1mb" }), (req, res) => {
+app.post("/telegram/webhook", (req, res, next) => {
+  if (typeof req.body === "string") { try { req.body = JSON.parse(req.body); } catch {} }
+  next();
+}, handleTelegramUpdate);
+app.post("/telegram/webhook/:secret", (req, res, next) => {
+  if (typeof req.body === "string") { try { req.body = JSON.parse(req.body); } catch {} }
+  next();
+}, (req, res) => {
   const secret = String(req.params.secret || "");
   const expected = (process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
   if (expected && secret !== expected) return res.status(401).json({ ok: false });
@@ -7263,9 +7267,12 @@ setInterval(load,30000);
 
 let fxcopyBridgeState = { updated_at: 0 };
 
-app.post("/api/fxcopy/bridge", express.json({ limit: "1mb" }), (req, res) => {
-  const body = req.body || {};
-  fxcopyBridgeState = { ...body, updated_at: Date.now() };
+app.post("/api/fxcopy/bridge", (req, res) => {
+  let body = req.body;
+  if (typeof body === "string") {
+    try { body = JSON.parse(body); } catch { body = {}; }
+  }
+  fxcopyBridgeState = { ...(body || {}), updated_at: Date.now() };
   return res.json({ ok: true });
 });
 
