@@ -66,9 +66,9 @@ function marketBlockedNow(tsMs = Date.now()) {
     return { blocked: true, reason: "market_close_window" };
   }
 
-  // Daily block window: 22:00 → 00:10 (NL time)
-  // Vantage broker closes XAUUSD before 23:00, so we block from 22:00.
-  if (minutesOfDay >= (22 * 60) || minutesOfDay < 10) {
+  // Daily block window: 22:00 → 23:10 (NL time)
+  // Vantage daily break for XAUUSD: ~22:00 close, ~23:05 reopen.
+  if (minutesOfDay >= (22 * 60) && minutesOfDay < (23 * 60 + 10)) {
     return { blocked: true, reason: "market_close_window" };
   }
 
