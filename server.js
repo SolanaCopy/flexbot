@@ -7177,23 +7177,26 @@ async function load(){
       if(p.blockers&&p.blockers.length>0) h+='<div style="font-size:.45rem;color:rgba(255,255,255,.28);margin-top:1px;line-height:1.2">'+p.blockers.join(' · ')+'</div>';
       h+='</div></div>';
       // Cron scheduler with live countdown
-      if(p.cron&&p.cron.last_call_ms>0){
-        cronData.lastMs=p.cron.last_call_ms;
-        cronData.intervalMin=p.cron.interval_min;
-        const ca=Math.round((Date.now()-p.cron.last_call_ms)/60000);
-        const cp=Math.min(100,Math.round((ca/p.cron.interval_min)*100));
-        const rl=p.cron.last_acted?'TRADE':(p.cron.last_result||'—').toUpperCase();
+      if(p.cron){
+        cronData.intervalMin=p.cron.interval_min||15;
+        const hasCron=p.cron.last_call_ms>0;
+        if(hasCron) cronData.lastMs=p.cron.last_call_ms;
+        const rl=hasCron?(p.cron.last_acted?'TRADE':(p.cron.last_result||'—').toUpperCase()):'WACHT';
         const rcr=p.cron.last_acted?'#4ade80':p.cron.last_result==='cooldown'?'#f59e0b':'#94a3b8';
         h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:5px 10px">';
         h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">';
-        h+='<span style="font-size:.48rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em">&#9201; Cron '+p.cron.interval_min+'m</span>';
+        h+='<span style="font-size:.48rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em">&#9201; Cron '+cronData.intervalMin+'m</span>';
         h+='<span style="font-size:.52rem;font-weight:800;color:'+rcr+'">'+rl+'</span>';
         h+='</div>';
+        const cp=hasCron?Math.min(100,Math.round(((Date.now()-p.cron.last_call_ms)/(cronData.intervalMin*60000))*100)):0;
         h+='<div style="height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden;margin-bottom:2px"><div id="cron-progress" style="height:100%;width:'+cp+'%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:1px;transition:width 1s linear"></div></div>';
-        h+='<div style="display:flex;align-items:center;justify-content:space-between;font-size:.45rem;color:#64748b"><span id="cron-ago">'+ca+'m geleden</span><span id="cron-countdown" style="color:#22d3ee;font-weight:800;font-size:.65rem;font-variant-numeric:tabular-nums">—</span></div>';
+        if(hasCron){
+          const ca=Math.round((Date.now()-p.cron.last_call_ms)/60000);
+          h+='<div style="display:flex;align-items:center;justify-content:space-between;font-size:.45rem;color:#64748b"><span id="cron-ago">'+ca+'m geleden</span><span id="cron-countdown" style="color:#22d3ee;font-weight:800;font-size:.65rem;font-variant-numeric:tabular-nums">—</span></div>';
+        } else {
+          h+='<div style="display:flex;align-items:center;justify-content:space-between;font-size:.45rem;color:#64748b"><span>Server herstart</span><span id="cron-countdown" style="color:#22d3ee;font-weight:800;font-size:.65rem;font-variant-numeric:tabular-nums">≤'+cronData.intervalMin+':00</span></div>';
+        }
         h+='</div>';
-      } else {
-        h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:5px 10px;text-align:center"><span style="font-size:.5rem;color:#64748b">&#9201; Wacht op cron</span></div>';
       }
       // Footer
       if(p.latest_signal_status&&p.latest_signal_status!=='none'){
