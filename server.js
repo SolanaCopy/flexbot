@@ -7333,11 +7333,26 @@ async function loadBridge(){
     } else {
       tb.innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center">Geen signalen</td></tr>';
     }
+    // EA status from bridge
+    const eb=document.getElementById('ea-body');
+    const ea=d.ea;
+    if(ea&&ea.equity!=null&&ea.last_update>0){
+      const pos=ea.has_position;
+      eb.innerHTML=
+        '<div class="ea-equity">$'+Number(ea.equity).toLocaleString('en-US',{minimumFractionDigits:2})+'</div>'+
+        '<div class="ea-balance">Balance: $'+Number(ea.balance||ea.equity).toLocaleString('en-US',{minimumFractionDigits:2})+'</div>'+
+        '<div class="ea-pos">'+(pos?'<span class="badge badge-orange">⚡ POSITIE OPEN</span>':'<span class="badge badge-gray">Geen positie</span>')+'</div>'+
+        '<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">Account: '+(ea.account_login||'?')+' | '+ago(ea.last_update)+'</div>';
+    } else {
+      eb.innerHTML='<div class="sig-none">Wachten op EA data...</div>';
+    }
+
   }catch(e){
     chip.className='hdr-chip chip-offline';
     lbl.textContent='Bridge: OFFLINE';
     document.getElementById('sig-body').innerHTML='<div class="sig-none">⚠️ Geen bridge data</div>';
     document.getElementById('sig-table').innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center">Geen data</td></tr>';
+    document.getElementById('ea-body').innerHTML='<div class="sig-none">Geen data</div>';
   }
 }
 
@@ -7348,41 +7363,7 @@ async function loadMC(){
     const d=await r.json();
     document.getElementById('refresh-time').textContent='Vernieuwd '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-    // EA status — FxCopy account
-    const eb=document.getElementById('ea-body');
-    const ea=(d.ea_positions||[]).find(e=>e.account_login==='12145457')||(d.ea_positions||[]).find(e=>String(e.magic)==='88001');
-    if(ea&&ea.equity!=null){
-      const pos=ea.has_position;
-      eb.innerHTML=
-        '<div class="ea-equity">$'+Number(ea.equity).toLocaleString('en-US',{minimumFractionDigits:2})+'</div>'+
-        '<div class="ea-balance">Balance: $'+Number(ea.balance||ea.equity).toLocaleString('en-US',{minimumFractionDigits:2})+'</div>'+
-        '<div class="ea-pos">'+(pos?'<span class="badge badge-orange">⚡ POSITIE OPEN</span>':'<span class="badge badge-gray">Geen positie</span>')+'</div>'+
-        '<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">'+ago(ea.updated_at_ms)+'</div>';
-    } else {
-      eb.innerHTML='<div class="sig-none">Geen EA data</div>';
-    }
-
-    // Trade history
-    const tb=document.getElementById('trades-body');
-    const sigs=(d.signals||[]).filter(s=>s.close_outcome);
-    if(sigs.length>0){
-      tb.innerHTML=sigs.slice(0,10).map(s=>{
-        const isTP=s.close_outcome&&s.close_outcome.includes('TP');
-        const isSL=s.close_outcome&&s.close_outcome.includes('SL');
-        const icon=isTP?'✅':isSL?'❌':'🔵';
-        const cls=isTP?'tp':isSL?'sl':'';
-        return '<div class="trade-row">'+
-          '<div class="trade-icon">'+icon+'</div>'+
-          '<div class="trade-info">'+
-            '<div class="trade-pair">'+s.symbol+' <span class="dir-'+(s.direction||'').toLowerCase()+'">'+(s.direction||'')+'</span></div>'+
-            '<div class="trade-detail">SL: '+(s.sl||'—')+' | TP: '+(s.tp||'—')+' | '+fmtTime(s.closed_at_ms)+'</div>'+
-          '</div>'+
-          '<div class="trade-result '+cls+'">'+s.close_outcome+'</div>'+
-          '</div>';
-      }).join('');
-    } else {
-      tb.innerHTML='<div class="sig-none" style="text-align:center">Geen trades</div>';
-    }
+    document.getElementById('trades-body').innerHTML='<div class="sig-none" style="text-align:center">Geen trades</div>';
 
   }catch(e){
     document.getElementById('error-banner').textContent='Error: '+e.message;
