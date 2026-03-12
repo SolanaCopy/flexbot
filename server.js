@@ -6542,8 +6542,15 @@ app.get("/mc", async (req, res) => {
   body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;position:relative}
   body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px);pointer-events:none;z-index:9999}
 
+  /* ── Navbar ── */
+  .navbar{background:#080b12;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:0;padding:0 24px;position:sticky;top:0;z-index:200}
+  .nav-tab{padding:10px 18px;font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;transition:all .2s}
+  .nav-tab:hover{color:var(--text);background:rgba(255,255,255,.03)}
+  .nav-tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+  .nav-tab .nav-icon{margin-right:6px;font-size:.8rem}
+
   /* ── Header ── */
-  header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:36px;z-index:100;backdrop-filter:blur(8px)}
   .hdr-left{display:flex;align-items:center;gap:12px}
   .hdr-logo{font-size:1.3rem;font-weight:800;letter-spacing:.04em;color:#fff;text-transform:uppercase}
   .hdr-logo span{color:var(--cyan)}
@@ -6729,6 +6736,10 @@ app.get("/mc", async (req, res) => {
 </style>
 </head>
 <body>
+<nav class="navbar">
+  <a href="/mc?key=${key}" class="nav-tab active"><span class="nav-icon">⚡</span>Mission Control</a>
+  <a href="/fxcopy?key=${key}" class="nav-tab"><span class="nav-icon">📡</span>FxCopy</a>
+</nav>
 <header>
   <div class="hdr-left">
     <div class="hdr-logo">Mission <span>Control</span></div>
@@ -7089,7 +7100,13 @@ app.get("/fxcopy", async (req, res) => {
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
 
-  header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
+  .navbar{background:#080b12;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:0;padding:0 24px;position:sticky;top:0;z-index:200}
+  .nav-tab{padding:10px 18px;font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;transition:all .2s}
+  .nav-tab:hover{color:var(--text);background:rgba(255,255,255,.03)}
+  .nav-tab.active{color:var(--purple);border-bottom-color:var(--purple)}
+  .nav-tab .nav-icon{margin-right:6px;font-size:.8rem}
+
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:36px;z-index:100;backdrop-filter:blur(8px)}
   .hdr-left{display:flex;align-items:center;gap:12px}
   .hdr-logo{font-size:1.3rem;font-weight:800;letter-spacing:.04em;color:#fff;text-transform:uppercase}
   .hdr-logo span{color:var(--purple)}
@@ -7103,9 +7120,6 @@ app.get("/fxcopy", async (req, res) => {
   .hdr-right{text-align:right}
   #live-clock{font-size:1.1rem;font-weight:700;color:var(--purple);font-variant-numeric:tabular-nums;letter-spacing:.05em}
   #refresh-time{font-size:.65rem;color:var(--muted);margin-top:1px}
-  .nav-link{color:var(--cyan);text-decoration:none;font-size:.75rem;font-weight:600;border:1px solid var(--cyan);border-radius:6px;padding:4px 10px;transition:all .2s}
-  .nav-link:hover{background:var(--cyan);color:var(--bg)}
-
   .page{padding:18px 22px;display:flex;flex-direction:column;gap:14px}
   .row-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   @media(max-width:800px){.row-2{grid-template-columns:1fr}}
@@ -7166,11 +7180,14 @@ app.get("/fxcopy", async (req, res) => {
 </style>
 </head>
 <body>
+<nav class="navbar">
+  <a href="/mc?key=${key}" class="nav-tab"><span class="nav-icon">⚡</span>Mission Control</a>
+  <a href="/fxcopy?key=${key}" class="nav-tab active"><span class="nav-icon">📡</span>FxCopy</a>
+</nav>
 <header>
   <div class="hdr-left">
     <div class="hdr-logo">📡 Fx<span>Copy</span></div>
     <div id="bridge-chip" class="hdr-chip chip-offline"><div class="chip-dot"></div><span id="bridge-label">Bridge: checking...</span></div>
-    <a href="/mc?key=${key}" class="nav-link">← Mission Control</a>
   </div>
   <div class="hdr-right">
     <div id="live-clock">--:--:--</div>
