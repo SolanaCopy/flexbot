@@ -7327,9 +7327,9 @@ async function loadMC(){
     const d=await r.json();
     document.getElementById('refresh-time').textContent='Vernieuwd '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-    // EA status
+    // EA status — FxCopy account
     const eb=document.getElementById('ea-body');
-    const ea=(d.ea_positions||[])[0];
+    const ea=(d.ea_positions||[]).find(e=>e.account_login==='12145457')||(d.ea_positions||[]).find(e=>String(e.magic)==='88001');
     if(ea&&ea.equity!=null){
       const pos=ea.has_position;
       eb.innerHTML=
