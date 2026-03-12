@@ -6855,7 +6855,8 @@ async function load(){
     clearTimeout(timer);
     if(!r.ok){
       const eb=document.getElementById('error-banner');
-      eb.textContent='Load error: HTTP '+r.status;
+      const reasons={'401':'🔑 Verkeerde key — controleer de URL','403':'🔑 Geen toegang','500':'💥 Server crash — check Render logs','502':'🔄 Server herstart (Render deploy bezig)','503':'😴 Server slaapt — wacht 30s tot hij opstart','504':'⏱️ Gateway timeout — server te langzaam'};
+      eb.textContent=(reasons[String(r.status)]||'Fout')+' (HTTP '+r.status+')';
       eb.style.display='block';
       return;
     }
@@ -7035,8 +7036,25 @@ async function load(){
 
   }catch(e){
     const eb=document.getElementById('error-banner');
-    eb.textContent='Error: '+e.message;
+    let msg='';
+    if(e.name==='AbortError'){
+      msg='⏱️ Timeout: server reageert niet binnen 15s. Render is waarschijnlijk aan het opstarten (cold start). Wacht 30s en probeer opnieuw.';
+    } else if(e.message&&e.message.includes('Failed to fetch')){
+      msg='🔴 Server niet bereikbaar. Mogelijke oorzaken:\\n• Render server is down of slaapt\\n• Geen internetverbinding\\n• Server wordt opnieuw gedeployed';
+    } else if(e.message&&e.message.includes('NetworkError')){
+      msg='🌐 Netwerkfout: controleer je internetverbinding.';
+    } else {
+      msg='❌ Fout: '+e.message;
+    }
+    eb.innerHTML=msg.replace(/\\n/g,'<br>');
     eb.style.display='block';
+    // Toon retry countdown
+    let sec=30;
+    const countEl=document.createElement('div');
+    countEl.style.cssText='margin-top:6px;font-size:.7rem;color:#94a3b8';
+    countEl.textContent='Volgende poging over '+sec+'s...';
+    eb.appendChild(countEl);
+    const ci=setInterval(()=>{sec--;if(sec<=0){clearInterval(ci);countEl.textContent='Opnieuw laden...';}else{countEl.textContent='Volgende poging over '+sec+'s...';}},1000);
   }
 }
 
