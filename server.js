@@ -6711,6 +6711,7 @@ app.get("/mc", async (req, res) => {
   .mkt-dot.open{background:var(--green);box-shadow:0 0 10px var(--green);animation:dotPulse 1.5s ease-in-out infinite}
   .mkt-dot.closed{background:var(--red)}
   @keyframes dotPulse{0%,100%{box-shadow:0 0 6px var(--green)}50%{box-shadow:0 0 18px var(--green)}}
+  @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
   .mkt-info{}
   .mkt-status{font-size:1.5rem;font-weight:800;letter-spacing:.04em}
   .mkt-status.open{color:var(--green)}
@@ -7133,78 +7134,151 @@ async function load(){
       }
     }
 
-    // Signal Preparation
+    // Signal Preparation — Pro UI
     if(d.signal_prep&&d.signal_prep.available){
       const p=d.signal_prep;
-      const dirColor=p.trend==='BUY'?'var(--green)':p.trend==='SELL'?'var(--red)':'var(--muted)';
-      const statusColor=p.ready?'var(--green)':'var(--amber, #f59e0b)';
-      const statusText=p.ready?'KLAAR OM TE TRADEN':'WACHT OP GATES';
-      let html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">';
-      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:12px">';
-      html+='<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Prijs</div>';
-      html+='<div style="font-size:1.3rem;font-weight:800;font-variant-numeric:tabular-nums">'+(p.price||'—')+'</div>';
+      const isBuy=p.trend==='BUY';
+      const isSell=p.trend==='SELL';
+      const dirColor=isBuy?'#4ade80':isSell?'#f87171':'#64748b';
+      const dirBg=isBuy?'rgba(74,222,128,.08)':isSell?'rgba(248,113,113,.08)':'rgba(100,116,139,.06)';
+      const dirBorder=isBuy?'rgba(74,222,128,.25)':isSell?'rgba(248,113,113,.25)':'rgba(100,116,139,.15)';
+      const dirIcon=isBuy?'&#9650;':isSell?'&#9660;':'&#9679;';
+      const emaDiff=p.ema_fast_10&&p.ema_slow_30?Math.abs(p.ema_fast_10-p.ema_slow_30).toFixed(2):'—';
+      let html='';
+
+      // ── Hero: Price + Direction ──
+      html+='<div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">';
+      // Price big
+      html+='<div style="flex:1">';
+      html+='<div style="font-size:.58rem;color:#64748b;text-transform:uppercase;letter-spacing:.12em;margin-bottom:2px">XAUUSD</div>';
+      html+='<div style="font-size:2rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1;letter-spacing:-.02em">'+(p.price||'—')+'</div>';
       html+='</div>';
-      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:12px">';
-      html+='<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Trend Richting</div>';
-      html+='<div style="font-size:1.3rem;font-weight:800;color:'+dirColor+'">'+p.trend+'</div>';
-      html+='</div>';
-      html+='</div>';
-      // EMA values
-      html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">';
-      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:10px">';
-      html+='<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;margin-bottom:2px">EMA 10 (fast)</div>';
-      html+='<div style="font-size:.9rem;font-weight:700;color:var(--blue, #3b82f6);font-variant-numeric:tabular-nums">'+(p.ema_fast_10||'—')+'</div>';
-      html+='</div>';
-      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:10px">';
-      html+='<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;margin-bottom:2px">EMA 30 (slow)</div>';
-      html+='<div style="font-size:.9rem;font-weight:700;color:var(--amber, #f59e0b);font-variant-numeric:tabular-nums">'+(p.ema_slow_30||'—')+'</div>';
-      html+='</div>';
-      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:10px">';
-      html+='<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;margin-bottom:2px">Range (1u)</div>';
-      html+='<div style="font-size:.9rem;font-weight:700;font-variant-numeric:tabular-nums">'+(p.range_low||'—')+' — '+(p.range_high||'—')+'</div>';
+      // Direction badge
+      html+='<div style="background:'+dirBg+';border:1px solid '+dirBorder+';border-radius:12px;padding:10px 20px;text-align:center;min-width:110px">';
+      html+='<div style="font-size:1.6rem;line-height:1;color:'+dirColor+'">'+dirIcon+'</div>';
+      html+='<div style="font-size:1rem;font-weight:900;color:'+dirColor+';letter-spacing:.06em;margin-top:2px">'+p.trend+'</div>';
       html+='</div>';
       html+='</div>';
-      // Next trade levels
-      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:12px;margin-bottom:12px">';
-      html+='<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Volgende Trade (als gates open)</div>';
-      html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">';
-      html+='<div><div style="font-size:.6rem;color:var(--muted)">Entry</div><div style="font-weight:700;font-variant-numeric:tabular-nums">'+(p.next_entry||'—')+'</div></div>';
-      html+='<div><div style="font-size:.6rem;color:var(--red)">SL</div><div style="font-weight:700;color:var(--red);font-variant-numeric:tabular-nums">'+(p.next_sl||'—')+'</div></div>';
-      html+='<div><div style="font-size:.6rem;color:var(--green)">TP</div><div style="font-weight:700;color:var(--green);font-variant-numeric:tabular-nums">'+(p.next_tp||'—')+'</div></div>';
-      html+='<div><div style="font-size:.6rem;color:var(--muted)">RR</div><div style="font-weight:700;font-variant-numeric:tabular-nums">'+p.rr+'x</div></div>';
+
+      // ── EMA Bar ──
+      html+='<div style="display:flex;gap:1px;margin-bottom:14px;border-radius:10px;overflow:hidden">';
+      // Fast
+      html+='<div style="flex:1;background:rgba(96,165,250,.06);padding:10px 14px;border-left:3px solid #3b82f6">';
+      html+='<div style="display:flex;align-items:baseline;justify-content:space-between">';
+      html+='<span style="font-size:.58rem;color:#64748b;text-transform:uppercase;letter-spacing:.1em">EMA 10</span>';
+      html+='<span style="font-size:.52rem;color:#3b82f6;font-weight:700">FAST</span>';
+      html+='</div>';
+      html+='<div style="font-size:1.05rem;font-weight:800;color:#60a5fa;font-variant-numeric:tabular-nums;margin-top:2px">'+(p.ema_fast_10||'—')+'</div>';
+      html+='</div>';
+      // Slow
+      html+='<div style="flex:1;background:rgba(251,191,36,.06);padding:10px 14px;border-left:3px solid #d97706">';
+      html+='<div style="display:flex;align-items:baseline;justify-content:space-between">';
+      html+='<span style="font-size:.58rem;color:#64748b;text-transform:uppercase;letter-spacing:.1em">EMA 30</span>';
+      html+='<span style="font-size:.52rem;color:#d97706;font-weight:700">SLOW</span>';
+      html+='</div>';
+      html+='<div style="font-size:1.05rem;font-weight:800;color:#fbbf24;font-variant-numeric:tabular-nums;margin-top:2px">'+(p.ema_slow_30||'—')+'</div>';
+      html+='</div>';
+      // Spread
+      html+='<div style="flex:.7;background:rgba(255,255,255,.03);padding:10px 14px;border-left:3px solid rgba(255,255,255,.08)">';
+      html+='<div style="font-size:.58rem;color:#64748b;text-transform:uppercase;letter-spacing:.1em">Spread</div>';
+      html+='<div style="font-size:1.05rem;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px;color:'+dirColor+'">'+emaDiff+'</div>';
       html+='</div>';
       html+='</div>';
-      // Status + blockers
-      html+='<div style="padding:8px 14px;border-radius:8px;font-size:.8rem;font-weight:800;letter-spacing:.04em;display:flex;align-items:center;gap:8px;'+(p.ready?'background:#052e16;color:var(--green);border:1px solid #166534':'background:#1c1005;color:var(--amber, #f59e0b);border:1px solid #854d0e')+'">';
-      html+=p.ready?'&#9989; '+statusText:'&#9203; '+statusText;
-      if(p.blockers&&p.blockers.length>0) html+=' <span style="font-weight:400;font-size:.72rem;margin-left:8px">('+p.blockers.join(', ')+')</span>';
+
+      // ── Trade Levels ──
+      html+='<div style="background:linear-gradient(135deg,rgba(255,255,255,.02) 0%,rgba(255,255,255,.04) 100%);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:14px;margin-bottom:14px">';
+      html+='<div style="font-size:.58rem;color:#64748b;text-transform:uppercase;letter-spacing:.12em;margin-bottom:10px">Volgende Trade Levels</div>';
+      html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">';
+      // Entry
+      html+='<div style="text-align:center;background:rgba(255,255,255,.03);border-radius:8px;padding:10px 4px">';
+      html+='<div style="font-size:.55rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em">Entry</div>';
+      html+='<div style="font-size:1rem;font-weight:800;font-variant-numeric:tabular-nums;margin-top:4px;color:#e2e8f0">'+(p.next_entry||'—')+'</div>';
       html+='</div>';
-      // Cron info
+      // SL
+      html+='<div style="text-align:center;background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.12);border-radius:8px;padding:10px 4px">';
+      html+='<div style="font-size:.55rem;color:#f87171;text-transform:uppercase;letter-spacing:.08em;font-weight:700">Stop Loss</div>';
+      html+='<div style="font-size:1rem;font-weight:800;font-variant-numeric:tabular-nums;margin-top:4px;color:#f87171">'+(p.next_sl||'—')+'</div>';
+      html+='</div>';
+      // TP
+      html+='<div style="text-align:center;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.12);border-radius:8px;padding:10px 4px">';
+      html+='<div style="font-size:.55rem;color:#4ade80;text-transform:uppercase;letter-spacing:.08em;font-weight:700">Take Profit</div>';
+      html+='<div style="font-size:1rem;font-weight:800;font-variant-numeric:tabular-nums;margin-top:4px;color:#4ade80">'+(p.next_tp||'—')+'</div>';
+      html+='</div>';
+      // RR
+      html+='<div style="text-align:center;background:rgba(255,255,255,.03);border-radius:8px;padding:10px 4px">';
+      html+='<div style="font-size:.55rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em">R:R</div>';
+      html+='<div style="font-size:1rem;font-weight:800;font-variant-numeric:tabular-nums;margin-top:4px;color:#a78bfa">'+p.rr+'x</div>';
+      html+='</div>';
+      html+='</div>';
+      // Range bar
+      html+='<div style="margin-top:10px;display:flex;align-items:center;gap:8px;font-size:.68rem">';
+      html+='<span style="color:#64748b">Range</span>';
+      html+='<div style="flex:1;height:4px;background:rgba(255,255,255,.06);border-radius:2px;position:relative">';
+      html+='<div style="position:absolute;inset:0;background:linear-gradient(90deg,#f87171,#fbbf24,#4ade80);border-radius:2px;opacity:.4"></div>';
+      html+='</div>';
+      html+='<span style="color:#94a3b8;font-variant-numeric:tabular-nums;font-weight:600">'+(p.range_low||'—')+' — '+(p.range_high||'—')+'</span>';
+      html+='</div>';
+      html+='</div>';
+
+      // ── Status Bar ──
+      const readyGrad=p.ready?'linear-gradient(135deg,#052e16 0%,#064e22 100%)':'linear-gradient(135deg,#1c1005 0%,#2d1a08 100%)';
+      const readyBorder=p.ready?'#166534':'#854d0e';
+      const readyColor=p.ready?'#4ade80':'#f59e0b';
+      const readyIcon=p.ready?'&#9889;':'&#9203;';
+      const readyText=p.ready?'KLAAR OM TE TRADEN':'WACHT OP GATES';
+      html+='<div style="background:'+readyGrad+';border:1px solid '+readyBorder+';border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px">';
+      html+='<span style="font-size:1.2rem">'+readyIcon+'</span>';
+      html+='<div style="flex:1">';
+      html+='<div style="font-size:.82rem;font-weight:900;color:'+readyColor+';letter-spacing:.06em">'+readyText+'</div>';
+      if(p.blockers&&p.blockers.length>0){
+        html+='<div style="font-size:.65rem;color:rgba(255,255,255,.4);margin-top:3px">'+p.blockers.map(function(b){return'<span style="display:inline-block;background:rgba(255,255,255,.06);border-radius:4px;padding:2px 7px;margin:1px 2px;font-weight:600">'+b+'</span>';}).join('')+'</div>';
+      }
+      html+='</div>';
+      // Pulsing dot
+      if(p.ready) html+='<div style="width:10px;height:10px;border-radius:50%;background:#4ade80;box-shadow:0 0 8px #4ade80,0 0 20px rgba(74,222,128,.3);animation:pulse-dot 2s infinite"></div>';
+      html+='</div>';
+
+      // ── Cron Timer ──
       if(p.cron&&p.cron.last_call_ms>0){
         const cronAgo=Math.round((Date.now()-p.cron.last_call_ms)/60000);
         const nextIn=Math.max(0,p.cron.interval_min-cronAgo);
-        const resultColor=p.cron.last_acted?'var(--green)':p.cron.last_result==='cooldown'?'var(--amber, #f59e0b)':'var(--muted)';
-        const resultLabel=p.cron.last_acted?'TRADE GEMAAKT':(p.cron.last_result||'—');
-        html+='<div style="margin-top:12px;background:rgba(255,255,255,.03);border-radius:8px;padding:12px">';
-        html+='<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Cron Job (elke '+p.cron.interval_min+'m)</div>';
-        html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">';
-        html+='<div><div style="font-size:.6rem;color:var(--muted)">Laatste check</div><div style="font-weight:700;font-variant-numeric:tabular-nums">'+cronAgo+'m geleden</div></div>';
-        html+='<div><div style="font-size:.6rem;color:var(--muted)">Volgende check</div><div style="font-weight:700;font-variant-numeric:tabular-nums;color:var(--blue, #3b82f6)">~'+nextIn+'m</div></div>';
-        html+='<div><div style="font-size:.6rem;color:var(--muted)">Laatste resultaat</div><div style="font-weight:700;font-variant-numeric:tabular-nums;color:'+resultColor+'">'+resultLabel+'</div></div>';
+        const cronPct=Math.min(100,Math.round((cronAgo/p.cron.interval_min)*100));
+        const resultColor=p.cron.last_acted?'#4ade80':p.cron.last_result==='cooldown'?'#f59e0b':'#94a3b8';
+        const resultLabel=p.cron.last_acted?'TRADE GEMAAKT':(p.cron.last_result||'—').toUpperCase();
+        html+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:12px 14px">';
+        // Header
+        html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+        html+='<div style="font-size:.58rem;color:#64748b;text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;gap:6px"><span style="font-size:.7rem">&#9201;</span> Cron Scheduler</div>';
+        html+='<div style="font-size:.6rem;color:#94a3b8;font-weight:600">elke '+p.cron.interval_min+' min</div>';
+        html+='</div>';
+        // Progress bar
+        html+='<div style="height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;margin-bottom:10px">';
+        html+='<div style="height:100%;width:'+cronPct+'%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:3px;transition:width 1s"></div>';
+        html+='</div>';
+        // Stats
+        html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center">';
+        html+='<div><div style="font-size:.52rem;color:#64748b;text-transform:uppercase">Laatste</div><div style="font-size:.85rem;font-weight:800;font-variant-numeric:tabular-nums;color:#94a3b8">'+cronAgo+'m</div></div>';
+        html+='<div><div style="font-size:.52rem;color:#64748b;text-transform:uppercase">Volgende</div><div style="font-size:.85rem;font-weight:800;font-variant-numeric:tabular-nums;color:#22d3ee">~'+nextIn+'m</div></div>';
+        html+='<div><div style="font-size:.52rem;color:#64748b;text-transform:uppercase">Resultaat</div><div style="font-size:.72rem;font-weight:800;font-variant-numeric:tabular-nums;color:'+resultColor+'">'+resultLabel+'</div></div>';
         html+='</div>';
         html+='</div>';
       } else {
-        html+='<div style="margin-top:12px;font-size:.72rem;color:var(--muted)">Cron: nog geen aanroep sinds server start</div>';
+        html+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:12px 14px;text-align:center">';
+        html+='<span style="font-size:.72rem;color:#64748b">&#9201; Cron: wacht op eerste aanroep na server start</span>';
+        html+='</div>';
       }
-      // Latest signal info
+      // Footer info
       if(p.latest_signal_status&&p.latest_signal_status!=='none'){
-        html+='<div style="margin-top:8px;font-size:.72rem;color:var(--muted)">Laatste signaal: <span style="font-weight:700">'+p.latest_signal_status+'</span>';
-        if(p.latest_signal_age_min!=null) html+=' ('+p.latest_signal_age_min+'m geleden)';
-        html+=' &bull; '+p.candle_count+' candles geladen</div>';
+        html+='<div style="margin-top:10px;display:flex;align-items:center;gap:6px;font-size:.65rem;color:#64748b">';
+        html+='<span style="width:6px;height:6px;border-radius:50%;background:'+(p.latest_signal_status==='new'?'#22d3ee':p.latest_signal_status==='active'?'#4ade80':'#64748b')+';flex-shrink:0"></span>';
+        html+='Signaal: <span style="font-weight:700;color:#94a3b8">'+p.latest_signal_status+'</span>';
+        if(p.latest_signal_age_min!=null) html+=' <span style="color:#475569">('+p.latest_signal_age_min+'m geleden)</span>';
+        html+=' <span style="color:#334155">&bull;</span> <span style="color:#475569">'+p.candle_count+' candles</span>';
+        html+='</div>';
       }
       document.getElementById('prep-body').innerHTML=html;
     } else {
-      document.getElementById('prep-body').innerHTML='<span style="color:var(--muted);font-size:.8rem">Geen data beschikbaar</span>';
+      document.getElementById('prep-body').innerHTML='<span style="color:#64748b;font-size:.8rem">Geen data beschikbaar</span>';
     }
 
     // Signals
