@@ -1710,7 +1710,10 @@ app.post("/signal/closed", async (req, res) => {
     const entry = exRow.rows?.[0]?.fill_price != null ? Number(exRow.rows[0].fill_price) : null;
 
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
-    const canBroadcast = isMasterBroadcaster(body);
+    // For close notifications: always allow broadcasting.
+    // The EA may not send account_login/server in the close body.
+    // De-dupe via claimSignalPostOnce already prevents duplicates.
+    const canBroadcast = true;
 
     // De-dupe CLOSED posting across multiple EA accounts.
     // Only one request should do Telegram side-effects (edit open + post closed card + streak).
