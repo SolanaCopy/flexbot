@@ -5276,12 +5276,29 @@ ${logoDataUri
 </svg>`;
 }
 
+// Track last auto/scalp/run call for MC dashboard
+let lastAutoScalpRun = { ts: 0, symbol: null, result: null, cooldown_min: 0 };
+
 // POST /auto/scalp/run?symbol=XAUUSD
 // Fully server-side: blackout + cooldown + claim + create signal + post ONE telegram photo.
 async function autoScalpRunHandler(req, res) {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
     const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 15;
+
+    // Track this call — result is saved via wrapper below
+    lastAutoScalpRun.ts = Date.now();
+    lastAutoScalpRun.symbol = symbol;
+    lastAutoScalpRun.cooldown_min = cooldownMin;
+
+    // Intercept res.json to capture the result for MC dashboard
+    const origJson = res.json.bind(res);
+    res.json = (body) => {
+      lastAutoScalpRun.result = body?.acted ? "acted" : (body?.reason || "unknown");
+      lastAutoScalpRun.acted = !!body?.acted;
+      lastAutoScalpRun.direction = body?.direction || null;
+      return origJson(body);
+    };
 
     // Risk/strategy env
     const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
@@ -6565,6 +6582,14 @@ app.get("/api/mc/state", async (req, res) => {
           latest_signal_status: sigStatus,
           latest_signal_age_min: sigAge,
           candle_count: arr.length,
+          cron: {
+            last_call_ms: lastAutoScalpRun.ts || 0,
+            last_result: lastAutoScalpRun.result || null,
+            last_acted: lastAutoScalpRun.acted || false,
+            last_direction: lastAutoScalpRun.direction || null,
+            cooldown_min: lastAutoScalpRun.cooldown_min || 30,
+            interval_min: 15,
+          },
         };
       }
     } catch { /* best effort */ }
@@ -7150,6 +7175,23 @@ async function load(){
       html+=p.ready?'&#9989; '+statusText:'&#9203; '+statusText;
       if(p.blockers&&p.blockers.length>0) html+=' <span style="font-weight:400;font-size:.72rem;margin-left:8px">('+p.blockers.join(', ')+')</span>';
       html+='</div>';
+      // Cron info
+      if(p.cron&&p.cron.last_call_ms>0){
+        const cronAgo=Math.round((Date.now()-p.cron.last_call_ms)/60000);
+        const nextIn=Math.max(0,p.cron.interval_min-cronAgo);
+        const resultColor=p.cron.last_acted?'var(--green)':p.cron.last_result==='cooldown'?'var(--amber, #f59e0b)':'var(--muted)';
+        const resultLabel=p.cron.last_acted?'TRADE GEMAAKT':(p.cron.last_result||'—');
+        html+='<div style="margin-top:12px;background:rgba(255,255,255,.03);border-radius:8px;padding:12px">';
+        html+='<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Cron Job (elke '+p.cron.interval_min+'m)</div>';
+        html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">';
+        html+='<div><div style="font-size:.6rem;color:var(--muted)">Laatste check</div><div style="font-weight:700;font-variant-numeric:tabular-nums">'+cronAgo+'m geleden</div></div>';
+        html+='<div><div style="font-size:.6rem;color:var(--muted)">Volgende check</div><div style="font-weight:700;font-variant-numeric:tabular-nums;color:var(--blue, #3b82f6)">~'+nextIn+'m</div></div>';
+        html+='<div><div style="font-size:.6rem;color:var(--muted)">Laatste resultaat</div><div style="font-weight:700;font-variant-numeric:tabular-nums;color:'+resultColor+'">'+resultLabel+'</div></div>';
+        html+='</div>';
+        html+='</div>';
+      } else {
+        html+='<div style="margin-top:12px;font-size:.72rem;color:var(--muted)">Cron: nog geen aanroep sinds server start</div>';
+      }
       // Latest signal info
       if(p.latest_signal_status&&p.latest_signal_status!=='none'){
         html+='<div style="margin-top:8px;font-size:.72rem;color:var(--muted)">Laatste signaal: <span style="font-weight:700">'+p.latest_signal_status+'</span>';
