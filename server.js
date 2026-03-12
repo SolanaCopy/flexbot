@@ -6482,7 +6482,8 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
-    // Trend bias
+    // Trend bias + signal preparation data
+    let signal_prep = { available: false };
     try {
       const candlesR = await fetchJson(`${INTERNAL_BASE}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=120`, 5000);
       if (candlesR?.ok && Array.isArray(candlesR?.candles)) {
@@ -6492,6 +6493,64 @@ app.get("/api/mc/state", async (req, res) => {
           trade_gates.trend_bias.pass = false;
           setBlocked("trend_bias");
         }
+
+        // Signal preparation: EMA values, price, computed SL/TP
+        const arr = candlesR.candles;
+        const closes = arr.map((c) => Number(c.close)).filter((x) => Number.isFinite(x));
+        const emaFast = closes.length >= 12 ? ema(closes.slice(-Math.max(30, 32)), 10) : NaN;
+        const emaSlow = closes.length >= 32 ? ema(closes.slice(-Math.max(90, 32)), 30) : NaN;
+        const lastClose = closes.length > 0 ? closes[closes.length - 1] : NaN;
+        const last12 = arr.slice(-12);
+        const rangeHigh = Math.max(...last12.map((c) => Number(c.high)));
+        const rangeLow = Math.min(...last12.map((c) => Number(c.low)));
+
+        // Compute what auto/scalp would do
+        const pointRaw = Number(process.env.XAUUSD_POINT || 0.01);
+        const point = Number.isFinite(pointRaw) && pointRaw > 0 ? pointRaw : 0.01;
+        const fixedSlPts = Number(process.env.AUTO_SCALP_FIXED_SL_POINTS || 1000);
+        const fixedRr = 1.5;
+        const slDist = fixedSlPts * point;
+        const direction = biasR.ok ? biasR.bias : "?";
+        const prepEntry = lastClose;
+        const prepSl = direction === "SELL" ? prepEntry + slDist : direction === "BUY" ? prepEntry - slDist : null;
+        const prepTp = direction === "SELL" ? prepEntry - slDist * fixedRr : direction === "BUY" ? prepEntry + slDist * fixedRr : null;
+
+        // Check which gates block
+        const blockers = [];
+        if (trade_gates.market && !trade_gates.market.pass) blockers.push("Market gesloten");
+        if (trade_gates.news_blackout && !trade_gates.news_blackout.pass) blockers.push("News blackout");
+        if (trade_gates.open_trade_lock && !trade_gates.open_trade_lock.pass) blockers.push("Open positie");
+        if (trade_gates.cooldown && !trade_gates.cooldown.pass) blockers.push(`Cooldown (${trade_gates.cooldown.remaining_min}m)`);
+        if (trade_gates.daily_loss && !trade_gates.daily_loss.pass) blockers.push("Daily loss limiet");
+        if (trade_gates.consec_losses && !trade_gates.consec_losses.pass) blockers.push("Max verliezen op rij");
+        if (!biasR.ok) blockers.push("Geen trend bias");
+
+        // Latest signal status
+        const latestSig = signals.length > 0 ? signals[0] : null;
+        const sigStatus = latestSig ? latestSig.status : "none";
+        const sigAge = latestSig ? Math.round((Date.now() - latestSig.created_at_ms) / 60000) : null;
+
+        signal_prep = {
+          available: true,
+          symbol,
+          price: Number.isFinite(lastClose) ? Number(lastClose.toFixed(3)) : null,
+          ema_fast_10: Number.isFinite(emaFast) ? Number(emaFast.toFixed(3)) : null,
+          ema_slow_30: Number.isFinite(emaSlow) ? Number(emaSlow.toFixed(3)) : null,
+          trend: direction,
+          trend_strength: biasR.strength ? Number(biasR.strength.toFixed(4)) : 0,
+          range_high: Number.isFinite(rangeHigh) ? Number(rangeHigh.toFixed(3)) : null,
+          range_low: Number.isFinite(rangeLow) ? Number(rangeLow.toFixed(3)) : null,
+          next_entry: Number.isFinite(prepEntry) ? Number(prepEntry.toFixed(3)) : null,
+          next_sl: prepSl != null && Number.isFinite(prepSl) ? Number(prepSl.toFixed(3)) : null,
+          next_tp: prepTp != null && Number.isFinite(prepTp) ? Number(prepTp.toFixed(3)) : null,
+          sl_distance_pts: fixedSlPts,
+          rr: fixedRr,
+          blockers,
+          ready: blockers.length === 0,
+          latest_signal_status: sigStatus,
+          latest_signal_age_min: sigAge,
+          candle_count: arr.length,
+        };
       }
     } catch { /* best effort */ }
 
@@ -6504,6 +6563,7 @@ app.get("/api/mc/state", async (req, res) => {
       bots,
       signals,
       trade_gates,
+      signal_prep,
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
@@ -6774,6 +6834,10 @@ app.get("/mc", async (req, res) => {
     <div class="gates-row" id="gates-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
     <div id="gates-verdict"></div>
   </div>
+  <div class="card" id="card-prep">
+    <div class="card-title"><span class="card-title-icon">&#128301;</span> Signaal Voorbereiding</div>
+    <div id="prep-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+  </div>
   <div class="card">
     <div class="card-title"><span class="card-title-icon">&#128200;</span> Recente Trades (laatste 10)</div>
     <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="5">laden...</td></tr></tbody></table></div>
@@ -7023,6 +7087,63 @@ async function load(){
       } else {
         vEl.innerHTML='<div class="verdict-bar verdict-blocked">&#128721; BLOCKED — '+g.block_reason+'</div>';
       }
+    }
+
+    // Signal Preparation
+    if(d.signal_prep&&d.signal_prep.available){
+      const p=d.signal_prep;
+      const dirColor=p.trend==='BUY'?'var(--green)':p.trend==='SELL'?'var(--red)':'var(--muted)';
+      const statusColor=p.ready?'var(--green)':'var(--amber, #f59e0b)';
+      const statusText=p.ready?'KLAAR OM TE TRADEN':'WACHT OP GATES';
+      let html='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">';
+      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:12px">';
+      html+='<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Prijs</div>';
+      html+='<div style="font-size:1.3rem;font-weight:800;font-variant-numeric:tabular-nums">'+(p.price||'—')+'</div>';
+      html+='</div>';
+      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:12px">';
+      html+='<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Trend Richting</div>';
+      html+='<div style="font-size:1.3rem;font-weight:800;color:'+dirColor+'">'+p.trend+'</div>';
+      html+='</div>';
+      html+='</div>';
+      // EMA values
+      html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">';
+      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:10px">';
+      html+='<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;margin-bottom:2px">EMA 10 (fast)</div>';
+      html+='<div style="font-size:.9rem;font-weight:700;color:var(--blue, #3b82f6);font-variant-numeric:tabular-nums">'+(p.ema_fast_10||'—')+'</div>';
+      html+='</div>';
+      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:10px">';
+      html+='<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;margin-bottom:2px">EMA 30 (slow)</div>';
+      html+='<div style="font-size:.9rem;font-weight:700;color:var(--amber, #f59e0b);font-variant-numeric:tabular-nums">'+(p.ema_slow_30||'—')+'</div>';
+      html+='</div>';
+      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:10px">';
+      html+='<div style="font-size:.6rem;color:var(--muted);text-transform:uppercase;margin-bottom:2px">Range (1u)</div>';
+      html+='<div style="font-size:.9rem;font-weight:700;font-variant-numeric:tabular-nums">'+(p.range_low||'—')+' — '+(p.range_high||'—')+'</div>';
+      html+='</div>';
+      html+='</div>';
+      // Next trade levels
+      html+='<div style="background:rgba(255,255,255,.03);border-radius:8px;padding:12px;margin-bottom:12px">';
+      html+='<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px">Volgende Trade (als gates open)</div>';
+      html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">';
+      html+='<div><div style="font-size:.6rem;color:var(--muted)">Entry</div><div style="font-weight:700;font-variant-numeric:tabular-nums">'+(p.next_entry||'—')+'</div></div>';
+      html+='<div><div style="font-size:.6rem;color:var(--red)">SL</div><div style="font-weight:700;color:var(--red);font-variant-numeric:tabular-nums">'+(p.next_sl||'—')+'</div></div>';
+      html+='<div><div style="font-size:.6rem;color:var(--green)">TP</div><div style="font-weight:700;color:var(--green);font-variant-numeric:tabular-nums">'+(p.next_tp||'—')+'</div></div>';
+      html+='<div><div style="font-size:.6rem;color:var(--muted)">RR</div><div style="font-weight:700;font-variant-numeric:tabular-nums">'+p.rr+'x</div></div>';
+      html+='</div>';
+      html+='</div>';
+      // Status + blockers
+      html+='<div style="padding:8px 14px;border-radius:8px;font-size:.8rem;font-weight:800;letter-spacing:.04em;display:flex;align-items:center;gap:8px;'+(p.ready?'background:#052e16;color:var(--green);border:1px solid #166534':'background:#1c1005;color:var(--amber, #f59e0b);border:1px solid #854d0e')+'">';
+      html+=p.ready?'&#9989; '+statusText:'&#9203; '+statusText;
+      if(p.blockers&&p.blockers.length>0) html+=' <span style="font-weight:400;font-size:.72rem;margin-left:8px">('+p.blockers.join(', ')+')</span>';
+      html+='</div>';
+      // Latest signal info
+      if(p.latest_signal_status&&p.latest_signal_status!=='none'){
+        html+='<div style="margin-top:8px;font-size:.72rem;color:var(--muted)">Laatste signaal: <span style="font-weight:700">'+p.latest_signal_status+'</span>';
+        if(p.latest_signal_age_min!=null) html+=' ('+p.latest_signal_age_min+'m geleden)';
+        html+=' &bull; '+p.candle_count+' candles geladen</div>';
+      }
+      document.getElementById('prep-body').innerHTML=html;
+    } else {
+      document.getElementById('prep-body').innerHTML='<span style="color:var(--muted);font-size:.8rem">Geen data beschikbaar</span>';
     }
 
     // Signals
