@@ -16,12 +16,10 @@ const INTERNAL_BASE = `http://localhost:${process.env.PORT || 3000}`;
 function isMasterBroadcaster(body) {
   const login = String(body?.account_login ?? "").trim();
   const server = String(body?.server ?? "").trim();
-  const masterLogin = String(process.env.MASTER_LOGIN ?? "").trim();
-  const masterServer = String(process.env.MASTER_SERVER ?? "").trim();
+  const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+  const masterServer = String(process.env.MASTER_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
 
-  // If not configured, allow broadcasting (older behavior). Use MASTER_LOGIN/MASTER_SERVER to pin posting to one account.
-  if (!masterLogin || !masterServer) return true;
-  // If configured but EA didn't send account info, deny.
+  // If EA didn't send account info, deny.
   if (!login || !server) return false;
 
   return login === masterLogin && server === masterServer;
