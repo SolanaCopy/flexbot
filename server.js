@@ -445,10 +445,14 @@ async function getDb() {
       "has_position INTEGER NOT NULL," +
       "tickets_json TEXT," +
       "equity REAL," +
+      "balance REAL," +
       "updated_at_ms INTEGER NOT NULL," +
       "PRIMARY KEY (account_login, server, magic, symbol)" +
     ")"
   );
+
+  // Add balance column if it doesn't exist (migration for existing DBs)
+  try { await libsqlClient.execute("ALTER TABLE ea_positions ADD COLUMN balance REAL"); } catch { /* already exists */ }
 
   // Explicit EA cooldown state (written by EA, read by Flexbot cron/bot)
   await libsqlClient.execute(
@@ -2549,7 +2553,7 @@ app.post("/ea/status", async (req, res) => {
     if (db) {
       await db.execute({
         sql:
-          "INSERT OR REPLACE INTO ea_positions (account_login,server,magic,symbol,has_position,tickets_json,equity,updated_at_ms) VALUES (?,?,?,?,?,?,?,?)",
+          "INSERT OR REPLACE INTO ea_positions (account_login,server,magic,symbol,has_position,tickets_json,equity,balance,updated_at_ms) VALUES (?,?,?,?,?,?,?,?,?)",
         args: [
           account_login,
           server,
@@ -2558,6 +2562,7 @@ app.post("/ea/status", async (req, res) => {
           has_position ? 1 : 0,
           JSON.stringify(tickets),
           Number.isFinite(equity) ? equity : null,
+          Number.isFinite(balance) ? balance : null,
           updated_at_ms,
         ],
       });
@@ -2573,6 +2578,7 @@ app.post("/ea/status", async (req, res) => {
         has_position,
         tickets,
         equity: Number.isFinite(equity) ? equity : null,
+        balance: Number.isFinite(balance) ? balance : null,
         updated_at_ms,
         updated_at: formatMt5(updated_at_ms),
       });
@@ -6302,7 +6308,7 @@ app.get("/api/mc/state", async (req, res) => {
     if (db) {
       try {
         const rows = await db.execute({
-          sql: "SELECT account_login, server, magic, symbol, has_position, equity, updated_at_ms FROM ea_positions WHERE account_login=? AND server=? ORDER BY updated_at_ms DESC",
+          sql: "SELECT account_login, server, magic, symbol, has_position, equity, balance, updated_at_ms FROM ea_positions WHERE account_login=? AND server=? ORDER BY updated_at_ms DESC",
           args: [mcLogin, mcServer],
         });
         eaPositions = (rows.rows || []).map((r) => ({
@@ -6312,6 +6318,7 @@ app.get("/api/mc/state", async (req, res) => {
           symbol: String(r.symbol),
           has_position: Number(r.has_position) === 1,
           equity: r.equity != null ? Number(r.equity) : null,
+          balance: r.balance != null ? Number(r.balance) : null,
           updated_at_ms: Number(r.updated_at_ms),
         }));
       } catch { /* ignore */ }
@@ -6433,7 +6440,7 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
-    // Daily loss — read-only: lees state bestand zonder te schrijven
+    // Daily loss — lees state bestand (wordt bijgewerkt door EA /ea/status POST)
     try {
       const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.equity != null);
       const currentEq = latestEa ? latestEa.equity : NaN;
@@ -6441,25 +6448,24 @@ app.get("/api/mc/state", async (req, res) => {
         const fp = riskStatePath("risk-day", symbol);
         const dayKey = dayKeyInTz(riskTz);
         const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
-        let startEq = Number(st?.startEquity);
-        // Alleen geldig als het van vandaag is
+        const startEq = Number(st?.startEquity);
         const valid = Number.isFinite(startEq) && startEq > 0 && st.dayKey === dayKey;
         if (valid) {
           const ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
           trade_gates.daily_loss.dd_pct = Number(ddPct.toFixed(2));
           trade_gates.daily_loss.start_equity = Number(startEq.toFixed(2));
           trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
-          trade_gates.daily_loss.max = 5;
-          if (ddPct >= 5) {
+          trade_gates.daily_loss.max = maxDailyLossPct;
+          if (ddPct >= maxDailyLossPct) {
             trade_gates.daily_loss.pass = false;
             setBlocked("daily_loss");
           }
         } else {
-          // Geen geldige start equity voor vandaag — niet blokkeren
+          // Geen data van vandaag — toon huidige equity, geen drawdown
           trade_gates.daily_loss.dd_pct = 0;
           trade_gates.daily_loss.start_equity = null;
           trade_gates.daily_loss.current_equity = Number(currentEq.toFixed(2));
-          trade_gates.daily_loss.max = 5;
+          trade_gates.daily_loss.max = maxDailyLossPct;
         }
       }
     } catch { /* best effort */ }
@@ -6986,7 +6992,7 @@ async function load(){
         {key:'news_blackout',label:'News',          detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
         {key:'open_trade_lock',label:'Open Position', detail:g.open_trade_lock.reason||''},
         {key:'cooldown',     label:'Cooldown',       detail:!g.cooldown.pass?g.cooldown.remaining_min+'m remaining':''},
-        {key:'daily_loss',   label:'Daily Loss',     detail:g.daily_loss.dd_pct+'% of max '+g.daily_loss.max+'%'+(g.daily_loss.start_equity?' (start $'+g.daily_loss.start_equity+')':'')},
+        {key:'daily_loss',   label:'Daily Loss',     detail:g.daily_loss.start_equity?g.daily_loss.dd_pct+'% of max '+g.daily_loss.max+'% (equity $'+g.daily_loss.current_equity+' / start $'+g.daily_loss.start_equity+')':'no data today'},
         {key:'consec_losses',label:'Consecutive',   detail:g.consec_losses.losses+' / max '+g.consec_losses.max},
         {key:'trend_bias',   label:'Trend Bias',     detail:g.trend_bias.bias},
       ];

@@ -488,10 +488,11 @@ void ReportPositionStateThrottled() {
   long login = AccountInfoInteger(ACCOUNT_LOGIN);
   string server = AccountInfoString(ACCOUNT_SERVER);
   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+  double balance = AccountInfoDouble(ACCOUNT_BALANCE);
   string url = BuildUrl("/ea/status");
   string body = StringFormat(
-    "{\"account_login\":%I64d,\"server\":\"%s\",\"magic\":%I64d,\"symbol\":\"%s\",\"has_position\":%s,\"tickets\":%s,\"equity\":%.2f,\"time\":%I64d}",
-    login, server, (long)InpMagic, InpSymbol, (hasPos ? "true" : "false"), ticketsJson, equity, nowMs
+    "{\"account_login\":%I64d,\"server\":\"%s\",\"magic\":%I64d,\"symbol\":\"%s\",\"has_position\":%s,\"tickets\":%s,\"equity\":%.2f,\"balance\":%.2f,\"time\":%I64d}",
+    login, server, (long)InpMagic, InpSymbol, (hasPos ? "true" : "false"), ticketsJson, equity, balance, nowMs
   );
   string hdr = "";
   if(StringLen(Trim(InpEaApiKey)) > 0) hdr = "X-API-Key: " + InpEaApiKey + "\r\n";
