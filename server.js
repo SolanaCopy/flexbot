@@ -6504,26 +6504,29 @@ app.get("/api/mc/state", async (req, res) => {
         const rangeHigh = Math.max(...last12.map((c) => Number(c.high)));
         const rangeLow = Math.min(...last12.map((c) => Number(c.low)));
 
-        // Compute what auto/scalp would do
+        // Compute what auto/scalp would do (uses EMA 10/30, NOT the gate's 20/50)
+        const scalpBias = trendBiasFromCandles(arr, 10, 30);
         const pointRaw = Number(process.env.XAUUSD_POINT || 0.01);
         const point = Number.isFinite(pointRaw) && pointRaw > 0 ? pointRaw : 0.01;
         const fixedSlPts = Number(process.env.AUTO_SCALP_FIXED_SL_POINTS || 1000);
         const fixedRr = 1.5;
         const slDist = fixedSlPts * point;
-        const direction = biasR.ok ? biasR.bias : "?";
+        const direction = scalpBias.ok ? scalpBias.bias : "?";
         const prepEntry = lastClose;
         const prepSl = direction === "SELL" ? prepEntry + slDist : direction === "BUY" ? prepEntry - slDist : null;
         const prepTp = direction === "SELL" ? prepEntry - slDist * fixedRr : direction === "BUY" ? prepEntry + slDist * fixedRr : null;
 
-        // Check which gates block
+        // Check which gates block (matching auto/scalp logic exactly)
+        // auto/scalp checks: market → open_position_lock → blackout → cooldown → claim → candles → EMA 10/30 → daily_loss → consec_losses
         const blockers = [];
         if (trade_gates.market && !trade_gates.market.pass) blockers.push("Market gesloten");
-        if (trade_gates.news_blackout && !trade_gates.news_blackout.pass) blockers.push("News blackout");
         if (trade_gates.open_trade_lock && !trade_gates.open_trade_lock.pass) blockers.push("Open positie");
+        if (trade_gates.news_blackout && !trade_gates.news_blackout.pass) blockers.push("News blackout");
         if (trade_gates.cooldown && !trade_gates.cooldown.pass) blockers.push(`Cooldown (${trade_gates.cooldown.remaining_min}m)`);
+        if (arr.length < 12) blockers.push("Te weinig candles (" + arr.length + "/12)");
+        if (!scalpBias.ok) blockers.push("Geen trend bias (EMA 10/30)");
         if (trade_gates.daily_loss && !trade_gates.daily_loss.pass) blockers.push("Daily loss limiet");
         if (trade_gates.consec_losses && !trade_gates.consec_losses.pass) blockers.push("Max verliezen op rij");
-        if (!biasR.ok) blockers.push("Geen trend bias");
 
         // Latest signal status
         const latestSig = signals.length > 0 ? signals[0] : null;
@@ -6537,7 +6540,8 @@ app.get("/api/mc/state", async (req, res) => {
           ema_fast_10: Number.isFinite(emaFast) ? Number(emaFast.toFixed(3)) : null,
           ema_slow_30: Number.isFinite(emaSlow) ? Number(emaSlow.toFixed(3)) : null,
           trend: direction,
-          trend_strength: biasR.strength ? Number(biasR.strength.toFixed(4)) : 0,
+          trend_strength: scalpBias.strength ? Number(scalpBias.strength.toFixed(4)) : 0,
+          gate_trend_bias: biasR.ok ? biasR.bias : "?",
           range_high: Number.isFinite(rangeHigh) ? Number(rangeHigh.toFixed(3)) : null,
           range_low: Number.isFinite(rangeLow) ? Number(rangeLow.toFixed(3)) : null,
           next_entry: Number.isFinite(prepEntry) ? Number(prepEntry.toFixed(3)) : null,
