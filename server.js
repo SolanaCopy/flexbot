@@ -4813,7 +4813,7 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
   };
 
   const listStartY = 450;
-  const lineH = twoCols ? 36 : 42;
+  const lineH = twoCols ? 46 : 62;
   const colW = twoCols ? 488 : W - pad * 2;
   const col1X = pad + 8;
   const col2X = twoCols ? col1X + 504 : col1X;
