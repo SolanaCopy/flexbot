@@ -7079,6 +7079,23 @@ setInterval(load,30000);
 });
 
 // ============================================================
+// FXCOPY BRIDGE STATE
+// ============================================================
+
+let fxcopyBridgeState = { updated_at: 0 };
+
+app.post("/api/fxcopy/bridge", (req, res) => {
+  const body = req.body || {};
+  fxcopyBridgeState = { ...body, updated_at: Date.now() };
+  return res.json({ ok: true });
+});
+
+app.get("/api/fxcopy/bridge", (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  return res.json(fxcopyBridgeState);
+});
+
+// ============================================================
 // FXCOPY DASHBOARD
 // ============================================================
 
@@ -7240,7 +7257,6 @@ app.get("/fxcopy", async (req, res) => {
 
 <script>
 const KEY='${key}';
-const BRIDGE='http://localhost:8000';
 const BASE=location.origin;
 
 // Clock
@@ -7249,13 +7265,15 @@ tick();setInterval(tick,1000);
 
 function fmtTime(ms){
   if(!ms)return '—';
-  const d=new Date(ms*1000||ms);
+  const d=new Date(ms>1e12?ms:ms*1000);
   return d.toLocaleString('nl-NL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
 }
 
 function ago(ms){
   if(!ms)return '';
-  const s=Math.floor((Date.now()-(ms*1000>1e15?ms:ms*1000))/1000);
+  const t=ms>1e12?ms:ms*1000;
+  const s=Math.floor((Date.now()-t)/1000);
+  if(s<0)return 'net';
   if(s<60)return s+'s geleden';
   if(s<3600)return Math.floor(s/60)+'m geleden';
   return Math.floor(s/3600)+'u geleden';
@@ -7265,16 +7283,20 @@ async function loadBridge(){
   const chip=document.getElementById('bridge-chip');
   const lbl=document.getElementById('bridge-label');
   try{
-    const r=await fetch(BRIDGE+'/health',{signal:AbortSignal.timeout(3000)});
+    const r=await fetch(BASE+'/api/fxcopy/bridge?key='+encodeURIComponent(KEY),{signal:AbortSignal.timeout(10000)});
     if(!r.ok)throw new Error('HTTP '+r.status);
     const d=await r.json();
-    chip.className='hdr-chip chip-online';
-    lbl.textContent='Bridge: ONLINE'+(d.history_count?' ('+d.history_count+' signalen)':'');
+
+    // Check if bridge data is fresh (< 60s)
+    const age=Date.now()-(d.updated_at||0);
+    const online=age<60000;
+
+    chip.className='hdr-chip '+(online?'chip-online':'chip-offline');
+    lbl.textContent='Bridge: '+(online?'ONLINE':'STALE ('+Math.floor(age/1000)+'s)')+(d.history_count?' ('+d.history_count+' signalen)':'');
 
     // Latest signal
-    const lr=await fetch(BRIDGE+'/latest',{signal:AbortSignal.timeout(3000)});
-    const latest=await lr.json();
     const sb=document.getElementById('sig-body');
+    const latest=d.latest_signal;
     if(latest&&latest.signal){
       const s=latest.signal;
       const tps=s.tp||[];
@@ -7292,10 +7314,9 @@ async function loadBridge(){
     }
 
     // Signal history
-    const hr=await fetch(BRIDGE+'/history?limit=20',{signal:AbortSignal.timeout(3000)});
-    const hist=await hr.json();
+    const hist=d.history||[];
     const tb=document.getElementById('sig-table');
-    if(hist&&hist.length>0){
+    if(hist.length>0){
       tb.innerHTML=hist.slice().reverse().map((h,i)=>{
         const s=h.signal||{};
         const tps=s.tp||[];
@@ -7315,8 +7336,8 @@ async function loadBridge(){
   }catch(e){
     chip.className='hdr-chip chip-offline';
     lbl.textContent='Bridge: OFFLINE';
-    document.getElementById('sig-body').innerHTML='<div class="sig-none">⚠️ Bridge niet bereikbaar (localhost:8000)</div>';
-    document.getElementById('sig-table').innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center">Bridge offline</td></tr>';
+    document.getElementById('sig-body').innerHTML='<div class="sig-none">⚠️ Geen bridge data</div>';
+    document.getElementById('sig-table').innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center">Geen data</td></tr>';
   }
 }
 
