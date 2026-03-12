@@ -7340,8 +7340,8 @@ async function loadBridge(){
     if(ea&&ea.equity!=null&&ea.last_update>0){
       const pos=ea.has_position;
       eb.innerHTML=
-        '<div class="ea-equity">$'+Number(ea.equity).toLocaleString('en-US',{minimumFractionDigits:2})+'</div>'+
-        '<div class="ea-balance">Balance: $'+Number(ea.balance||ea.equity).toLocaleString('en-US',{minimumFractionDigits:2})+'</div>'+
+        '<div class="ea-equity">€'+Number(ea.equity).toLocaleString('nl-NL',{minimumFractionDigits:2})+'</div>'+
+        '<div class="ea-balance">Balance: €'+Number(ea.balance||ea.equity).toLocaleString('nl-NL',{minimumFractionDigits:2})+'</div>'+
         '<div class="ea-pos">'+(pos?'<span class="badge badge-orange">⚡ POSITIE OPEN</span>':'<span class="badge badge-gray">Geen positie</span>')+'</div>'+
         '<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">Account: '+(ea.account_login||'?')+' | '+ago(ea.last_update)+'</div>';
     } else {
