@@ -5280,8 +5280,15 @@ ${logoDataUri
 </svg>`;
 }
 
-// Track last auto/scalp/run call for MC dashboard
+// Track last auto/scalp/run call for MC dashboard — persisted to disk
+const CRON_STATE_FILE = path.join(__dirname, "state", "last_cron.json");
 let lastAutoScalpRun = { ts: 0, symbol: null, result: null, cooldown_min: 0 };
+try {
+  if (fs.existsSync(CRON_STATE_FILE)) {
+    const saved = JSON.parse(fs.readFileSync(CRON_STATE_FILE, "utf8"));
+    if (saved && saved.ts) lastAutoScalpRun = saved;
+  }
+} catch (_) {}
 
 // POST /auto/scalp/run?symbol=XAUUSD
 // Fully server-side: blackout + cooldown + claim + create signal + post ONE telegram photo.
@@ -5301,6 +5308,8 @@ async function autoScalpRunHandler(req, res) {
       lastAutoScalpRun.result = body?.acted ? "acted" : (body?.reason || "unknown");
       lastAutoScalpRun.acted = !!body?.acted;
       lastAutoScalpRun.direction = body?.direction || null;
+      // Persist to disk so countdown survives restarts
+      try { fs.mkdirSync(path.dirname(CRON_STATE_FILE), { recursive: true }); fs.writeFileSync(CRON_STATE_FILE, JSON.stringify(lastAutoScalpRun)); } catch (_) {}
       return origJson(body);
     };
 
