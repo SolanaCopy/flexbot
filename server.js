@@ -2734,10 +2734,15 @@ app.get("/ea/cooldown", async (req, res) => {
 
 app.post("/price", (req, res) => {
   try {
-    const jsonStr = firstJsonObject(req.body);
-    if (!jsonStr) return res.status(400).send("bad");
-
-    const parsed = JSON.parse(jsonStr);
+    // Support both parsed JSON object (from express.json) and raw string (from express.text)
+    let parsed;
+    if (typeof req.body === "object" && req.body !== null && !Array.isArray(req.body) && req.body.symbol) {
+      parsed = req.body;
+    } else {
+      const jsonStr = firstJsonObject(req.body);
+      if (!jsonStr) return res.status(400).send("bad");
+      parsed = JSON.parse(jsonStr);
+    }
     const { symbol, bid, ask, time, ts } = parsed;
 
     if (!symbol || bid == null || ask == null) return res.status(400).send("bad");
