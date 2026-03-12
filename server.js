@@ -7068,6 +7068,304 @@ setInterval(load,30000);
 });
 
 // ============================================================
+// FXCOPY DASHBOARD
+// ============================================================
+
+app.get("/fxcopy", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  const key = String(req.query.key || "");
+  const html = `<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>📡 FxCopy — Signal Dashboard</title>
+<style>
+  :root{
+    --bg:#07090f;--surface:#0d1117;--surface2:#111827;--border:#1e2535;
+    --cyan:#22d3ee;--green:#4ade80;--orange:#fb923c;--red:#f87171;--blue:#60a5fa;--purple:#a78bfa;--yellow:#fbbf24;
+    --text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+
+  header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(8px)}
+  .hdr-left{display:flex;align-items:center;gap:12px}
+  .hdr-logo{font-size:1.3rem;font-weight:800;letter-spacing:.04em;color:#fff;text-transform:uppercase}
+  .hdr-logo span{color:var(--purple)}
+  .hdr-chip{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:3px 9px;font-size:.65rem;font-weight:700;letter-spacing:.04em;transition:all .3s}
+  .chip-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .chip-online{border-color:#166534;color:var(--green)}
+  .chip-online .chip-dot{background:var(--green);animation:dotPulse 1.5s ease-in-out infinite}
+  .chip-offline{border-color:#7f1d1d;color:var(--red)}
+  .chip-offline .chip-dot{background:var(--red)}
+  @keyframes dotPulse{0%,100%{box-shadow:0 0 6px var(--green)}50%{box-shadow:0 0 18px var(--green)}}
+  .hdr-right{text-align:right}
+  #live-clock{font-size:1.1rem;font-weight:700;color:var(--purple);font-variant-numeric:tabular-nums;letter-spacing:.05em}
+  #refresh-time{font-size:.65rem;color:var(--muted);margin-top:1px}
+  .nav-link{color:var(--cyan);text-decoration:none;font-size:.75rem;font-weight:600;border:1px solid var(--cyan);border-radius:6px;padding:4px 10px;transition:all .2s}
+  .nav-link:hover{background:var(--cyan);color:var(--bg)}
+
+  .page{padding:18px 22px;display:flex;flex-direction:column;gap:14px}
+  .row-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:800px){.row-2{grid-template-columns:1fr}}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;position:relative;overflow:hidden}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--purple),transparent);opacity:.4}
+  .card-title{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+  .card-title-icon{font-size:.85rem}
+
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:99px;font-size:.68rem;font-weight:700;letter-spacing:.03em}
+  .badge-green{background:#052e16;color:var(--green);border:1px solid #166534}
+  .badge-red{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
+  .badge-blue{background:#0c1a2e;color:var(--blue);border:1px solid #1d4ed8}
+  .badge-orange{background:#1c0a00;color:var(--orange);border:1px solid #7c2d12}
+  .badge-gray{background:#0f172a;color:var(--muted2);border:1px solid #334155}
+  .badge-purple{background:#1a0a2e;color:var(--purple);border:1px solid #6d28d9}
+
+  #error-banner{display:none;background:#1c0505;color:#fca5a5;padding:10px 18px;border-radius:8px;border:1px solid #7f1d1d;font-size:.8rem}
+
+  /* Latest signal card */
+  .sig-big{text-align:center;padding:20px}
+  .sig-dir{font-size:2.2rem;font-weight:900;letter-spacing:.05em}
+  .sig-dir.BUY{color:var(--green)}
+  .sig-dir.SELL{color:var(--red)}
+  .sig-symbol{font-size:1rem;color:var(--muted2);font-weight:600;margin-bottom:4px}
+  .sig-entry{font-size:1.6rem;font-weight:800;color:var(--cyan);margin:6px 0}
+  .sig-levels{display:flex;justify-content:center;gap:20px;margin-top:10px;font-size:.85rem}
+  .sig-sl{color:var(--red);font-weight:700}
+  .sig-tp{color:var(--green);font-weight:700}
+  .sig-time{font-size:.7rem;color:var(--muted);margin-top:12px}
+  .sig-none{color:var(--muted);font-size:1rem;padding:30px 0}
+
+  /* EA status card */
+  .ea-big{text-align:center}
+  .ea-equity{font-size:2rem;font-weight:900;color:var(--cyan);letter-spacing:.02em}
+  .ea-balance{font-size:.85rem;color:var(--muted2);margin-top:4px}
+  .ea-pos{margin-top:12px;font-size:.9rem;font-weight:700}
+
+  /* Signal history table */
+  .signals-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:.78rem}
+  thead tr{border-bottom:1px solid var(--border)}
+  th{text-align:left;padding:8px 12px;color:var(--muted);font-weight:600;font-size:.65rem;text-transform:uppercase;letter-spacing:.08em}
+  td{padding:9px 12px;border-bottom:1px solid #0f1520;color:var(--muted2)}
+  tr:hover td{background:rgba(255,255,255,.02)}
+  .dir-buy{color:var(--green);font-weight:700}
+  .dir-sell{color:var(--red);font-weight:700}
+
+  /* Trade history */
+  .trade-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);margin-bottom:8px}
+  .trade-icon{font-size:1.2rem;flex-shrink:0}
+  .trade-info{flex:1}
+  .trade-pair{font-weight:700;font-size:.85rem;color:#fff}
+  .trade-detail{font-size:.72rem;color:var(--muted2);margin-top:2px}
+  .trade-result{text-align:right;font-weight:800;font-size:.85rem}
+  .trade-result.tp{color:var(--green)}
+  .trade-result.sl{color:var(--red)}
+</style>
+</head>
+<body>
+<header>
+  <div class="hdr-left">
+    <div class="hdr-logo">📡 Fx<span>Copy</span></div>
+    <div id="bridge-chip" class="hdr-chip chip-offline"><div class="chip-dot"></div><span id="bridge-label">Bridge: checking...</span></div>
+    <a href="/mc?key=${key}" class="nav-link">← Mission Control</a>
+  </div>
+  <div class="hdr-right">
+    <div id="live-clock">--:--:--</div>
+    <div id="refresh-time">nog niet geladen</div>
+  </div>
+</header>
+
+<div class="page">
+  <div id="error-banner"></div>
+
+  <div class="row-2">
+    <!-- Latest Signal -->
+    <div class="card">
+      <div class="card-title"><span class="card-title-icon">📊</span> Laatste Signaal</div>
+      <div id="sig-body" class="sig-big">
+        <div class="sig-none">Wachten op signaal...</div>
+      </div>
+    </div>
+
+    <!-- EA Status -->
+    <div class="card">
+      <div class="card-title"><span class="card-title-icon">🤖</span> EA Status</div>
+      <div id="ea-body" class="ea-big">
+        <div class="sig-none">Laden...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Signal History -->
+  <div class="card">
+    <div class="card-title"><span class="card-title-icon">📋</span> Signaal Geschiedenis</div>
+    <div class="signals-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Tijd</th><th>Symbol</th><th>Richting</th><th>Entry</th><th>SL</th><th>TP1</th></tr></thead>
+        <tbody id="sig-table">
+          <tr><td colspan="7" style="color:var(--muted);text-align:center">Laden...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Trade History -->
+  <div class="card">
+    <div class="card-title"><span class="card-title-icon">💰</span> Laatste Trades</div>
+    <div id="trades-body">
+      <div class="sig-none" style="text-align:center">Laden...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const KEY='${key}';
+const BRIDGE='http://localhost:8000';
+const BASE=location.origin;
+
+// Clock
+function tick(){document.getElementById('live-clock').textContent=new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Europe/Amsterdam'});}
+tick();setInterval(tick,1000);
+
+function fmtTime(ms){
+  if(!ms)return '—';
+  const d=new Date(ms*1000||ms);
+  return d.toLocaleString('nl-NL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'});
+}
+
+function ago(ms){
+  if(!ms)return '';
+  const s=Math.floor((Date.now()-(ms*1000>1e15?ms:ms*1000))/1000);
+  if(s<60)return s+'s geleden';
+  if(s<3600)return Math.floor(s/60)+'m geleden';
+  return Math.floor(s/3600)+'u geleden';
+}
+
+async function loadBridge(){
+  const chip=document.getElementById('bridge-chip');
+  const lbl=document.getElementById('bridge-label');
+  try{
+    const r=await fetch(BRIDGE+'/health',{signal:AbortSignal.timeout(3000)});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    chip.className='hdr-chip chip-online';
+    lbl.textContent='Bridge: ONLINE'+(d.history_count?' ('+d.history_count+' signalen)':'');
+
+    // Latest signal
+    const lr=await fetch(BRIDGE+'/latest',{signal:AbortSignal.timeout(3000)});
+    const latest=await lr.json();
+    const sb=document.getElementById('sig-body');
+    if(latest&&latest.signal){
+      const s=latest.signal;
+      const tps=s.tp||[];
+      sb.innerHTML=
+        '<div class="sig-symbol">'+s.symbol+'</div>'+
+        '<div class="sig-dir '+s.side+'">'+s.side+'</div>'+
+        '<div class="sig-entry">@ '+s.entry+'</div>'+
+        '<div class="sig-levels">'+
+          '<span class="sig-sl">SL: '+s.sl+'</span>'+
+          (tps.length?'<span class="sig-tp">TP1: '+tps[0]+(tps.length>1?' (+'+( tps.length-1)+')':'')+'</span>':'')+
+        '</div>'+
+        '<div class="sig-time">'+ago(latest.ts)+' — bron: @'+s.source+'</div>';
+    } else {
+      sb.innerHTML='<div class="sig-none">Nog geen signaal ontvangen</div>';
+    }
+
+    // Signal history
+    const hr=await fetch(BRIDGE+'/history?limit=20',{signal:AbortSignal.timeout(3000)});
+    const hist=await hr.json();
+    const tb=document.getElementById('sig-table');
+    if(hist&&hist.length>0){
+      tb.innerHTML=hist.slice().reverse().map((h,i)=>{
+        const s=h.signal||{};
+        const tps=s.tp||[];
+        return '<tr>'+
+          '<td>'+(hist.length-i)+'</td>'+
+          '<td>'+fmtTime(h.ts)+'</td>'+
+          '<td style="color:#fff;font-weight:700">'+s.symbol+'</td>'+
+          '<td class="dir-'+(s.side||'').toLowerCase()+'">'+(s.side||'—')+'</td>'+
+          '<td>'+(s.entry||'—')+'</td>'+
+          '<td style="color:var(--red)">'+(s.sl||'—')+'</td>'+
+          '<td style="color:var(--green)">'+(tps[0]||'—')+'</td>'+
+          '</tr>';
+      }).join('');
+    } else {
+      tb.innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center">Geen signalen</td></tr>';
+    }
+  }catch(e){
+    chip.className='hdr-chip chip-offline';
+    lbl.textContent='Bridge: OFFLINE';
+    document.getElementById('sig-body').innerHTML='<div class="sig-none">⚠️ Bridge niet bereikbaar (localhost:8000)</div>';
+    document.getElementById('sig-table').innerHTML='<tr><td colspan="7" style="color:var(--muted);text-align:center">Bridge offline</td></tr>';
+  }
+}
+
+async function loadMC(){
+  try{
+    const r=await fetch(BASE+'/api/mc/state?key='+encodeURIComponent(KEY),{signal:AbortSignal.timeout(15000)});
+    if(!r.ok)return;
+    const d=await r.json();
+    document.getElementById('refresh-time').textContent='Vernieuwd '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+    // EA status
+    const eb=document.getElementById('ea-body');
+    const ea=(d.ea_positions||[])[0];
+    if(ea&&ea.equity!=null){
+      const pos=ea.has_position;
+      eb.innerHTML=
+        '<div class="ea-equity">$'+Number(ea.equity).toLocaleString('en-US',{minimumFractionDigits:2})+'</div>'+
+        '<div class="ea-balance">Balance: $'+Number(ea.balance||ea.equity).toLocaleString('en-US',{minimumFractionDigits:2})+'</div>'+
+        '<div class="ea-pos">'+(pos?'<span class="badge badge-orange">⚡ POSITIE OPEN</span>':'<span class="badge badge-gray">Geen positie</span>')+'</div>'+
+        '<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">'+ago(ea.updated_at_ms)+'</div>';
+    } else {
+      eb.innerHTML='<div class="sig-none">Geen EA data</div>';
+    }
+
+    // Trade history
+    const tb=document.getElementById('trades-body');
+    const sigs=(d.signals||[]).filter(s=>s.close_outcome);
+    if(sigs.length>0){
+      tb.innerHTML=sigs.slice(0,10).map(s=>{
+        const isTP=s.close_outcome&&s.close_outcome.includes('TP');
+        const isSL=s.close_outcome&&s.close_outcome.includes('SL');
+        const icon=isTP?'✅':isSL?'❌':'🔵';
+        const cls=isTP?'tp':isSL?'sl':'';
+        return '<div class="trade-row">'+
+          '<div class="trade-icon">'+icon+'</div>'+
+          '<div class="trade-info">'+
+            '<div class="trade-pair">'+s.symbol+' <span class="dir-'+(s.direction||'').toLowerCase()+'">'+(s.direction||'')+'</span></div>'+
+            '<div class="trade-detail">SL: '+(s.sl||'—')+' | TP: '+(s.tp||'—')+' | '+fmtTime(s.closed_at_ms)+'</div>'+
+          '</div>'+
+          '<div class="trade-result '+cls+'">'+s.close_outcome+'</div>'+
+          '</div>';
+      }).join('');
+    } else {
+      tb.innerHTML='<div class="sig-none" style="text-align:center">Geen trades</div>';
+    }
+
+  }catch(e){
+    document.getElementById('error-banner').textContent='Error: '+e.message;
+    document.getElementById('error-banner').style.display='block';
+  }
+}
+
+async function load(){
+  await Promise.all([loadBridge(),loadMC()]);
+}
+
+load();
+setInterval(load,15000);
+</script>
+</body>
+</html>`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
+});
+
+// ============================================================
 // END MISSION CONTROL
 // ============================================================
 
