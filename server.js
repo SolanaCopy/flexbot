@@ -7176,10 +7176,11 @@ async function load(){
       h+='<div style="flex:1"><div style="font-size:.6rem;font-weight:900;color:'+rc+';letter-spacing:.04em">'+(p.ready?'READY':'WACHT')+'</div>';
       if(p.blockers&&p.blockers.length>0) h+='<div style="font-size:.45rem;color:rgba(255,255,255,.28);margin-top:1px;line-height:1.2">'+p.blockers.join(' · ')+'</div>';
       h+='</div></div>';
-      // Cron scheduler
+      // Cron scheduler with live countdown
       if(p.cron&&p.cron.last_call_ms>0){
+        cronData.lastMs=p.cron.last_call_ms;
+        cronData.intervalMin=p.cron.interval_min;
         const ca=Math.round((Date.now()-p.cron.last_call_ms)/60000);
-        const ni=Math.max(0,p.cron.interval_min-ca);
         const cp=Math.min(100,Math.round((ca/p.cron.interval_min)*100));
         const rl=p.cron.last_acted?'TRADE':(p.cron.last_result||'—').toUpperCase();
         const rcr=p.cron.last_acted?'#4ade80':p.cron.last_result==='cooldown'?'#f59e0b':'#94a3b8';
@@ -7188,8 +7189,8 @@ async function load(){
         h+='<span style="font-size:.48rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em">&#9201; Cron '+p.cron.interval_min+'m</span>';
         h+='<span style="font-size:.52rem;font-weight:800;color:'+rcr+'">'+rl+'</span>';
         h+='</div>';
-        h+='<div style="height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden;margin-bottom:2px"><div style="height:100%;width:'+cp+'%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:1px"></div></div>';
-        h+='<div style="display:flex;justify-content:space-between;font-size:.45rem;color:#64748b"><span>'+ca+'m geleden</span><span style="color:#22d3ee;font-weight:700">~'+ni+'m</span></div>';
+        h+='<div style="height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden;margin-bottom:2px"><div id="cron-progress" style="height:100%;width:'+cp+'%;background:linear-gradient(90deg,#3b82f6,#22d3ee);border-radius:1px;transition:width 1s linear"></div></div>';
+        h+='<div style="display:flex;align-items:center;justify-content:space-between;font-size:.45rem;color:#64748b"><span id="cron-ago">'+ca+'m geleden</span><span id="cron-countdown" style="color:#22d3ee;font-weight:800;font-size:.65rem;font-variant-numeric:tabular-nums">—</span></div>';
         h+='</div>';
       } else {
         h+='<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;padding:5px 10px;text-align:center"><span style="font-size:.5rem;color:#64748b">&#9201; Wacht op cron</span></div>';
@@ -7254,6 +7255,26 @@ async function load(){
 
 load();
 setInterval(load,30000);
+
+// Live cron countdown timer (updates every second)
+let cronData={lastMs:0,intervalMin:15};
+setInterval(()=>{
+  if(!cronData.lastMs)return;
+  const el=document.getElementById('cron-countdown');
+  if(!el)return;
+  const elapsed=Date.now()-cronData.lastMs;
+  const totalMs=cronData.intervalMin*60000;
+  const remaining=Math.max(0,totalMs-elapsed);
+  const mins=Math.floor(remaining/60000);
+  const secs=Math.floor((remaining%60000)/1000);
+  el.textContent=mins+':'+(secs<10?'0':'')+secs;
+  // Update progress bar
+  const bar=document.getElementById('cron-progress');
+  if(bar) bar.style.width=Math.min(100,Math.round((elapsed/totalMs)*100))+'%';
+  // Update "ago" text
+  const agoEl=document.getElementById('cron-ago');
+  if(agoEl){const am=Math.floor(elapsed/60000);agoEl.textContent=am+'m geleden';}
+},1000);
 </script>
 </body>
 </html>`;
