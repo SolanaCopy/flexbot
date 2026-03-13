@@ -6792,7 +6792,7 @@ app.get("/mc", async (req, res) => {
   .st-idle .px-pc{filter:drop-shadow(0 0 6px rgba(251,191,36,.3)) drop-shadow(0 0 15px rgba(251,191,36,.1));animation:screenGlowIdle 4s ease-in-out infinite alternate}
   @keyframes screenGlow{0%{filter:drop-shadow(0 0 6px rgba(74,222,128,.3)) drop-shadow(0 0 15px rgba(74,222,128,.1))}100%{filter:drop-shadow(0 0 12px rgba(74,222,128,.5)) drop-shadow(0 0 25px rgba(74,222,128,.2))}}
   @keyframes screenGlowIdle{0%{filter:drop-shadow(0 0 4px rgba(251,191,36,.2)) drop-shadow(0 0 10px rgba(251,191,36,.05))}100%{filter:drop-shadow(0 0 8px rgba(251,191,36,.35)) drop-shadow(0 0 18px rgba(251,191,36,.12))}}
-  .px-chair{width:64px;height:64px;bottom:2px;left:38px;z-index:1}
+  .px-chair{width:64px;height:64px;bottom:2px;left:38px;z-index:1;transform:scaleX(-1)}
   .px-char{width:64px;height:64px;bottom:12px;left:38px;z-index:2;background-size:448px 384px;transition:opacity .3s;transform:scaleX(-1)}
   .px-plant-sm{width:48px;height:96px;position:absolute;right:-6px;bottom:0;z-index:4;image-rendering:pixelated;image-rendering:crisp-edges;animation:plantSway 5s ease-in-out infinite alternate;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}
   @keyframes plantSway{0%{transform:rotate(-1deg)}50%{transform:rotate(1.5deg)}100%{transform:rotate(-0.5deg)}}
