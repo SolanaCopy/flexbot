@@ -994,15 +994,19 @@ function computeBlackout(events, nowMs, windowMin) {
   const withTs = events.filter((e) => Number.isFinite(e.ts));
   let blackout = false;
   let next = null;
+  let blackout_end_ms = null;
 
   for (const e of withTs) {
     const start = e.ts - w;
     const end = e.ts + w;
-    if (nowMs >= start && nowMs <= end) blackout = true;
+    if (nowMs >= start && nowMs <= end) {
+      blackout = true;
+      if (!blackout_end_ms || end > blackout_end_ms) blackout_end_ms = end;
+    }
     if (e.ts >= nowMs && (!next || e.ts < next.ts)) next = e;
   }
 
-  return { blackout, next_event: next };
+  return { blackout, next_event: next, blackout_end_ms };
 }
 
 function formatNewsText(events, currency) {
@@ -3540,11 +3544,12 @@ app.get("/news/blackout", async (req, res) => {
     if (currency) events = events.filter((e) => String(e.currency) === currency);
 
     const now = Date.now();
-    const { blackout, next_event } = computeBlackout(events, now, windowMin);
+    const { blackout, next_event, blackout_end_ms } = computeBlackout(events, now, windowMin);
 
     return res.json({
       ok: true,
       blackout,
+      blackout_end_ms: blackout_end_ms || null,
       window_min: windowMin,
       currency,
       impact,
@@ -6450,6 +6455,7 @@ app.get("/api/mc/state", async (req, res) => {
       if (blackoutR?.ok && blackoutR.blackout) {
         trade_gates.news_blackout.pass = false;
         trade_gates.news_blackout.next_event = blackoutR.next_event || null;
+        trade_gates.news_blackout.end_ms = blackoutR.blackout_end_ms || null;
         setBlocked("news_blackout");
       }
     } catch { /* best effort */ }
@@ -7124,7 +7130,7 @@ async function load(){
       const g=d.trade_gates;
       const gates=[
         {key:'market',       label:'Market',         detail:g.market.reason||''},
-        {key:'news_blackout',label:'News Blackout',   detail:!g.news_blackout.pass&&g.news_blackout.next_event?g.news_blackout.next_event.title||'blackout':''},
+        {key:'news_blackout',label:'News Blackout',   detail:!g.news_blackout.pass?(g.news_blackout.end_ms?'<span id=\"blackout-timer\" data-end=\"'+g.news_blackout.end_ms+'\"></span>':'blackout'):''},
         {key:'open_trade_lock',label:'Open Position', detail:g.open_trade_lock.reason||''},
         {key:'cooldown',     label:'Cooldown',        detail:!g.cooldown.pass?g.cooldown.remaining_min+'m':''},
         {key:'daily_loss',   label:'Daily Loss',      detail:g.daily_loss.start_equity?g.daily_loss.dd_pct+'%':'—'},
@@ -7288,6 +7294,18 @@ setInterval(()=>{
   // Update "ago" text
   const agoEl=document.getElementById('cron-ago');
   if(agoEl){const am=Math.floor(elapsed/60000);agoEl.textContent=am+'m geleden';}
+  // Blackout countdown timer
+  const btEl=document.getElementById('blackout-timer');
+  if(btEl){
+    const endMs=Number(btEl.dataset.end);
+    if(endMs>0){
+      const rem=Math.max(0,endMs-Date.now());
+      const m=Math.floor(rem/60000);
+      const s=Math.floor((rem%60000)/1000);
+      btEl.textContent=rem>0?m+':'+(s<10?'0':'')+s+' resterend':'voorbij';
+      if(rem<=0)btEl.style.color='var(--green)';
+    }
+  }
 },1000);
 </script>
 </body>
