@@ -6793,7 +6793,7 @@ app.get("/mc", async (req, res) => {
   @keyframes screenGlow{0%{filter:drop-shadow(0 0 6px rgba(74,222,128,.3)) drop-shadow(0 0 15px rgba(74,222,128,.1))}100%{filter:drop-shadow(0 0 12px rgba(74,222,128,.5)) drop-shadow(0 0 25px rgba(74,222,128,.2))}}
   @keyframes screenGlowIdle{0%{filter:drop-shadow(0 0 4px rgba(251,191,36,.2)) drop-shadow(0 0 10px rgba(251,191,36,.05))}100%{filter:drop-shadow(0 0 8px rgba(251,191,36,.35)) drop-shadow(0 0 18px rgba(251,191,36,.12))}}
   .px-chair{width:64px;height:64px;bottom:2px;left:38px;z-index:1}
-  .px-char{width:64px;height:64px;bottom:12px;left:38px;z-index:2;background-size:448px 384px;transition:opacity .3s}
+  .px-char{width:64px;height:64px;bottom:12px;left:38px;z-index:2;background-size:448px 384px;transition:opacity .3s;transform:scaleX(-1)}
   .px-plant-sm{width:48px;height:96px;position:absolute;right:-6px;bottom:0;z-index:4;image-rendering:pixelated;image-rendering:crisp-edges;animation:plantSway 5s ease-in-out infinite alternate;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}
   @keyframes plantSway{0%{transform:rotate(-1deg)}50%{transform:rotate(1.5deg)}100%{transform:rotate(-0.5deg)}}
   /* Character animations */
@@ -7608,12 +7608,10 @@ async function loadMC(){
     if(!r.ok)return;
     const d=await r.json();
     document.getElementById('refresh-time').textContent='Vernieuwd '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-
-    // trades are rendered from bridge data in loadBridge()
-
+    document.getElementById('error-banner').style.display='none';
   }catch(e){
-    document.getElementById('error-banner').textContent='Error: '+e.message;
-    document.getElementById('error-banner').style.display='block';
+    // MC state is non-essential for FxCopy — don't block the page
+    console.warn('loadMC error (non-critical):',e.message);
   }
 }
 
