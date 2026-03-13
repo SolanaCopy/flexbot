@@ -2538,9 +2538,10 @@ app.post("/ea/status", async (req, res) => {
       // ignore
     }
 
-    // (Legacy) Track daily start equity (still used by some risk checks)
+    // Track daily start equity — only for master account to avoid wrong startEquity
     try {
-      if (Number.isFinite(equity) && equity > 0) {
+      const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+      if (Number.isFinite(equity) && equity > 0 && String(account_login) === masterLogin) {
         getAndUpdateDailyEquityStart({ symbol, tz: "Europe/Amsterdam", equityUsd: equity });
       }
     } catch {
