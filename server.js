@@ -4237,33 +4237,21 @@ function _mascotRrStatePath(key) {
 function _pickRoundRobin(pool, key) {
   if (!Array.isArray(pool) || pool.length === 0) return null;
 
+  // Use random pick instead of round-robin to avoid repeats after Render deploys
+  // (state file is lost on each deploy, causing index to reset to 0 every time)
   const fp = _mascotRrStatePath(key);
-  const poolSig = pool.map((p) => path.basename(p)).join("|");
-  const st = readJsonFileSafe(fp, { idx: 0, last: null, poolSig: "", updatedAtMs: 0 });
+  const st = readJsonFileSafe(fp, { last: null });
 
-  let idx = Number(st?.idx);
-  if (!Number.isFinite(idx)) idx = 0;
-
-  // If the pool changed (added/removed/reordered), keep the index in-range.
-  if (st?.poolSig !== poolSig) idx = idx % pool.length;
-
-  idx = ((idx % pool.length) + pool.length) % pool.length;
+  let idx = Math.floor(Math.random() * pool.length);
   let chosen = pool[idx];
 
-  // Extra safety: avoid consecutive repeats even if pool changes.
-  if (pool.length > 1 && st?.last && chosen === st.last) {
+  // Avoid consecutive repeats
+  if (pool.length > 1 && st?.last && path.basename(chosen) === path.basename(String(st.last))) {
     idx = (idx + 1) % pool.length;
     chosen = pool[idx];
   }
 
-  const next = {
-    idx: pool.length > 0 ? ((idx + 1) % pool.length) : 0,
-    last: chosen,
-    poolSig,
-    updatedAtMs: Date.now(),
-  };
-  writeJsonFileSafe(fp, next);
-
+  writeJsonFileSafe(fp, { last: chosen, updatedAtMs: Date.now() });
   return chosen;
 }
 
