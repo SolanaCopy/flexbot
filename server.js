@@ -3286,153 +3286,193 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     .map((x) => Number(String(x).trim()))
     .filter((n) => Number.isFinite(n));
 
-  const levelDatasets = [];
   const fmt = (n) => {
     if (!Number.isFinite(n)) return "";
-    // keep 2 decimals max, trim trailing zeros
     const s = Number(n).toFixed(2);
     return s.replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
   };
 
-  const mkLine = (y, label, color, dash) => ({
-    type: "line",
-    label,
-    data: labels.map((x) => ({ x, y })),
-    borderColor: color,
-    borderWidth: 3,
-    borderDash: Array.isArray(dash) ? dash : undefined,
-    pointRadius: 0,
-    tension: 0,
-    fill: false,
-  });
+  // Build levels array for SVG renderer
+  const levels = [];
+  if (Number.isFinite(entry)) levels.push({ price: entry, label: `ENTRY ${fmt(entry)}`, color: "#f7c948", dash: false, type: "entry" });
+  if (Number.isFinite(sl)) levels.push({ price: sl, label: `SL ${fmt(sl)}`, color: "#ff4d4d", dash: false, type: "sl" });
+  tps.forEach((tp, i) => levels.push({ price: tp, label: `TP${i + 1} ${fmt(tp)}`, color: "#4ade80", dash: true, type: "tp" }));
 
-  // Standard colors:
-  // - SL = red
-  // - TPs = blue
-  // - Entry = grey
-  // TV-like colors for levels (include price in label for clarity)
-  if (Number.isFinite(entry)) levelDatasets.push(mkLine(entry, `ENTRY ${fmt(entry)}`, "rgba(255,255,255,0.55)", [6, 6]));
-  if (Number.isFinite(sl)) levelDatasets.push(mkLine(sl, `SL ${fmt(sl)}`, "#f23645"));
-  tps.forEach((tp, i) => levelDatasets.push(mkLine(tp, `TP${i + 1} ${fmt(tp)}`, "#2962ff")));
-
-  // Hard default size tuned for Telegram chat rendering (largest perceived size).
-  // Landscape fills the message bubble better than tall portrait.
   const width = 1280;
   const height = 720;
 
-  const qc = {
-    version: "3",
-    backgroundColor: "#000000",
-    width,
-    height,
-    format,
-    chart: {
-      type: "candlestick",
-      data: {
-        labels,
-        datasets: [
-          {
-            // keep label simple for internal tooltip calculations; legend hides this dataset
-            label: "price",
-            data,
+  // ---- Premium SVG Chart Builder (Flexbot style) ----
+  const CL = 68, CT = 110, CW = 1090, CH = 520;
+  const CB = CT + CH, CR = CL + CW;
+  const yRange = yMax - yMin;
+  const priceToY = (p) => CT + CH * (1 - (p - yMin) / yRange);
+  const candleW = Math.max(3, Math.floor(CW / data.length * 0.7));
+  const wickW = Math.max(1, Math.round(candleW * 0.18));
+  const useGlow = data.length <= 200;
 
-            // Force green/red in QuickChart builds that ignore `color:{up/down}`
-            backgroundColor: {
-              // TradingView-like teal/red
-              up: "rgba(0,188,212,0.95)",
-              down: "rgba(244,67,54,0.95)",
-              unchanged: "rgba(163,167,177,0.7)",
-            },
-            borderColor: {
-              up: "rgba(0,188,212,1)",
-              down: "rgba(244,67,54,1)",
-              unchanged: "rgba(163,167,177,0.7)",
-            },
-            borderWidth: 1,
-          },
-          ...levelDatasets,
-        ],
-      },
-      options: {
-        responsive: false,
-        animation: false,
-        plugins: {
-          title: {
-            display: true,
-            text: `${symbol} • ${chosenInterval}${spanMs ? ` • ${Math.round(spanMs / 3600000)}h` : ""} • MT5`,
-            color: "rgba(255,255,255,0.98)",
-            align: "center",
-            font: { size: 30, weight: "900" },
-            padding: { top: 16, bottom: 12 },
-          },
-          legend: {
-            display: true,
-            position: "top",
-            align: "center",
-            labels: {
-              color: "rgba(255,255,255,0.95)",
-              boxWidth: 18,
-              boxHeight: 14,
-              padding: 18,
-              font: { size: 18, weight: "800" },
-              // Keep legend clean: show only ENTRY/SL/TP*
-              filter: (item) => item.datasetIndex !== 0,
-            },
-          },
-          tooltip: {
-            enabled: true,
-            backgroundColor: "rgba(11,18,32,0.95)",
-            titleColor: "#e5e7eb",
-            bodyColor: "#e5e7eb",
-            borderColor: "rgba(42,46,57,1)",
-            borderWidth: 1,
-            displayColors: false,
-          },
-        },
-        layout: { padding: { left: 10, right: 18, top: 10, bottom: 8 } },
-        scales: {
-          x: {
-            type: "category",
-            grid: { color: "rgba(255,255,255,0.04)", drawBorder: false },
-            ticks: { color: "rgba(255,255,255,0.65)", maxRotation: 0, autoSkip: true, autoSkipPadding: 22 },
-          },
-          y: {
-            // Force tight autoscale (TradingView-like zoom)
-            min: yMin,
-            max: yMax,
-            position: "right",
-            grid: { color: "rgba(255,255,255,0.04)", drawBorder: false },
-            ticks: { color: "rgba(255,255,255,0.65)", padding: 8 },
-          },
-        },
-      },
-    },
-  };
+  function niceScale(lo, hi, target) {
+    const range = hi - lo;
+    const rough = range / target;
+    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    const norm = rough / mag;
+    let step = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+    step *= mag;
+    const ticks = [];
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) ticks.push(Number(v.toFixed(6)));
+    return ticks;
+  }
+  const yTicks = niceScale(yMin, yMax, 8);
+  const xSkip = Math.max(1, Math.ceil(labels.length / 12));
+
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  // Legend for header
+  const legendDefs = [];
+  if (Number.isFinite(entry)) legendDefs.push({ color: "#f7c948", label: `ENTRY ${fmt(entry)}` });
+  if (Number.isFinite(sl)) legendDefs.push({ color: "#ff4d4d", label: `SL ${fmt(sl)}` });
+  tps.forEach((tp, i) => legendDefs.push({ color: "#4ade80", label: `TP${i + 1} ${fmt(tp)}` }));
+
+  let svgParts = [];
+  svgParts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`);
+
+  // ===== DEFS (Flexbot win card style) =====
+  svgParts.push(`<defs>`);
+  svgParts.push(`<linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0e1520"/><stop offset="1" stop-color="#080b14"/></linearGradient>`);
+  svgParts.push(`<linearGradient id="accentBar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7c948"/><stop offset="0.5" stop-color="#e6b820"/><stop offset="1" stop-color="#c9960c"/></linearGradient>`);
+  svgParts.push(`<linearGradient id="headerFade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1a1508"/><stop offset="0.5" stop-color="#111620" stop-opacity="0.7"/><stop offset="1" stop-color="#080b14" stop-opacity="0"/></linearGradient>`);
+  svgParts.push(`<pattern id="dots" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse"><circle cx="16" cy="16" r="1.5" fill="rgba(255,255,255,0.06)"/></pattern>`);
+  svgParts.push(`<filter id="glowGold" x="-30%" y="-50%" width="160%" height="200%"><feGaussianBlur stdDeviation="8" result="b"/><feColorMatrix in="b" type="matrix" values="2.5 1.5 0 0 0  1.5 1 0 0 0  0 0 0 0 0  0 0 0 0.65 0" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
+  svgParts.push(`<filter id="glowCyan" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/><feFlood flood-color="#00e5ff" flood-opacity="0.4"/><feComposite in2="b" operator="in" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
+  svgParts.push(`<filter id="glowRed" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/><feFlood flood-color="#ff4d4d" flood-opacity="0.4"/><feComposite in2="b" operator="in" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
+  svgParts.push(`<filter id="glowLine" x="-10%" y="-300%" width="120%" height="700%"><feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
+  svgParts.push(`<clipPath id="chartClip"><rect x="${CL}" y="${CT}" width="${CW}" height="${CH}"/></clipPath>`);
+  svgParts.push(`</defs>`);
+
+  // ===== BACKGROUND =====
+  svgParts.push(`<rect width="${width}" height="${height}" fill="url(#bgGrad)"/>`);
+  svgParts.push(`<rect width="${width}" height="${height}" fill="url(#dots)"/>`);
+  svgParts.push(`<rect x="0" y="0" width="6" height="${height}" fill="url(#accentBar)"/>`);
+  svgParts.push(`<rect x="0" y="0" width="${width}" height="100" fill="url(#headerFade)"/>`);
+
+  // ===== HEADER =====
+  svgParts.push(`<text x="30" y="40" font-family="Inter,Segoe UI,Arial" font-size="18" font-weight="900" fill="#f7c948" letter-spacing="6" filter="url(#glowGold)">FLEXBOT</text>`);
+  svgParts.push(`<text x="30" y="75" font-family="Inter,Segoe UI,Arial" font-size="32" font-weight="900" fill="#ffffff" letter-spacing="1">SCALP TRADE</text>`);
+  svgParts.push(`<text x="310" y="75" font-family="Inter,Segoe UI,Arial" font-size="32" font-weight="900" fill="rgba(255,255,255,0.5)">${esc(symbol)}</text>`);
+  svgParts.push(`<rect x="520" y="52" width="50" height="28" rx="6" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>`);
+  svgParts.push(`<text x="545" y="72" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="14" font-weight="700" fill="rgba(255,255,255,0.6)">${esc(chosenInterval)}</text>`);
+  svgParts.push(`<line x1="30" y1="92" x2="${width - 30}" y2="92" stroke="#f7c948" stroke-width="1" stroke-opacity="0.2"/>`);
+
+  // Legend (right side of header)
+  let legendX = width - 40;
+  for (let li = legendDefs.length - 1; li >= 0; li--) {
+    const it = legendDefs[li];
+    const tw = it.label.length * 7.5;
+    legendX -= tw;
+    svgParts.push(`<text x="${legendX}" y="40" font-family="Inter,Segoe UI,Arial" font-size="13" font-weight="600" fill="rgba(255,255,255,0.7)">${esc(it.label)}</text>`);
+    legendX -= 18;
+    svgParts.push(`<rect x="${legendX}" y="29" width="12" height="12" rx="2" fill="${it.color}" opacity="0.85"/>`);
+    legendX -= 16;
+  }
+
+  // ===== GRID =====
+  for (const tick of yTicks) {
+    const ty = priceToY(tick);
+    if (ty < CT || ty > CB) continue;
+    svgParts.push(`<line x1="${CL}" y1="${ty.toFixed(1)}" x2="${CR}" y2="${ty.toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`);
+  }
+  for (let i = 0; i < labels.length; i++) {
+    if (i % xSkip !== 0) continue;
+    const cx = CL + (i + 0.5) * (CW / data.length);
+    svgParts.push(`<line x1="${cx.toFixed(1)}" y1="${CT}" x2="${cx.toFixed(1)}" y2="${CB}" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>`);
+  }
+
+  // ===== CHART CLIPPED GROUP =====
+  svgParts.push(`<g clip-path="url(#chartClip)">`);
+
+  // --- Trade level LINES first (behind candles) ---
+  for (const lv of levels) {
+    const ly = priceToY(lv.price);
+    if (ly < CT - 30 || ly > CB + 30) continue;
+    const dashAttr = lv.dash ? ` stroke-dasharray="10,6"` : "";
+    svgParts.push(`<line x1="${CL}" y1="${ly.toFixed(1)}" x2="${CR}" y2="${ly.toFixed(1)}" stroke="${lv.color}" stroke-width="2"${dashAttr} filter="url(#glowLine)" opacity="0.7"/>`);
+  }
+
+  // --- Candlesticks (on top of level lines) ---
+  for (let i = 0; i < data.length; i++) {
+    const d = data[i];
+    const cx = CL + (i + 0.5) * (CW / data.length);
+    const yO = priceToY(d.o);
+    const yC = priceToY(d.c);
+    const yH = priceToY(d.h);
+    const yL = priceToY(d.l);
+    const bull = d.c >= d.o;
+    const bodyTop = Math.min(yO, yC);
+    const bodyH = Math.max(1, Math.abs(yO - yC));
+    const color = bull ? "#00d4e8" : "#ff4d4d";
+    const filterAttr = useGlow ? ` filter="url(#${bull ? "glowCyan" : "glowRed"})"` : "";
+    svgParts.push(`<line x1="${cx.toFixed(1)}" y1="${yH.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${yL.toFixed(1)}" stroke="${color}" stroke-width="${wickW}" opacity="0.8"${filterAttr}/>`);
+    svgParts.push(`<rect x="${(cx - candleW / 2).toFixed(1)}" y="${bodyTop.toFixed(1)}" width="${candleW}" height="${bodyH.toFixed(1)}" rx="1" fill="${color}" opacity="0.92"${filterAttr}/>`);
+  }
+
+  // --- Trade level LABELS (on top of candles) ---
+  for (const lv of levels) {
+    const ly = priceToY(lv.price);
+    if (ly < CT - 30 || ly > CB + 30) continue;
+    const lblW = lv.label.length * 9 + 24;
+    const lblH = 28;
+    let lblX;
+    if (lv.type === "tp") { lblX = CR - lblW - 12; }
+    else { lblX = CL + 12; }
+    const lblY = ly - lblH / 2;
+    svgParts.push(`<rect x="${lblX.toFixed(1)}" y="${lblY.toFixed(1)}" width="${lblW.toFixed(1)}" height="${lblH}" rx="6" fill="rgba(14,21,32,0.85)" stroke="${lv.color}" stroke-width="1.5" stroke-opacity="0.6"/>`);
+    svgParts.push(`<text x="${(lblX + lblW / 2).toFixed(1)}" y="${(ly + 5).toFixed(1)}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="13" font-weight="700" fill="${lv.color}">${esc(lv.label)}</text>`);
+  }
+
+  svgParts.push(`</g>`); // end chart clip
+
+  // ===== Y-AXIS =====
+  for (const tick of yTicks) {
+    const ty = priceToY(tick);
+    if (ty < CT || ty > CB) continue;
+    svgParts.push(`<text x="${CR + 10}" y="${(ty + 4).toFixed(1)}" font-family="Inter,Segoe UI,Arial" font-size="12" fill="rgba(255,255,255,0.4)">${fmt(tick)}</text>`);
+  }
+
+  // ===== X-AXIS =====
+  for (let i = 0; i < labels.length; i++) {
+    if (i % xSkip !== 0) continue;
+    const cx = CL + (i + 0.5) * (CW / data.length);
+    svgParts.push(`<text x="${cx.toFixed(1)}" y="${CB + 22}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="11" fill="rgba(255,255,255,0.35)">${esc(labels[i])}</text>`);
+  }
+
+  // ===== BOTTOM BAR =====
+  svgParts.push(`<rect x="0" y="${height - 50}" width="${width}" height="50" fill="rgba(0,0,0,0.4)"/>`);
+  svgParts.push(`<line x1="0" y1="${height - 50}" x2="${width}" y2="${height - 50}" stroke="#f7c948" stroke-width="1" stroke-opacity="0.18"/>`);
+  svgParts.push(`<text x="30" y="${height - 18}" font-family="Inter,Segoe UI,Arial" font-size="16" font-weight="900" fill="#f7c948" letter-spacing="5" filter="url(#glowGold)">FLEXBOT</text>`);
+  svgParts.push(`<text x="${width - 30}" y="${height - 18}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="13" fill="rgba(255,255,255,0.25)">MT5 · ${esc(chosenInterval)} · LIVE</text>`);
+
+  svgParts.push(`</svg>`);
+  const svgString = svgParts.join("\n");
+
+  // Render SVG -> PNG via resvg (already in dependencies)
+  const { Resvg } = require("@resvg/resvg-js");
+  const resvg = new Resvg(svgString, {
+    fitTo: { mode: "width", value: 1280 },
+    font: { loadSystemFonts: true },
+  });
+  let buf = Buffer.from(resvg.render().asPng());
+
+  // JPG conversion if requested
+  if (format === "jpg") {
+    const { PNG } = require("pngjs");
+    const jpegJs = require("jpeg-js");
+    const img = PNG.sync.read(buf);
+    buf = jpegJs.encode({ data: img.data, width: img.width, height: img.height }, 85).data;
+  }
 
   const mime = format === "jpg" ? "image/jpeg" : "image/png";
   const ext = format === "jpg" ? "jpg" : "png";
   const cacheKey = `${symbol}|${chosenInterval}|${format}`;
 
-  const r = await fetchFn("https://quickchart.io/chart", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(qc),
-  });
-
-  if (!r.ok) {
-    const cached = lastChartBuf.get(cacheKey);
-    if (cached?.buf) {
-      setNoCacheImageHeaders(res, cached.mime, symbol, chosenInterval, ext);
-      res.setHeader("X-Chart-Fallback", "1");
-      res.setHeader("X-Chart-Interval-Used", chosenInterval);
-      res.setHeader("X-Chart-Quality", quality);
-      res.setHeader("X-Chart-Count", String(candles.length));
-      return res.end(cached.buf);
-    }
-    return res.status(502).send("chart_failed");
-  }
-
-  const buf = Buffer.from(await r.arrayBuffer());
   lastChartBuf.set(cacheKey, { buf, tsMs: Date.now(), mime });
 
   setNoCacheImageHeaders(res, mime, symbol, chosenInterval, ext);
