@@ -6692,6 +6692,64 @@ app.get("/api/mc/state", async (req, res) => {
       }
     } catch { /* best effort */ }
 
+    // ── Performance P/L (dag / week / maand) ──
+    const performance = { day: null, week: null, month: null };
+    if (db) {
+      try {
+        const parseUsdVal = (s) => { const n = Number(String(s ?? "").replace(/[^0-9.+-]/g, "")); return Number.isFinite(n) ? n : 0; };
+        const tz = "Europe/Amsterdam";
+        const nowMs = Date.now();
+
+        // Start balance (voor percentage berekening)
+        let startBal = null;
+        try {
+          const fp = riskStatePath("balance-day", symbol);
+          const st = readJsonFileSafe(fp, null);
+          if (st && Number.isFinite(Number(st.startBalance)) && Number(st.startBalance) > 0) startBal = Number(st.startBalance);
+        } catch {}
+        // Fallback naar equity
+        if (!startBal) {
+          const latestEa = eaPositions.find(ea => ea.account_login === mcLogin && ea.server === mcServer && ea.symbol === symbol && ea.balance != null);
+          if (latestEa && latestEa.balance > 0) startBal = latestEa.balance;
+        }
+
+        // ─ DAG ─
+        const dayStartMs = startOfDayMsInTz(tz, nowMs);
+        if (Number.isFinite(dayStartMs)) {
+          const dq = await db.execute({ sql: "SELECT close_result FROM signals WHERE symbol=? AND status='closed' AND closed_at_ms IS NOT NULL AND closed_at_ms >= ? ORDER BY closed_at_ms ASC", args: [symbol, dayStartMs] });
+          const dayUsd = (dq.rows || []).reduce((a, r) => a + parseUsdVal(r.close_result), 0);
+          const dayTrades = (dq.rows || []).length;
+          performance.day = { usd: Number(dayUsd.toFixed(2)), pct: startBal ? Number(((dayUsd / startBal) * 100).toFixed(2)) : null, trades: dayTrades };
+        }
+
+        // ─ WEEK (maandag 00:00 Amsterdam) ─
+        const dNow = new Date(nowMs);
+        const ap = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(dNow);
+        const gp = (t) => ap.find(p => p.type === t)?.value;
+        const todayUtc = new Date(Date.UTC(Number(gp("year")), Number(gp("month")) - 1, Number(gp("day"))));
+        const dow = todayUtc.getUTCDay();
+        const monOffset = (dow + 6) % 7;
+        const mondayUtc = new Date(todayUtc); mondayUtc.setUTCDate(todayUtc.getUTCDate() - monOffset);
+        const weekStartMs = startOfDayMsInTz(tz, mondayUtc.getTime());
+        if (Number.isFinite(weekStartMs)) {
+          const wq = await db.execute({ sql: "SELECT close_result FROM signals WHERE symbol=? AND status='closed' AND closed_at_ms IS NOT NULL AND closed_at_ms >= ? ORDER BY closed_at_ms ASC", args: [symbol, weekStartMs] });
+          const weekUsd = (wq.rows || []).reduce((a, r) => a + parseUsdVal(r.close_result), 0);
+          const weekTrades = (wq.rows || []).length;
+          performance.week = { usd: Number(weekUsd.toFixed(2)), pct: startBal ? Number(((weekUsd / startBal) * 100).toFixed(2)) : null, trades: weekTrades };
+        }
+
+        // ─ MAAND (1e van de maand 00:00 Amsterdam) ─
+        const monthFirstUtc = new Date(Date.UTC(Number(gp("year")), Number(gp("month")) - 1, 1));
+        const monthStartMs = startOfDayMsInTz(tz, monthFirstUtc.getTime());
+        if (Number.isFinite(monthStartMs)) {
+          const mq = await db.execute({ sql: "SELECT close_result FROM signals WHERE symbol=? AND status='closed' AND closed_at_ms IS NOT NULL AND closed_at_ms >= ? ORDER BY closed_at_ms ASC", args: [symbol, monthStartMs] });
+          const monthUsd = (mq.rows || []).reduce((a, r) => a + parseUsdVal(r.close_result), 0);
+          const monthTrades = (mq.rows || []).length;
+          performance.month = { usd: Number(monthUsd.toFixed(2)), pct: startBal ? Number(((monthUsd / startBal) * 100).toFixed(2)) : null, trades: monthTrades };
+        }
+      } catch { /* best effort */ }
+    }
+
     return res.json({
       ok: true,
       server_time_ms: Date.now(),
@@ -6702,6 +6760,7 @@ app.get("/api/mc/state", async (req, res) => {
       signals,
       trade_gates,
       signal_prep,
+      performance,
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
@@ -6924,6 +6983,22 @@ app.get("/mc", async (req, res) => {
   .verdict-ready{background:#052e16;color:var(--green);border:1px solid #166534}
   .verdict-blocked{background:#1c0505;color:var(--red);border:1px solid #7f1d1d}
 
+  /* ── Performance card ── */
+  .perf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:600px){.perf-grid{grid-template-columns:1fr}}
+  .perf-block{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;position:relative;overflow:hidden}
+  .perf-block::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:2px 2px 0 0}
+  .perf-block.pos::before{background:var(--green)}
+  .perf-block.neg::before{background:var(--red)}
+  .perf-block.neutral::before{background:var(--muted)}
+  .perf-label{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
+  .perf-pct{font-size:1.6rem;font-weight:800;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+  .perf-pct.pos{color:var(--green)}
+  .perf-pct.neg{color:var(--red)}
+  .perf-pct.neutral{color:var(--muted2)}
+  .perf-usd{font-size:.75rem;color:var(--muted2);margin-top:4px;font-variant-numeric:tabular-nums}
+  .perf-trades{font-size:.6rem;color:var(--muted);margin-top:6px;letter-spacing:.04em}
+
   /* ── Signals table ── */
   .signals-wrap{overflow-x:auto}
   table{width:100%;border-collapse:collapse;font-size:.78rem}
@@ -6978,6 +7053,12 @@ app.get("/mc", async (req, res) => {
     <div class="card" id="card-prep">
       <div class="card-title"><span class="card-title-icon">&#128301;</span> Signaal Voorbereiding</div>
       <div id="prep-body"><span style="color:var(--muted);font-size:.8rem">laden...</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="card-title-icon">&#128176;</span> Performance</div>
+    <div class="perf-grid" id="perf-body">
+      <div class="perf-block neutral"><div class="perf-label">laden...</div></div>
     </div>
   </div>
   <div class="card">
@@ -7304,6 +7385,20 @@ async function load(){
       document.getElementById('prep-body').innerHTML=h;
     } else {
       document.getElementById('prep-body').innerHTML='<span style="color:#64748b;font-size:.75rem">Geen data</span>';
+    }
+
+    // Performance
+    if(d.performance){
+      const pg=document.getElementById('perf-body');
+      const renderBlock=(label,p)=>{
+        if(!p)return '<div class="perf-block neutral"><div class="perf-label">'+label+'</div><div class="perf-pct neutral">—</div><div class="perf-trades">geen trades</div></div>';
+        const cls=p.usd>0?'pos':p.usd<0?'neg':'neutral';
+        const sign=p.usd>0?'+':'';
+        const pctStr=p.pct!=null?(sign+p.pct.toFixed(2)+'%'):'—';
+        const usdStr=sign+p.usd.toFixed(2)+' USD';
+        return '<div class="perf-block '+cls+'"><div class="perf-label">'+label+'</div><div class="perf-pct '+cls+'">'+pctStr+'</div><div class="perf-usd">'+usdStr+'</div><div class="perf-trades">'+p.trades+' trade'+(p.trades!==1?'s':'')+'</div></div>';
+      };
+      pg.innerHTML=renderBlock('Vandaag',d.performance.day)+renderBlock('Deze week',d.performance.week)+renderBlock('Deze maand',d.performance.month);
     }
 
     // Signals
