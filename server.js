@@ -1434,8 +1434,8 @@ app.post("/signal/manual/open", async (req, res) => {
     const symbol = body?.symbol ? String(body.symbol).toUpperCase() : "";
     const direction = body?.direction ? String(body.direction).toUpperCase() : "";
     const sl = Number(body?.sl);
-    let risk_pct = body?.risk_pct != null ? Number(body.risk_pct) : 1.0;
-    if (!Number.isFinite(risk_pct) || risk_pct <= 0) risk_pct = 1.0;
+    let risk_pct = body?.risk_pct != null ? Number(body.risk_pct) : 0.5;
+    if (!Number.isFinite(risk_pct) || risk_pct <= 0) risk_pct = 0.5;
 
     const comment = body?.comment != null ? String(body.comment) : "manual";
 
@@ -2257,7 +2257,7 @@ app.post("/signal/executed", async (req, res) => {
             // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
 
             const dir = sig?.direction != null ? String(sig.direction).toUpperCase() : null;
-            const riskPct = sig?.risk_pct != null ? Number(sig.risk_pct) : 1.0;
+            const riskPct = sig?.risk_pct != null ? Number(sig.risk_pct) : 0.5;
             const comment = sig?.comment != null ? String(sig.comment) : null;
 
             if (dir && ["BUY", "SELL"].includes(dir)) {
@@ -5512,9 +5512,9 @@ async function autoScalpRunHandler(req, res) {
 
     // Risk for auto scalp signals (default 1%); also respect SIGNAL_MAX_RISK_PCT.
     const autoRiskEnv = Number(process.env.AUTO_SCALP_RISK_PCT || 1.0);
-    const maxRiskEnv2 = Number(process.env.SIGNAL_MAX_RISK_PCT || 1.0);
-    const maxRiskPct2 = Number.isFinite(maxRiskEnv2) && maxRiskEnv2 > 0 ? maxRiskEnv2 : 1.0;
-    let riskPct2 = Number.isFinite(autoRiskEnv) && autoRiskEnv > 0 ? autoRiskEnv : 1.0;
+    const maxRiskEnv2 = Number(process.env.SIGNAL_MAX_RISK_PCT || 0.5);
+    const maxRiskPct2 = Number.isFinite(maxRiskEnv2) && maxRiskEnv2 > 0 ? maxRiskEnv2 : 0.5;
+    let riskPct2 = Number.isFinite(autoRiskEnv) && autoRiskEnv > 0 ? autoRiskEnv : 0.5;
     riskPct2 = Math.min(riskPct2, maxRiskPct2);
 
     // 5) Fixed SL/TP: always 1000 pts SL, 1.5x RR for TP.
