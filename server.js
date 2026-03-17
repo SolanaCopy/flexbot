@@ -7324,8 +7324,7 @@ async function load(){
           '<td style="font-variant-numeric:tabular-nums">'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
           '<td style="font-variant-numeric:tabular-nums">'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
           '<td><span class="badge '+badge+'">'+outcome+'</span></td>'+
-          '<td style="font-weight:700;font-variant-numeric:tabular-nums;color:'+(s.close_result&&s.close_result.startsWith('+')?'var(--green)':s.close_result&&s.close_result.startsWith('-')?'var(--red)':'var(--muted2)')+'">'+
-          (s.close_result||'—')+'</td>'+
+          (function(){if(!s.close_result)return '<td style="color:var(--muted2)">—</td>';var n=parseFloat(s.close_result.replace(/[^0-9.\\-+]/g,""));var c=isNaN(n)?"var(--muted2)":n>0?"var(--green)":n<0?"var(--red)":"var(--muted2)";return '<td style="font-weight:700;font-variant-numeric:tabular-nums;color:'+c+'">'+s.close_result+'</td>';})()+
           '</tr>';
       }).join('');
     }
