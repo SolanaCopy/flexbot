@@ -3407,9 +3407,9 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     const flamePath = "M12 2c0 0-4 6-4 10a4 4 0 0 0 8 0c0-4-4-10-4-10z";
     const flameInner = "M12 6c0 0-2 3.5-2 6a2 2 0 0 0 4 0c0-2.5-2-6-2-6z";
     const fireCount = streak >= 5 ? 3 : streak >= 3 ? 2 : 1;
-    const label = streak >= 5 ? `${streak} WINS` : `${streak} WIN STREAK`;
-    const lblW = label.length * 10 + 28 + fireCount * 22;
-    const stX = width - lblW - 30;
+    const label = `${streak} WIN STREAK`;
+    const lblW = label.length * 10.5 + 32 + fireCount * 22;
+    const stX = Math.max(600, width - lblW - 40);
     const stY = 52;
     const stH = 34;
     svgParts.push(`<rect x="${stX}" y="${stY}" width="${lblW}" height="${stH}" rx="17" fill="rgba(255,77,0,0.2)" stroke="rgba(255,140,0,0.7)" stroke-width="1.5" filter="url(#glowFire)"/>`);
