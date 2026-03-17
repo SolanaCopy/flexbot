@@ -6440,7 +6440,7 @@ app.get("/api/mc/state", async (req, res) => {
     if (db) {
       try {
         const rows = await db.execute(
-          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome FROM signals ORDER BY created_at_ms DESC LIMIT 10"
+          "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome, close_result FROM signals ORDER BY created_at_ms DESC LIMIT 10"
         );
         signals = (rows.rows || []).map((r) => ({
           id: String(r.id),
@@ -6452,6 +6452,7 @@ app.get("/api/mc/state", async (req, res) => {
           created_at_ms: Number(r.created_at_ms),
           closed_at_ms: r.closed_at_ms != null ? Number(r.closed_at_ms) : null,
           close_outcome: r.close_outcome != null ? String(r.close_outcome) : null,
+          close_result: r.close_result != null ? String(r.close_result) : null,
         }));
       } catch { /* ignore */ }
     }
@@ -6941,7 +6942,7 @@ app.get("/mc", async (req, res) => {
   </div>
   <div class="card">
     <div class="card-title"><span class="card-title-icon">&#128200;</span> Recente Trades (laatste 10)</div>
-    <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="5">laden...</td></tr></tbody></table></div>
+    <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th><th>P/L</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="6">laden...</td></tr></tbody></table></div>
   </div>
 </div>
 <script>
@@ -7282,6 +7283,8 @@ async function load(){
           '<td style="font-variant-numeric:tabular-nums">'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
           '<td style="font-variant-numeric:tabular-nums">'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
           '<td><span class="badge '+badge+'">'+outcome+'</span></td>'+
+          '<td style="font-weight:700;font-variant-numeric:tabular-nums;color:'+(s.close_result&&s.close_result.startsWith('+')?'var(--green)':s.close_result&&s.close_result.startsWith('-')?'var(--red)':'var(--muted2)')+'">'+
+          (s.close_result||'—')+'</td>'+
           '</tr>';
       }).join('');
     }
