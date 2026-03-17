@@ -1496,13 +1496,17 @@ app.post("/signal/manual/open", async (req, res) => {
     if (isMasterBroadcaster(body)) {
       try {
         const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
-        const photoUrl = new URL(`${BASE_URL}/chart.png`);
-        photoUrl.searchParams.set("symbol", symbol);
-        photoUrl.searchParams.set("interval", "1m");
-        photoUrl.searchParams.set("hours", "3");
+        // Render chart as binary PNG buffer (bypass Telegram URL caching)
+        let chartBuf = null;
+        try {
+          const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&t=${Date.now()}`;
+          const chartResp = await fetchFn(chartUrl);
+          if (chartResp.ok) chartBuf = Buffer.from(await chartResp.arrayBuffer());
+        } catch (e) { console.error("chart_render_fetch_failed", e?.message); }
 
         const caption = formatSignalCaption({ id, symbol, direction, riskPct: risk_pct, comment });
-        const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+        const photo = chartBuf || `${BASE_URL}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&t=${Date.now()}`;
+        const tgPosted = await tgSendPhoto({ chatId, photo, caption });
         const mid = tgPosted?.result?.message_id;
         if (mid != null) {
           await db.execute({
@@ -2229,10 +2233,13 @@ app.post("/signal/executed", async (req, res) => {
               return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, tg_open_suppressed: true, tg_open_reason: sup.reason, locked_by: sup.locked_by || null });
             }
 
-            const photoUrl = new URL(`${BASE_URL}/chart.png`);
-            photoUrl.searchParams.set("symbol", sym);
-            photoUrl.searchParams.set("interval", "1m");
-            photoUrl.searchParams.set("hours", "3");
+            // Render chart as binary PNG buffer (bypass Telegram URL caching)
+            let chartBuf = null;
+            try {
+              const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(sym)}&interval=1m&hours=3&t=${Date.now()}`;
+              const chartResp = await fetchFn(chartUrl);
+              if (chartResp.ok) chartBuf = Buffer.from(await chartResp.arrayBuffer());
+            } catch (e) { console.error("chart_render_fetch_failed", e?.message); }
             // NOTE: do NOT include entry/sl/tp on public group chart (prevents free-riding)
 
             const dir = sig?.direction != null ? String(sig.direction).toUpperCase() : null;
@@ -2248,7 +2255,8 @@ app.post("/signal/executed", async (req, res) => {
 
               try {
                 const caption = formatSignalCaption({ id: signal_id, symbol: sym, direction: dir, riskPct, comment });
-                const tgPosted = await tgSendPhoto({ chatId, photo: photoUrl.toString(), caption });
+                const photo = chartBuf || `${BASE_URL}/chart.png?symbol=${encodeURIComponent(sym)}&interval=1m&hours=3&t=${Date.now()}`;
+                const tgPosted = await tgSendPhoto({ chatId, photo, caption });
                 const mid = tgPosted?.result?.message_id;
                 if (mid != null) {
                   await db.execute({
