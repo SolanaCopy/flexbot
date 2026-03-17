@@ -3386,8 +3386,8 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   svgParts.push(`<text x="30" y="40" font-family="Inter,Segoe UI,Arial" font-size="18" font-weight="900" fill="#f7c948" letter-spacing="6" filter="url(#glowGold)">FLEXBOT</text>`);
   svgParts.push(`<text x="30" y="75" font-family="Inter,Segoe UI,Arial" font-size="32" font-weight="900" fill="#ffffff" letter-spacing="1">SCALP TRADE</text>`);
   svgParts.push(`<text x="310" y="75" font-family="Inter,Segoe UI,Arial" font-size="32" font-weight="900" fill="rgba(255,255,255,0.5)">${esc(symbol)}</text>`);
-  svgParts.push(`<rect x="520" y="52" width="50" height="28" rx="6" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>`);
-  svgParts.push(`<text x="545" y="72" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="14" font-weight="700" fill="rgba(255,255,255,0.6)">${esc(chosenInterval)}</text>`);
+  svgParts.push(`<rect x="520" y="55" width="50" height="28" rx="6" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>`);
+  svgParts.push(`<text x="545" y="74" text-anchor="middle" dominant-baseline="central" font-family="Inter,Segoe UI,Arial" font-size="14" font-weight="700" fill="rgba(255,255,255,0.6)">${esc(chosenInterval)}</text>`);
   svgParts.push(`<line x1="30" y1="92" x2="${width - 30}" y2="92" stroke="#f7c948" stroke-width="1" stroke-opacity="0.2"/>`);
 
   // Legend (right side of header)
