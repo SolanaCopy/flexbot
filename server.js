@@ -3401,14 +3401,26 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
   // ===== WIN STREAK BADGE (top-right, fire style) =====
   if (streak >= 2) {
-    const fires = streak >= 5 ? "🔥🔥🔥" : streak >= 3 ? "🔥🔥" : "🔥";
-    const streakText = `${fires} ${streak} WINS`;
-    const stW = streakText.length * 10 + 32;
-    const stX = width - stW - 20;
-    const stY = 52;
-    // Glowing pill background
-    svgParts.push(`<rect x="${stX}" y="${stY}" width="${stW}" height="32" rx="16" fill="rgba(255,77,0,0.15)" stroke="rgba(255,140,0,0.6)" stroke-width="1.5"/>`);
-    svgParts.push(`<text x="${stX + stW / 2}" y="${stY + 22}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="15" font-weight="800" fill="#ff8c00" letter-spacing="1">${esc(streakText)}</text>`);
+    // SVG flame path (small fire icon)
+    const flamePath = "M12 2c0 0-4 6-4 10a4 4 0 0 0 8 0c0-4-4-10-4-10z";
+    const fireCount = streak >= 5 ? 3 : streak >= 3 ? 2 : 1;
+    const label = `${streak} WIN STREAK`;
+    const lblW = label.length * 9.5 + 20 + fireCount * 22;
+    const stX = width - lblW - 24;
+    const stY = 50;
+    const stH = 36;
+    // Glowing orange pill
+    svgParts.push(`<filter id="glowFire" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b"/><feFlood flood-color="#ff6600" flood-opacity="0.5"/><feComposite in2="b" operator="in" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
+    svgParts.push(`<rect x="${stX}" y="${stY}" width="${lblW}" height="${stH}" rx="18" fill="rgba(255,77,0,0.18)" stroke="rgba(255,140,0,0.7)" stroke-width="1.5" filter="url(#glowFire)"/>`);
+    // Fire icons
+    for (let fi = 0; fi < fireCount; fi++) {
+      const fx = stX + 12 + fi * 20;
+      const fy = stY + 5;
+      svgParts.push(`<g transform="translate(${fx},${fy}) scale(1.05)"><path d="${flamePath}" fill="#ff6600" opacity="0.95"/><path d="M12 6c0 0-2 3.5-2 6a2 2 0 0 0 4 0c0-2.5-2-6-2-6z" fill="#ffaa00"/></g>`);
+    }
+    // Text
+    const textX = stX + 14 + fireCount * 22;
+    svgParts.push(`<text x="${textX}" y="${stY + 24}" font-family="Inter,Segoe UI,Arial" font-size="15" font-weight="900" fill="#ff8c00" letter-spacing="1.5">${esc(label)}</text>`);
   }
 
   // ===== GRID =====
