@@ -5,6 +5,7 @@ const SCANNER_API_KEY = process.env.SCANNER_API_KEY || '';
 const DASH_KEY = process.env.DASH_KEY || 'Tanger2026@';
 
 let scannerResults = [];
+let scannerHeartbeat = null; // { ts, blocks, contracts, balance10k, alerts, liveBlocks, workers }
 
 function authDash(req, res) {
   const key = req.query.key;
@@ -13,6 +14,22 @@ function authDash(req, res) {
 }
 
 module.exports = function(app) {
+
+  // POST: scanner heartbeat
+  app.post('/api/scanner/heartbeat', (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey !== SCANNER_API_KEY) return res.status(403).json({ error: 'Unauthorized' });
+    scannerHeartbeat = { ...req.body, ts: Date.now() };
+    return res.json({ ok: true });
+  });
+
+  // GET: scanner status
+  app.get('/api/scanner/status', (req, res) => {
+    if (!authDash(req, res)) return;
+    if (!scannerHeartbeat) return res.json({ online: false });
+    const age = Date.now() - scannerHeartbeat.ts;
+    return res.json({ online: age < 6 * 60 * 1000, age, ...scannerHeartbeat });
+  });
 
   // POST: scanner pusht resultaten
   app.post('/api/scanner/results', (req, res) => {
@@ -58,6 +75,14 @@ module.exports = function(app) {
   .nav a { color: #8b949e; text-decoration: none; padding: 6px 14px; border-radius: 6px; font-size: 13px; transition: all 0.2s; }
   .nav a:hover { background: #21262d; color: #c9d1d9; }
   .nav a.active { background: #1f6feb; color: #fff; }
+  .scanner-status { display: flex; align-items: center; gap: 12px; padding: 12px 24px; background: #161b22; border-bottom: 1px solid #21262d; }
+  .scanner-status .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .scanner-status .status-dot.online { background: #3fb950; box-shadow: 0 0 8px #3fb95088; animation: pulse 2s infinite; }
+  .scanner-status .status-dot.offline { background: #f85149; box-shadow: 0 0 8px #f8514988; }
+  .scanner-status .status-label { font-size: 13px; font-weight: 600; }
+  .scanner-status .status-label.online { color: #3fb950; }
+  .scanner-status .status-label.offline { color: #f85149; }
+  .scanner-status .status-info { font-size: 12px; color: #8b949e; margin-left: auto; }
   .stats-bar { display: flex; gap: 16px; padding: 16px 24px; flex-wrap: wrap; }
   .stat-card { background: #161b22; border: 1px solid #21262d; border-radius: 10px; padding: 14px 20px; flex: 1; min-width: 150px; }
   .stat-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; }
@@ -102,6 +127,11 @@ module.exports = function(app) {
   <a href="/mc?key=${key}">📊 Mission Control</a>
   <a href="/fxcopy?key=${key}">📋 FxCopy</a>
   <a href="/scanner?key=${key}" class="active">🔍 Scanner</a>
+</div>
+<div class="scanner-status" id="scanner-status">
+  <div class="status-dot offline" id="sc-dot"></div>
+  <span class="status-label offline" id="sc-label">Scanner: Laden...</span>
+  <span class="status-info" id="sc-info"></span>
 </div>
 <div class="stats-bar">
   <div class="stat-card"><div class="label">Contracten Gescand</div><div class="value blue" id="s-total">-</div></div>
@@ -159,7 +189,8 @@ function render(){
 }
 async function fetchData(){try{const r=await fetch('/api/scanner/results?key='+KEY);data=await r.json();render();document.getElementById('last-update').textContent='Update: '+new Date().toLocaleTimeString('nl-NL');}catch(e){document.getElementById('last-update').textContent='Fout';}}
 function clock(){document.getElementById('clock').textContent=new Date().toLocaleString('nl-NL',{timeZone:'Europe/Amsterdam',weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
-fetchData();setInterval(fetchData,60000);setInterval(clock,1000);clock();
+async function fetchStatus(){try{const r=await fetch('/api/scanner/status?key='+KEY);const s=await r.json();const dot=document.getElementById('sc-dot');const lbl=document.getElementById('sc-label');const info=document.getElementById('sc-info');if(s.online){dot.className='status-dot online';lbl.className='status-label online';lbl.textContent='Scanner: Online';const mins=Math.floor(s.age/60000);const parts=[];if(s.blocks)parts.push(s.blocks.toLocaleString()+' blocks');if(s.liveBlocks)parts.push(s.liveBlocks+' live');if(s.workers!==undefined)parts.push(s.workers+' workers');if(mins>0)parts.push('heartbeat '+mins+'m geleden');else parts.push('heartbeat <1m geleden');info.textContent=parts.join(' · ');}else{dot.className='status-dot offline';lbl.className='status-label offline';lbl.textContent='Scanner: Offline';info.textContent='Geen heartbeat ontvangen';}}catch(e){}}
+fetchData();fetchStatus();setInterval(fetchData,60000);setInterval(fetchStatus,30000);setInterval(clock,1000);clock();
 </script>
 </body></html>`);
   });
