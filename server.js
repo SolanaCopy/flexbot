@@ -6780,6 +6780,37 @@ app.post("/api/mc/reset-daily", (req, res) => {
   }
 });
 
+// GET /api/mc/trades  (?key=DASHBOARD_KEY&offset=0&limit=25) — paginated trade history
+app.get("/api/mc/trades", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  if (!db) return res.json({ ok: true, trades: [], total: 0 });
+  try {
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+    const countRow = await db.execute("SELECT COUNT(*) as cnt FROM signals");
+    const total = Number(countRow.rows?.[0]?.cnt || 0);
+    const rows = await db.execute({
+      sql: "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome, close_result FROM signals ORDER BY created_at_ms DESC LIMIT ? OFFSET ?",
+      args: [limit, offset],
+    });
+    const trades = (rows.rows || []).map((r) => ({
+      id: String(r.id),
+      symbol: String(r.symbol),
+      direction: String(r.direction),
+      sl: r.sl != null ? Number(r.sl) : null,
+      tp: (() => { try { return JSON.parse(String(r.tp_json))[0]; } catch { return null; } })(),
+      status: String(r.status),
+      created_at_ms: Number(r.created_at_ms),
+      closed_at_ms: r.closed_at_ms != null ? Number(r.closed_at_ms) : null,
+      close_outcome: r.close_outcome != null ? String(r.close_outcome) : null,
+      close_result: r.close_result != null ? String(r.close_result) : null,
+    }));
+    return res.json({ ok: true, trades, total, offset, limit });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /mc  (?key=DASHBOARD_KEY) — HTML dashboard
 app.get("/mc", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
@@ -7062,8 +7093,9 @@ app.get("/mc", async (req, res) => {
     </div>
   </div>
   <div class="card">
-    <div class="card-title"><span class="card-title-icon">&#128200;</span> Recente Trades (laatste 10)</div>
-    <div class="signals-wrap"><table><thead><tr><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th><th>P/L</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="6">laden...</td></tr></tbody></table></div>
+    <div class="card-title"><span class="card-title-icon">&#128200;</span> Trade History <span id="trade-count" style="font-size:.7rem;color:var(--muted);font-weight:400;margin-left:8px"></span></div>
+    <div class="signals-wrap" style="max-height:420px;overflow-y:auto"><table><thead><tr><th>Datum</th><th>Tijd</th><th>Richting</th><th>SL</th><th>TP</th><th>Status</th><th>P/L</th></tr></thead><tbody id="signals-tbody"><tr><td colspan="7">laden...</td></tr></tbody></table></div>
+    <div style="text-align:center;padding:8px 0"><button id="load-more-btn" onclick="loadMoreTrades()" style="display:none;background:rgba(0,212,232,0.12);color:var(--cyan);border:1px solid rgba(0,212,232,0.3);padding:6px 20px;border-radius:8px;cursor:pointer;font-size:.8rem;font-weight:600">Meer trades laden</button></div>
   </div>
 </div>
 <script>
@@ -7401,27 +7433,8 @@ async function load(){
       pg.innerHTML=renderBlock('Vandaag',d.performance.day)+renderBlock('Deze week',d.performance.week)+renderBlock('Deze maand',d.performance.month);
     }
 
-    // Signals
-    const tbody=document.getElementById('signals-tbody');
-    if(!d.signals||d.signals.length===0){
-      tbody.innerHTML='<tr><td colspan="5" style="color:var(--muted)">No trades found</td></tr>';
-    } else {
-      tbody.innerHTML=d.signals.map(s=>{
-        const outcome=s.close_outcome||s.status;
-        let badge='badge-gray';
-        if(outcome==='active')badge='badge-cyan';
-        else if(/tp/i.test(outcome))badge='badge-green';
-        else if(/sl/i.test(outcome))badge='badge-red';
-        return '<tr>'+
-          '<td>'+fmtDate(s.created_at_ms)+'</td>'+
-          '<td><span class="badge '+(s.direction==='BUY'?'badge-green':'badge-orange')+'">'+s.direction+'</span></td>'+
-          '<td style="font-variant-numeric:tabular-nums">'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
-          '<td style="font-variant-numeric:tabular-nums">'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
-          '<td><span class="badge '+badge+'">'+outcome+'</span></td>'+
-          (function(){if(!s.close_result)return '<td style="color:var(--muted2)">—</td>';var n=parseFloat(s.close_result.replace(/[^0-9.\\-+]/g,""));var c=isNaN(n)?"var(--muted2)":n>0?"var(--green)":n<0?"var(--red)":"var(--muted2)";return '<td style="font-weight:700;font-variant-numeric:tabular-nums;color:'+c+'">'+s.close_result+'</td>';})()+
-          '</tr>';
-      }).join('');
-    }
+    // Signals (initial load from state — replaced by full history load below)
+    loadTradeHistory(true);
 
   }catch(e){
     const eb=document.getElementById('error-banner');
@@ -7481,6 +7494,59 @@ setInterval(()=>{
     }
   }
 },1000);
+
+// ── Trade History (paginated) ──
+let tradeOffset=0;
+const TRADE_PAGE=25;
+let allTradesLoaded=false;
+
+function renderTradeRow(s){
+  const outcome=s.close_outcome||s.status;
+  let badge='badge-gray';
+  if(outcome==='active')badge='badge-cyan';
+  else if(/tp/i.test(outcome))badge='badge-green';
+  else if(/sl/i.test(outcome))badge='badge-red';
+  const dateStr=s.created_at_ms?new Date(s.created_at_ms).toLocaleDateString('nl-NL',{day:'2-digit',month:'2-digit'}):'—';
+  const timeStr=fmtTime(s.created_at_ms);
+  let plCell='<td style="color:var(--muted2)">—</td>';
+  if(s.close_result){
+    const n=parseFloat(s.close_result.replace(/[^0-9.\\-+]/g,""));
+    const c=isNaN(n)?"var(--muted2)":n>0?"var(--green)":n<0?"var(--red)":"var(--muted2)";
+    plCell='<td style="font-weight:700;font-variant-numeric:tabular-nums;color:'+c+'">'+s.close_result+'</td>';
+  }
+  return '<tr>'+
+    '<td>'+dateStr+'</td>'+
+    '<td>'+timeStr+'</td>'+
+    '<td><span class="badge '+(s.direction==='BUY'?'badge-green':'badge-orange')+'">'+s.direction+'</span></td>'+
+    '<td style="font-variant-numeric:tabular-nums">'+(s.sl!=null?s.sl.toFixed(2):'—')+'</td>'+
+    '<td style="font-variant-numeric:tabular-nums">'+(s.tp!=null?s.tp.toFixed(2):'—')+'</td>'+
+    '<td><span class="badge '+badge+'">'+outcome+'</span></td>'+
+    plCell+
+    '</tr>';
+}
+
+async function loadTradeHistory(initial){
+  try{
+    const r=await fetch(BASE+'/api/mc/trades?key='+encodeURIComponent(KEY)+'&offset='+tradeOffset+'&limit='+TRADE_PAGE);
+    const d=await r.json();
+    if(!d.ok)return;
+    const tbody=document.getElementById('signals-tbody');
+    const countEl=document.getElementById('trade-count');
+    const btn=document.getElementById('load-more-btn');
+    if(initial)tbody.innerHTML='';
+    if(d.trades.length===0&&initial){
+      tbody.innerHTML='<tr><td colspan="7" style="color:var(--muted)">Geen trades gevonden</td></tr>';
+    } else {
+      tbody.insertAdjacentHTML('beforeend',d.trades.map(renderTradeRow).join(''));
+    }
+    tradeOffset+=d.trades.length;
+    countEl.textContent='('+tradeOffset+' van '+d.total+')';
+    if(tradeOffset>=d.total){allTradesLoaded=true;btn.style.display='none';}
+    else{btn.style.display='inline-block';}
+  }catch(e){console.error('loadTradeHistory',e);}
+}
+
+function loadMoreTrades(){loadTradeHistory(false);}
 </script>
 </body>
 </html>`;
