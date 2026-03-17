@@ -7668,6 +7668,14 @@ app.get("/fxcopy", async (req, res) => {
       <div class="sig-none" style="text-align:center">Laden...</div>
     </div>
   </div>
+
+  <!-- Event Log -->
+  <div class="card">
+    <div class="card-title"><span class="card-title-icon">📝</span> Event Log</div>
+    <div id="event-log" style="max-height:300px;overflow-y:auto">
+      <div class="sig-none" style="text-align:center">Laden...</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -7786,6 +7794,27 @@ async function loadBridge(){
         '<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">Account: '+(ea.account_login||'?')+' | '+ago(ea.last_update)+'</div>';
     } else {
       eb.innerHTML='<div class="sig-none">Wachten op EA data...</div>';
+    }
+
+    // Event log
+    const elb=document.getElementById('event-log');
+    const evts=d.events||[];
+    if(evts.length>0){
+      const colors={signal:'var(--green)',open:'var(--green)',close:'#ff9800',warn:'#ff9800',error:'var(--red)',info:'var(--blue,#6ea8fe)'};
+      const icons={signal:'📊',open:'🟢',close:'🔴',warn:'⚠️',error:'❌',info:'ℹ️'};
+      elb.innerHTML=evts.slice().reverse().map(e=>{
+        const c=colors[e.level]||'var(--muted)';
+        const ic=icons[e.level]||'•';
+        let extra='';
+        if(e.pl!=null){const s=e.pl>=0?'+':'';extra=' <span style="color:'+(e.pl>=0?'var(--green)':'var(--red)')+';font-weight:700">'+s+e.pl.toFixed(2)+'</span>';}
+        return '<div style="padding:5px 10px;border-bottom:1px solid rgba(255,255,255,.04);font-size:.75rem;display:flex;gap:8px;align-items:baseline">'+
+          '<span style="color:var(--muted);font-variant-numeric:tabular-nums;min-width:80px">'+fmtTime(e.ts)+'</span>'+
+          '<span>'+ic+'</span>'+
+          '<span style="color:'+c+'">'+e.msg+extra+'</span>'+
+          '</div>';
+      }).join('');
+    } else {
+      elb.innerHTML='<div class="sig-none" style="text-align:center">Nog geen events</div>';
     }
 
   }catch(e){
