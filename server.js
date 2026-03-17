@@ -3371,6 +3371,9 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
   svgParts.push(`<filter id="glowRed" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/><feFlood flood-color="#ff4d4d" flood-opacity="0.4"/><feComposite in2="b" operator="in" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
   svgParts.push(`<filter id="glowLine" x="-10%" y="-300%" width="120%" height="700%"><feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
   svgParts.push(`<clipPath id="chartClip"><rect x="${CL}" y="${CT}" width="${CW}" height="${CH}"/></clipPath>`);
+  if (streak >= 2) {
+    svgParts.push(`<filter id="glowFire" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b"/><feFlood flood-color="#ff6600" flood-opacity="0.5"/><feComposite in2="b" operator="in" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
+  }
   svgParts.push(`</defs>`);
 
   // ===== BACKGROUND =====
@@ -3401,26 +3404,22 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
   // ===== WIN STREAK BADGE (top-right, fire style) =====
   if (streak >= 2) {
-    // SVG flame path (small fire icon)
     const flamePath = "M12 2c0 0-4 6-4 10a4 4 0 0 0 8 0c0-4-4-10-4-10z";
+    const flameInner = "M12 6c0 0-2 3.5-2 6a2 2 0 0 0 4 0c0-2.5-2-6-2-6z";
     const fireCount = streak >= 5 ? 3 : streak >= 3 ? 2 : 1;
     const label = `${streak} WIN STREAK`;
-    const lblW = label.length * 9.5 + 20 + fireCount * 22;
+    const lblW = label.length * 9.5 + 28 + fireCount * 22;
     const stX = width - lblW - 24;
-    const stY = 50;
-    const stH = 36;
-    // Glowing orange pill
-    svgParts.push(`<filter id="glowFire" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b"/><feFlood flood-color="#ff6600" flood-opacity="0.5"/><feComposite in2="b" operator="in" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
-    svgParts.push(`<rect x="${stX}" y="${stY}" width="${lblW}" height="${stH}" rx="18" fill="rgba(255,77,0,0.18)" stroke="rgba(255,140,0,0.7)" stroke-width="1.5" filter="url(#glowFire)"/>`);
-    // Fire icons
+    const stY = 52;
+    const stH = 34;
+    svgParts.push(`<rect x="${stX}" y="${stY}" width="${lblW}" height="${stH}" rx="17" fill="rgba(255,77,0,0.2)" stroke="rgba(255,140,0,0.7)" stroke-width="1.5" filter="url(#glowFire)"/>`);
     for (let fi = 0; fi < fireCount; fi++) {
-      const fx = stX + 12 + fi * 20;
-      const fy = stY + 5;
-      svgParts.push(`<g transform="translate(${fx},${fy}) scale(1.05)"><path d="${flamePath}" fill="#ff6600" opacity="0.95"/><path d="M12 6c0 0-2 3.5-2 6a2 2 0 0 0 4 0c0-2.5-2-6-2-6z" fill="#ffaa00"/></g>`);
+      const fx = stX + 10 + fi * 20;
+      const fy = stY + 4;
+      svgParts.push(`<g transform="translate(${fx},${fy}) scale(1.08)"><path d="${flamePath}" fill="#ff6600"/><path d="${flameInner}" fill="#ffaa00"/></g>`);
     }
-    // Text
     const textX = stX + 14 + fireCount * 22;
-    svgParts.push(`<text x="${textX}" y="${stY + 24}" font-family="Inter,Segoe UI,Arial" font-size="15" font-weight="900" fill="#ff8c00" letter-spacing="1.5">${esc(label)}</text>`);
+    svgParts.push(`<text x="${textX}" y="${stY + 23}" font-family="Inter,Segoe UI,Arial" font-size="15" font-weight="900" fill="#ff8c00" letter-spacing="1.5">${esc(label)}</text>`);
   }
 
   // ===== GRID =====
