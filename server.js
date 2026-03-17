@@ -1496,16 +1496,23 @@ app.post("/signal/manual/open", async (req, res) => {
     if (isMasterBroadcaster(body)) {
       try {
         const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+        // Fetch current win streak for badge on chart
+        let winStreak = 0;
+        try {
+          const stRow = await db.execute({ sql: "SELECT streak FROM tp_streak WHERE symbol=? LIMIT 1", args: [symbol] });
+          winStreak = stRow.rows?.[0]?.streak != null ? Number(stRow.rows[0].streak) : 0;
+        } catch { /* best-effort */ }
+
         // Render chart as binary PNG buffer (bypass Telegram URL caching)
         let chartBuf = null;
         try {
-          const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&t=${Date.now()}`;
+          const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&streak=${winStreak}&t=${Date.now()}`;
           const chartResp = await fetchFn(chartUrl);
           if (chartResp.ok) chartBuf = Buffer.from(await chartResp.arrayBuffer());
         } catch (e) { console.error("chart_render_fetch_failed", e?.message); }
 
         const caption = formatSignalCaption({ id, symbol, direction, riskPct: risk_pct, comment });
-        const photo = chartBuf || `${BASE_URL}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&t=${Date.now()}`;
+        const photo = chartBuf || `${BASE_URL}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&streak=${winStreak}&t=${Date.now()}`;
         const tgPosted = await tgSendPhoto({ chatId, photo, caption });
         const mid = tgPosted?.result?.message_id;
         if (mid != null) {
@@ -2233,10 +2240,17 @@ app.post("/signal/executed", async (req, res) => {
               return res.json({ ok: true, signal_id, ticket, fill_price, executed_at: executed_at_mt5, ok_mod, tg_open_suppressed: true, tg_open_reason: sup.reason, locked_by: sup.locked_by || null });
             }
 
+            // Fetch current win streak for badge on chart
+            let winStreak = 0;
+            try {
+              const stRow = await db.execute({ sql: "SELECT streak FROM tp_streak WHERE symbol=? LIMIT 1", args: [sym] });
+              winStreak = stRow.rows?.[0]?.streak != null ? Number(stRow.rows[0].streak) : 0;
+            } catch { /* best-effort */ }
+
             // Render chart as binary PNG buffer (bypass Telegram URL caching)
             let chartBuf = null;
             try {
-              const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(sym)}&interval=1m&hours=3&t=${Date.now()}`;
+              const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(sym)}&interval=1m&hours=3&streak=${winStreak}&t=${Date.now()}`;
               const chartResp = await fetchFn(chartUrl);
               if (chartResp.ok) chartBuf = Buffer.from(await chartResp.arrayBuffer());
             } catch (e) { console.error("chart_render_fetch_failed", e?.message); }
@@ -3286,6 +3300,9 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     c: c.close,
   }));
 
+  // Win streak badge
+  const streak = req.query.streak != null ? Number(req.query.streak) : 0;
+
   // Optional horizontal levels for trade visualization
   const entry = req.query.entry != null ? Number(req.query.entry) : NaN;
   const sl = req.query.sl != null ? Number(req.query.sl) : NaN;
@@ -3380,6 +3397,18 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     legendX -= 18;
     svgParts.push(`<rect x="${legendX}" y="29" width="12" height="12" rx="2" fill="${it.color}" opacity="0.85"/>`);
     legendX -= 16;
+  }
+
+  // ===== WIN STREAK BADGE (top-right, fire style) =====
+  if (streak >= 2) {
+    const fires = streak >= 5 ? "🔥🔥🔥" : streak >= 3 ? "🔥🔥" : "🔥";
+    const streakText = `${fires} ${streak} WINS`;
+    const stW = streakText.length * 10 + 32;
+    const stX = width - stW - 20;
+    const stY = 52;
+    // Glowing pill background
+    svgParts.push(`<rect x="${stX}" y="${stY}" width="${stW}" height="32" rx="16" fill="rgba(255,77,0,0.15)" stroke="rgba(255,140,0,0.6)" stroke-width="1.5"/>`);
+    svgParts.push(`<text x="${stX + stW / 2}" y="${stY + 22}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="15" font-weight="800" fill="#ff8c00" letter-spacing="1">${esc(streakText)}</text>`);
   }
 
   // ===== GRID =====
