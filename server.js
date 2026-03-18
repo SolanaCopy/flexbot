@@ -7712,6 +7712,14 @@ app.get("/fxcopy", async (req, res) => {
     </div>
   </div>
 
+  <!-- Trade Stats -->
+  <div class="card">
+    <div class="card-title"><span class="card-title-icon">📈</span> Trade Resultaten</div>
+    <div id="stats-body">
+      <div class="sig-none" style="text-align:center">Laden...</div>
+    </div>
+  </div>
+
   <!-- Signal History -->
   <div class="card">
     <div class="card-title"><span class="card-title-icon">📋</span> Signaal Geschiedenis</div>
@@ -7858,6 +7866,28 @@ async function loadBridge(){
         '<div style="margin-top:8px;font-size:.7rem;color:var(--muted)">Account: '+(ea.account_login||'?')+' | '+ago(ea.last_update)+'</div>';
     } else {
       eb.innerHTML='<div class="sig-none">Wachten op EA data...</div>';
+    }
+
+    // Trade stats
+    const stb=document.getElementById('stats-body');
+    const st=d.stats;
+    if(st&&st.total_trades>0){
+      const plColor=st.total_pl>=0?'var(--green)':'var(--red)';
+      const plSign=st.total_pl>=0?'+':'';
+      const wrColor=st.winrate>=50?'var(--green)':st.winrate>=40?'#ff9800':'var(--red)';
+      stb.innerHTML=
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">'+
+          '<div><div style="font-size:1.4rem;font-weight:800;color:#fff">'+st.total_trades+'</div><div style="font-size:.65rem;color:var(--muted);text-transform:uppercase">Trades</div></div>'+
+          '<div><div style="font-size:1.4rem;font-weight:800;color:var(--green)">'+st.wins+'</div><div style="font-size:.65rem;color:var(--muted);text-transform:uppercase">Wins</div></div>'+
+          '<div><div style="font-size:1.4rem;font-weight:800;color:var(--red)">'+st.losses+'</div><div style="font-size:.65rem;color:var(--muted);text-transform:uppercase">Losses</div></div>'+
+          '<div><div style="font-size:1.4rem;font-weight:800;color:'+wrColor+'">'+st.winrate+'%</div><div style="font-size:.65rem;color:var(--muted);text-transform:uppercase">Winrate</div></div>'+
+        '</div>'+
+        '<div style="text-align:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">'+
+          '<div style="font-size:.65rem;color:var(--muted);text-transform:uppercase;margin-bottom:4px">Totale P/L</div>'+
+          '<div style="font-size:1.6rem;font-weight:800;color:'+plColor+'">'+plSign+'€'+Math.abs(st.total_pl).toLocaleString('nl-NL',{minimumFractionDigits:2})+'</div>'+
+        '</div>';
+    } else {
+      stb.innerHTML='<div class="sig-none" style="text-align:center">Nog geen afgeronde trades</div>';
     }
 
     // Event log
