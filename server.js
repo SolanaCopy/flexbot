@@ -6783,6 +6783,7 @@ app.post("/api/mc/reset-daily", (req, res) => {
 // GET /api/mc/trades  (?key=DASHBOARD_KEY&offset=0&limit=25) — paginated trade history
 app.get("/api/mc/trades", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
+  const db = await getDb();
   if (!db) return res.json({ ok: true, trades: [], total: 0 });
   try {
     const offset = Math.max(0, Number(req.query.offset) || 0);
