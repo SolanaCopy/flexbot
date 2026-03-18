@@ -7046,7 +7046,6 @@ app.get("/mc", async (req, res) => {
 <nav class="navbar">
   <a href="/mc?key=${key}" class="nav-tab active"><span class="nav-icon">⚡</span>Mission Control</a>
   <a href="/fxcopy?key=${key}" class="nav-tab"><span class="nav-icon">📡</span>FxCopy</a>
-  <a href="/scanner?key=${key}" class="nav-tab"><span class="nav-icon">🔍</span>Scanner</a>
 </nav>
 <header>
   <div class="hdr-left">
@@ -7560,7 +7559,6 @@ function loadMoreTrades(){loadTradeHistory(false);}
 // ============================================================
 
 let fxcopyBridgeState = { updated_at: 0 };
-let scannerResults = [];
 
 app.post("/api/fxcopy/bridge", (req, res) => {
   let body = req.body;
@@ -7681,7 +7679,6 @@ app.get("/fxcopy", async (req, res) => {
 <nav class="navbar">
   <a href="/mc?key=${key}" class="nav-tab"><span class="nav-icon">⚡</span>Mission Control</a>
   <a href="/fxcopy?key=${key}" class="nav-tab active"><span class="nav-icon">📡</span>FxCopy</a>
-  <a href="/scanner?key=${key}" class="nav-tab"><span class="nav-icon">🔍</span>Scanner</a>
 </nav>
 <header>
   <div class="hdr-left">
@@ -7919,52 +7916,7 @@ setInterval(load,15000);
   res.send(html);
 });
 
-// ============================================================
-// BSC SCANNER
-// ============================================================
-
-// POST /api/scanner/results — receive results from local scanner (x-api-key auth)
-app.post("/api/scanner/results", (req, res) => {
-  const apiKey = req.headers["x-api-key"] || "";
-  const expected = process.env.SCANNER_API_KEY || "";
-  if (!expected || !apiKey || apiKey !== expected) {
-    return res.status(401).json({ ok: false, error: "unauthorized" });
-  }
-  let body = req.body;
-  if (typeof body === "string") {
-    try { body = JSON.parse(body); } catch { body = null; }
-  }
-  if (!body) return res.status(400).json({ ok: false, error: "invalid_body" });
-  // Accept single result {result: {...}} or full array [...]
-  if (Array.isArray(body)) {
-    scannerResults = body;
-  } else if (body.result && typeof body.result === "object") {
-    // Upsert by address
-    const addr = body.result.address;
-    const idx = scannerResults.findIndex(r => r.address === addr);
-    if (idx >= 0) scannerResults[idx] = body.result;
-    else scannerResults.push(body.result);
-  } else {
-    // Treat as single result object
-    const addr = body.address;
-    if (addr) {
-      const idx = scannerResults.findIndex(r => r.address === addr);
-      if (idx >= 0) scannerResults[idx] = body;
-      else scannerResults.push(body);
-    } else {
-      return res.status(400).json({ ok: false, error: "missing_address" });
-    }
-  }
-  return res.json({ ok: true, count: scannerResults.length });
-});
-
-// GET /api/scanner/results — returns JSON array for the dashboard
-app.get("/api/scanner/results", (req, res) => {
-  if (!mcAuthDashboard(req, res)) return;
-  return res.json(scannerResults);
-});
-
-// GET /scanner — HTML dashboard
+/* scanner code verwijderd — draait nu als apart project (bsc-scanner-web)
 app.get("/scanner", (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
   const key = String(req.query.key || "");
@@ -8203,10 +8155,7 @@ setInterval(load,60000);
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(html);
 });
-
-// ============================================================
-// END SCANNER / MISSION CONTROL
-// ============================================================
+end of removed scanner code */
 
 async function runPreviewRenders() {
   // Dev-only: generate closed card previews without starting the server.
@@ -8261,7 +8210,7 @@ async function main() {
   }
 
   await warmLoadFromDb();
-  try { require('./scanner-dashboard')(app); } catch(e) { console.error('[SCANNER] Dashboard laden mislukt:', e.message); }
+
   const port = process.env.PORT || 3000;
   app.listen(port, "0.0.0.0", () => console.log("listening", port));
 }
