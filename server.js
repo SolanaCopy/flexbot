@@ -672,6 +672,8 @@ async function persistCandle(c) {
 }
 
 const app = express();
+// In-memory de-dupe lock for /signal/closed (prevents race condition with DB-only de-dupe)
+const _closedPostLock = new Set();
 // NOTE: Do NOT use global express.json() — MT5 EA sends JSON with null terminator
 // which causes express.json() to return 400 before the route handler runs.
 // Use express.text() globally and parse JSON in each handler, or add express.json()
@@ -1725,13 +1727,20 @@ app.post("/signal/closed", async (req, res) => {
     const entry = exRow.rows?.[0]?.fill_price != null ? Number(exRow.rows[0].fill_price) : null;
 
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
-    // For close notifications: always allow broadcasting.
-    // The EA may not send account_login/server in the close body.
-    // De-dupe via claimSignalPostOnce already prevents duplicates.
     const canBroadcast = true;
 
-    // De-dupe CLOSED posting across multiple EA accounts.
+    // De-dupe CLOSED posting across multiple EA accounts (DB + in-memory).
     // Only one request should do Telegram side-effects (edit open + post closed card + streak).
+    if (_closedPostLock.has(signal_id)) {
+      await db.execute({
+        sql: "UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+        args: [closed_at_ms, outcome, result, signal_id],
+      });
+      return res.json({ ok: true, signal_id, posted: false, dedup: "memory_lock" });
+    }
+    _closedPostLock.add(signal_id);
+    setTimeout(() => _closedPostLock.delete(signal_id), 60000); // cleanup na 60s
+
     const closeClaim = await claimSignalPostOnce({ db, signalId: signal_id, kind: "tg_closed" });
     if (!closeClaim.claimed) {
       // Still update DB metadata (idempotent) and return.
