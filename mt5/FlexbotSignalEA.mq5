@@ -500,6 +500,8 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
   body += ",\"outcome\":\"" + outcome + "\"";
   body += ",\"result\":\"" + resultStr + "\"";
   body += ",\"closed_at_ms\":" + (string)((long)TimeCurrent()*1000);
+  body += ",\"account_login\":\"" + (string)AccountInfoInteger(ACCOUNT_LOGIN) + "\"";
+  body += ",\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\"";
   body += "}";
 
   string url = BuildUrl("/signal/closed");

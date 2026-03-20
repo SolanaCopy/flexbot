@@ -1720,13 +1720,37 @@ app.post("/signal/closed", async (req, res) => {
     let tp = [];
     try { tp = JSON.parse(String(sig.tp_json || "[]")); } catch { tp = []; }
 
+    // Always use master account execution for entry price (consistent reporting)
+    const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+    const masterServer = String(process.env.MASTER_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
     const exRow = await db.execute({
-      sql: "SELECT fill_price FROM signal_exec2 WHERE signal_id=? AND ok_mod=1 ORDER BY filled_at_ms ASC LIMIT 1",
-      args: [signal_id],
+      sql: "SELECT fill_price, account_login FROM signal_exec2 WHERE signal_id=? AND ok_mod=1 AND account_login=? AND server=? LIMIT 1",
+      args: [signal_id, masterLogin, masterServer],
     });
-    const entry = exRow.rows?.[0]?.fill_price != null ? Number(exRow.rows[0].fill_price) : null;
+    // Fallback: if master hasn't executed yet, use any execution
+    const entry = exRow.rows?.[0]?.fill_price != null
+      ? Number(exRow.rows[0].fill_price)
+      : await (async () => {
+          const fb = await db.execute({ sql: "SELECT fill_price FROM signal_exec2 WHERE signal_id=? AND ok_mod=1 ORDER BY filled_at_ms ASC LIMIT 1", args: [signal_id] });
+          return fb.rows?.[0]?.fill_price != null ? Number(fb.rows[0].fill_price) : null;
+        })();
 
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+
+    // Only broadcast closed notification if this request comes from master account,
+    // OR if no account info is provided (backwards compat — EA doesn't always send it).
+    const reqLogin = String(body?.account_login ?? "").trim();
+    const reqServer = String(body?.server ?? "").trim();
+    const hasAccountInfo = !!(reqLogin && reqServer);
+    if (hasAccountInfo && (reqLogin !== masterLogin || reqServer !== masterServer)) {
+      // Non-master account: update DB but don't post to Telegram
+      await db.execute({
+        sql: "UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+        args: [closed_at_ms, outcome, result, signal_id],
+      });
+      return res.json({ ok: true, signal_id, posted: false, reason: "non_master_account" });
+    }
+
     const canBroadcast = true;
 
     // De-dupe CLOSED posting across multiple EA accounts (DB + in-memory).
