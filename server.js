@@ -11,8 +11,8 @@ const INTERNAL_BASE = `http://localhost:${process.env.PORT || 3000}`;
 
 // --- Master broadcast gate (prevents other EA instances from posting to your Telegram group) ---
 // Configure in Render env:
-// - MASTER_LOGIN=1521125881
-// - MASTER_SERVER=FTMO-Demo2
+// - MASTER_LOGIN=12033719
+// - MASTER_SERVER=VantageInternational-Demo
 function isMasterBroadcaster(body) {
   const login = String(body?.account_login ?? "").trim();
   const server = String(body?.server ?? "").trim();
@@ -2157,6 +2157,55 @@ app.get("/debug/signal/ref", async (req, res) => {
     }
 
     return res.json({ ok: true, ref, matches: list.length, signals: list, exec });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "debug_failed", message: String(e?.message || e) });
+  }
+});
+
+// GET /debug/broadcast?secret=...
+// Shows master broadcast config and recent exec2 entries so you can verify account matching.
+app.get("/debug/broadcast", async (req, res) => {
+  try {
+    const secret = (req.query.secret != null ? String(req.query.secret) : "").trim();
+    const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET) : "";
+    if (!expected || secret !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    const masterLogin = String(process.env.MASTER_LOGIN || "").trim();
+    const mainAccountLogin = String(process.env.MAIN_ACCOUNT_LOGIN || "").trim();
+    const masterServer = String(process.env.MASTER_SERVER || "").trim();
+    const mainAccountServer = String(process.env.MAIN_ACCOUNT_SERVER || "").trim();
+
+    const resolvedLogin = masterLogin || mainAccountLogin || "12033719";
+    const resolvedServer = masterServer || mainAccountServer || "VantageInternational-Demo";
+
+    let recentExecs = [];
+    try {
+      const db = await getDb();
+      if (db) {
+        const rows = await db.execute({
+          sql: "SELECT signal_id,account_login,server,ok_mod,filled_at_ms FROM signal_exec2 ORDER BY filled_at_ms DESC LIMIT 10",
+          args: [],
+        });
+        recentExecs = rows.rows || [];
+      }
+    } catch { /* best effort */ }
+
+    return res.json({
+      ok: true,
+      env: {
+        MASTER_LOGIN: masterLogin || "(not set)",
+        MAIN_ACCOUNT_LOGIN: mainAccountLogin || "(not set)",
+        MASTER_SERVER: masterServer || "(not set)",
+        MAIN_ACCOUNT_SERVER: mainAccountServer || "(not set)",
+      },
+      resolved: {
+        masterLogin: resolvedLogin,
+        masterServer: resolvedServer,
+      },
+      telegram_bot_token_set: !!process.env.TELEGRAM_BOT_TOKEN,
+      telegram_chat_id: process.env.TELEGRAM_CHAT_ID || "-1003611276978",
+      recent_executions: recentExecs,
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "debug_failed", message: String(e?.message || e) });
   }
