@@ -7072,7 +7072,7 @@ app.get("/api/mc/trades", async (req, res) => {
     const countRow = await db.execute("SELECT COUNT(*) as cnt FROM signals");
     const total = Number(countRow.rows?.[0]?.cnt || 0);
     const rows = await db.execute({
-      sql: "SELECT id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome, close_result FROM signals ORDER BY created_at_ms DESC LIMIT ? OFFSET ?",
+      sql: "SELECT id, symbol, direction, sl, tp_json, comment, status, created_at_ms, closed_at_ms, close_outcome, close_result FROM signals ORDER BY created_at_ms DESC LIMIT ? OFFSET ?",
       args: [limit, offset],
     });
     const trades = (rows.rows || []).map((r) => ({
@@ -7086,6 +7086,7 @@ app.get("/api/mc/trades", async (req, res) => {
       closed_at_ms: r.closed_at_ms != null ? Number(r.closed_at_ms) : null,
       close_outcome: r.close_outcome != null ? String(r.close_outcome) : null,
       close_result: r.close_result != null ? String(r.close_result) : null,
+      comment: r.comment != null ? String(r.comment) : null,
     }));
     return res.json({ ok: true, trades, total, offset, limit });
   } catch (e) {
