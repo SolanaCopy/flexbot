@@ -5796,6 +5796,79 @@ async function autoNewsActualsHandler(req, res) {
 app.post("/auto/news/actuals/run", autoNewsActualsHandler);
 app.get("/auto/news/actuals/run", autoNewsActualsHandler);
 
+// GET/POST /auto/news/preview/run
+// Sends a Telegram heads-up 30 min before each USD high-impact event.
+// Designed to be called by the same cron that calls /auto/scalp/run (every 15 min).
+async function autoNewsPreviewHandler(req, res) {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    const windowMinRaw = req.query.window_min != null ? Number(req.query.window_min) : 30;
+    const windowMin = Number.isFinite(windowMinRaw) && windowMinRaw > 0 ? windowMinRaw : 30;
+    const windowMs = windowMin * 60 * 1000;
+
+    const all = await getFfEvents();
+    const now = Date.now();
+
+    // Find USD high-impact events coming up within the window (not yet happened)
+    const upcoming = all
+      .filter((e) => String(e.currency || "").toUpperCase() === "USD")
+      .filter((e) => String(e.impact) === "high")
+      .map((e) => ({ e, ts: e.ts }))
+      .filter((x) => Number.isFinite(x.ts) && x.ts > now && x.ts - now <= windowMs)
+      .sort((a, b) => a.ts - b.ts);
+
+    if (upcoming.length === 0) return res.json({ ok: true, acted: false, reason: "no_upcoming" });
+
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    let posted = 0;
+
+    for (const item of upcoming) {
+      const refMs = item.ts;
+      const kind = "news_preview";
+
+      // De-dupe: only post once per event
+      const insertedAt = now;
+      await db.execute({
+        sql: "INSERT OR IGNORE INTO ea_notifs (symbol,kind,ref_ms,created_at_ms) VALUES (?,?,?,?)",
+        args: ["USD", kind, refMs, insertedAt],
+      });
+      const chk = await db.execute({
+        sql: "SELECT created_at_ms FROM ea_notifs WHERE symbol=? AND kind=? AND ref_ms=?",
+        args: ["USD", kind, refMs],
+      });
+      const createdAt = chk.rows?.[0]?.created_at_ms != null ? Number(chk.rows[0].created_at_ms) : NaN;
+      if (!(Number.isFinite(createdAt) && createdAt === insertedAt)) continue;
+
+      const minsLeft = Math.max(1, Math.round((item.ts - now) / 60000));
+      const title = String(item.e.title || item.e.event || "USD High Impact");
+      const forecast = item.e.forecast != null ? String(item.e.forecast) : "—";
+      const prev = item.e.previous != null ? String(item.e.previous) : null;
+
+      // Format event time in UTC for the group
+      const eventDate = new Date(item.ts);
+      const utcTime = eventDate.toISOString().slice(11, 16) + " UTC";
+
+      let msg = `⚠️ #NEWS in ${minsLeft} min: ${title} (USD High)\n`;
+      msg += `🕐 ${utcTime}\n`;
+      msg += prev
+        ? `📊 Forecast: ${forecast} | Previous: ${prev}\n`
+        : `📊 Forecast: ${forecast}\n`;
+      msg += `⏸ Trading paused until release`;
+
+      await tgSendMessage({ chatId, text: msg });
+      posted++;
+    }
+
+    return res.json({ ok: true, acted: posted > 0, posted, upcoming: upcoming.length });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_news_preview_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/news/preview/run", autoNewsPreviewHandler);
+app.get("/auto/news/preview/run", autoNewsPreviewHandler);
+
 // GET/POST /auto/daily/plan/run (simple no-LLM plan)
 async function autoDailyPlanHandler(req, res) {
   try {
