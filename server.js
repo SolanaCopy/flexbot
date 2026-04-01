@@ -5473,6 +5473,7 @@ async function autoScalpRunHandler(req, res) {
       lastAutoScalpRun.result = body?.acted ? "acted" : (body?.reason || "unknown");
       lastAutoScalpRun.acted = !!body?.acted;
       lastAutoScalpRun.direction = body?.direction || null;
+      lastAutoScalpRun.diag = body?.diag || null;
       // Persist to disk so countdown survives restarts
       try { fs.mkdirSync(path.dirname(CRON_STATE_FILE), { recursive: true }); fs.writeFileSync(CRON_STATE_FILE, JSON.stringify(lastAutoScalpRun)); } catch (_) {}
       return origJson(body);
@@ -5542,6 +5543,9 @@ async function autoScalpRunHandler(req, res) {
     let direction = null;
     let strategyName = "";
 
+    // --- Debug: collect strategy diagnostics ---
+    const _diag = { bb: {}, ema: {} };
+
     // --- Strategy 1: Bollinger Band Bounce ---
     if (!direction) {
       const bbPeriod = 20, bbMult = 2.0, stochPeriod = 14;
@@ -5564,6 +5568,16 @@ async function autoScalpRunHandler(req, res) {
 
         const bbWidth = bbUpper - bbLower;
         const prevClose = closes[closes.length - 2];
+
+        // Diagnostics
+        _diag.bb = {
+          upper: +bbUpper.toFixed(2), lower: +bbLower.toFixed(2), mid: +bbMid.toFixed(2),
+          width: +bbWidth.toFixed(2), stochK: +stochK.toFixed(0),
+          prevClose: +prevClose.toFixed(2), price: +entry.toFixed(2),
+          widthOk: bbWidth >= 3,
+          buyFail: bbWidth >= 3 ? (prevClose > bbLower ? "prev not at lower band" : entry <= bbLower ? "not bouncing above lower" : entry >= bbMid ? "price above mid" : stochK >= 25 ? `stoch ${stochK.toFixed(0)} not <25` : null) : "width too narrow",
+          sellFail: bbWidth >= 3 ? (prevClose < bbUpper ? "prev not at upper band" : entry >= bbUpper ? "not dropping below upper" : entry <= bbMid ? "price below mid" : stochK <= 75 ? `stoch ${stochK.toFixed(0)} not >75` : null) : "width too narrow",
+        };
 
         if (bbWidth >= 3) {
           // BUY: price was at/below lower BB, now bouncing back, Stochastic oversold
@@ -5633,8 +5647,40 @@ async function autoScalpRunHandler(req, res) {
           }
         }
 
+        // Diagnostics
+        const trendDir = currEma20 > currEma50 ? "UP" : currEma20 < currEma50 ? "DOWN" : "FLAT";
+        const priceVsEma20 = entry > currEma20 ? "above" : "below";
+        let emaTouched = false;
+        if (closes.length >= emaSlow + 5) {
+          for (let j = Math.max(0, ema20Arr.length - 6); j < ema20Arr.length - 1; j++) {
+            const candle = arr[arr.length - (ema20Arr.length - j)];
+            const lo = Number(candle.low), hi = Number(candle.high);
+            const eVal = ema20Arr[j];
+            if (trendDir === "UP" && Number.isFinite(lo) && Number.isFinite(eVal) && lo <= eVal * 1.002 && lo >= eVal * 0.998) emaTouched = true;
+            if (trendDir === "DOWN" && Number.isFinite(hi) && Number.isFinite(eVal) && hi >= eVal * 0.998 && hi <= eVal * 1.002) emaTouched = true;
+          }
+        }
+        const lastCandle = arr[arr.length - 1];
+        const candleBullish = lastCandle.close > lastCandle.open;
+
+        let emaFail = null;
+        if (!Number.isFinite(adxVal)) emaFail = "ADX niet berekenbaar";
+        else if (adxVal < 18) emaFail = `ADX ${adxVal.toFixed(0)} te laag (<18)`;
+        else if (trendDir === "UP" && priceVsEma20 !== "above") emaFail = "uptrend maar prijs onder EMA20";
+        else if (trendDir === "DOWN" && priceVsEma20 !== "below") emaFail = "downtrend maar prijs boven EMA20";
+        else if (!emaTouched) emaFail = "EMA20 niet geraakt in laatste 6 candles";
+        else if (trendDir === "UP" && !candleBullish) emaFail = "wacht op bullish candle";
+        else if (trendDir === "DOWN" && candleBullish) emaFail = "wacht op bearish candle";
+
+        _diag.ema = {
+          ema20: +currEma20.toFixed(2), ema50: +currEma50.toFixed(2),
+          adx: Number.isFinite(adxVal) ? +adxVal.toFixed(0) : null,
+          trend: trendDir, priceVsEma20, touched: emaTouched,
+          candle: candleBullish ? "bullish" : "bearish",
+          fail: emaFail,
+        };
+
         if (Number.isFinite(adxVal) && adxVal >= 18) {
-          const lastCandle = arr[arr.length - 1];
           const price = entry;
 
           // Uptrend pullback: EMA20 > EMA50, price above EMA20, recently touched EMA20
@@ -5668,7 +5714,7 @@ async function autoScalpRunHandler(req, res) {
       }
     }
 
-    if (!direction) return res.json({ ok: true, acted: false, reason: "no_signal" });
+    if (!direction) return res.json({ ok: true, acted: false, reason: "no_signal", diag: _diag });
 
     // SL/TP based on ATR (dynamic, not fixed)
     const fixedRr = 2.0; // RR 2.0 (backtest winner)
@@ -6968,6 +7014,7 @@ app.get("/api/mc/state", async (req, res) => {
             last_direction: lastAutoScalpRun.direction || null,
             cooldown_min: lastAutoScalpRun.cooldown_min || 30,
             interval_min: 15,
+            diag: lastAutoScalpRun.diag || null,
           },
         };
       }
@@ -7685,6 +7732,26 @@ async function load(){
           h+='<div style="display:flex;align-items:center;justify-content:space-between;font-size:.45rem;color:#64748b"><span id="cron-ago">'+ca+'m geleden</span><span id="cron-countdown" style="color:#22d3ee;font-weight:800;font-size:.65rem;font-variant-numeric:tabular-nums">—</span></div>';
         } else {
           h+='<div style="display:flex;align-items:center;justify-content:space-between;font-size:.45rem;color:#64748b"><span>Server herstart</span><span id="cron-countdown" style="color:#22d3ee;font-weight:800;font-size:.65rem;font-variant-numeric:tabular-nums">≤'+cronData.intervalMin+':00</span></div>';
+        }
+        h+='</div>';
+      }
+      // Strategy diagnostics (waarom geen signaal)
+      if(p.cron&&p.cron.diag&&p.cron.last_result==='no_signal'){
+        const dg=p.cron.diag;
+        h+='<div style="background:rgba(251,191,36,.04);border:1px solid rgba(251,191,36,.12);border-radius:6px;padding:6px 10px;margin-top:6px">';
+        h+='<div style="font-size:.48rem;color:#fbbf24;font-weight:900;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Waarom geen signaal?</div>';
+        // BB Bounce
+        if(dg.bb){
+          const bb=dg.bb;
+          const bbFail=bb.buyFail||bb.sellFail||'onbekend';
+          h+='<div style="font-size:.46rem;color:#94a3b8;margin-bottom:2px"><span style="color:#60a5fa;font-weight:700">BB Bounce:</span> '+bbFail+'</div>';
+          h+='<div style="font-size:.42rem;color:#475569;margin-bottom:4px">Band: '+bb.lower+' – '+bb.upper+' | Width: '+bb.width+' | Stoch: '+bb.stochK+'</div>';
+        }
+        // EMA Pullback
+        if(dg.ema){
+          const em=dg.ema;
+          h+='<div style="font-size:.46rem;color:#94a3b8;margin-bottom:2px"><span style="color:#a78bfa;font-weight:700">EMA Pullback:</span> '+(em.fail||'onbekend')+'</div>';
+          h+='<div style="font-size:.42rem;color:#475569">EMA20: '+em.ema20+' | EMA50: '+em.ema50+' | ADX: '+(em.adx||'?')+' | Trend: '+em.trend+' | Candle: '+em.candle+'</div>';
         }
         h+='</div>';
       }
