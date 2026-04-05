@@ -7141,6 +7141,64 @@ app.get("/api/mc/trades", async (req, res) => {
   }
 });
 
+// GET /api/trades  — public endpoint for closed trades (website Live Results)
+app.get("/api/trades", async (req, res) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+
+    const rows = await db.execute({
+      sql: `SELECT s.id, s.symbol, s.direction, s.sl, s.tp_json, s.status,
+                   s.created_at_ms, s.closed_at_ms, s.close_outcome, s.close_result,
+                   e.fill_price as entry_price
+            FROM signals s
+            LEFT JOIN signal_exec2 e ON e.signal_id = s.id AND e.ok_mod = 1
+            WHERE s.status = 'closed' AND s.close_outcome IS NOT NULL
+            ORDER BY s.closed_at_ms DESC
+            LIMIT ?`,
+      args: [limit],
+    });
+
+    const trades = (rows.rows || []).map((r) => ({
+      id: String(r.id),
+      symbol: String(r.symbol || "XAUUSD"),
+      direction: String(r.direction || "BUY"),
+      entry_price: r.entry_price != null ? Number(r.entry_price) : null,
+      sl: r.sl != null ? Number(r.sl) : null,
+      tp: (() => { try { return JSON.parse(String(r.tp_json || "[]"))[0]; } catch { return null; } })(),
+      outcome: r.close_outcome != null ? String(r.close_outcome) : null,
+      result: r.close_result != null ? String(r.close_result) : null,
+      opened_at: Number(r.created_at_ms || 0),
+      closed_at: Number(r.closed_at_ms || 0),
+    }));
+
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
+    let account = null;
+    try {
+      const eaRows = await db.execute({
+        sql: "SELECT equity, balance, updated_at_ms FROM ea_positions WHERE account_login=? AND server=? ORDER BY updated_at_ms DESC LIMIT 1",
+        args: [mcLogin, mcServer],
+      });
+      if (eaRows.rows?.[0]) {
+        account = {
+          login: mcLogin,
+          server: mcServer,
+          equity: Number(eaRows.rows[0].equity),
+          balance: Number(eaRows.rows[0].balance),
+        };
+      }
+    } catch { /* ignore */ }
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.json({ ok: true, trades, account, count: trades.length });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /mc  (?key=DASHBOARD_KEY) — HTML dashboard
 app.get("/mc", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
