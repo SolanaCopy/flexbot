@@ -2713,7 +2713,7 @@ app.post("/ea/status", async (req, res) => {
           // Get previous balance from the last ea_positions record to calculate P/L
           const prevRows = await db.execute({
             sql: `SELECT balance FROM ea_positions WHERE account_login=? AND server=? AND symbol=? AND has_position=1 ORDER BY updated_at_ms DESC LIMIT 1`,
-            args: [account_login, server, symbol || "XAUUSD"],
+            args: [String(account_login), String(server), String(symbol || "XAUUSD")],
           });
           const prevBalance = prevRows.rows?.[0]?.balance;
           let pnl = null;
@@ -2726,7 +2726,7 @@ app.post("/ea/status", async (req, res) => {
           }
           await db.execute({
             sql: `UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?`,
-            args: [updated_at_ms, outcome, resultStr, activeSignal.id],
+            args: [Number(updated_at_ms) || Date.now(), String(outcome), resultStr != null ? String(resultStr) : "", String(activeSignal.id)],
           });
           auto_closed = { signal_id: activeSignal.id, outcome, result: resultStr };
           console.log(`[auto-close] Signal ${activeSignal.id} closed: ${outcome} ${resultStr}`);
