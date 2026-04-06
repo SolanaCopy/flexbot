@@ -7146,7 +7146,7 @@ app.post("/api/mc/reset-daily", (req, res) => {
   }
 });
 
-// TEMP: insert missing trade — remove after use
+// TEMP: insert/update trade — remove after use
 app.post("/api/mc/insert-trade", async (req, res) => {
   try {
     const key = req.query.key || req.body?.key;
@@ -7154,6 +7154,14 @@ app.post("/api/mc/insert-trade", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false });
     const b = req.body;
+    // Update existing signal by id
+    if (b.update_id) {
+      await db.execute({
+        sql: `UPDATE signals SET close_outcome=?, close_result=?, closed_at_ms=? WHERE id=?`,
+        args: [String(b.outcome || "closed"), String(b.result || "0 USD"), Number(b.closed_at_ms) || Date.now(), String(b.update_id)],
+      });
+      return res.json({ ok: true, updated: b.update_id });
+    }
     const id = b.id || crypto.randomUUID();
     await db.execute({
       sql: `INSERT OR IGNORE INTO signals (id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome, close_result)
