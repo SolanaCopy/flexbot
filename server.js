@@ -7146,6 +7146,29 @@ app.post("/api/mc/reset-daily", (req, res) => {
   }
 });
 
+// TEMP: insert missing trade — remove after use
+app.post("/api/mc/insert-trade", async (req, res) => {
+  const key = req.query.key || req.body?.key;
+  if (key !== (process.env.DASHBOARD_KEY || "Tanger2026@")) return res.status(401).json({ ok: false });
+  const db = await getDb();
+  if (!db) return res.status(503).json({ ok: false });
+  const b = req.body;
+  const id = b.id || crypto.randomUUID();
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO signals (id, symbol, direction, sl, tp_json, status, created_at_ms, closed_at_ms, close_outcome, close_result)
+          VALUES (?, ?, ?, ?, ?, 'closed', ?, ?, ?, ?)`,
+    args: [id, b.symbol, b.direction, b.sl, JSON.stringify(b.tp ? [b.tp] : []), b.opened_at_ms, b.closed_at_ms, b.outcome, b.result],
+  });
+  // Also insert into signal_exec2 for entry price
+  if (b.entry_price) {
+    await db.execute({
+      sql: `INSERT OR IGNORE INTO signal_exec2 (signal_id, account_login, server, fill_price, filled_at_ms, ok_mod) VALUES (?, '12033719', 'VantageInternational-Demo', ?, ?, 1)`,
+      args: [id, b.entry_price, b.opened_at_ms],
+    });
+  }
+  return res.json({ ok: true, id });
+});
+
 // GET /api/mc/trades  (?key=DASHBOARD_KEY&offset=0&limit=25) — paginated trade history
 app.get("/api/mc/trades", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
