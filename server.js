@@ -7147,7 +7147,7 @@ app.get("/api/trades", async (req, res) => {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
 
-    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const limit = Math.min(Number(req.query.limit) || 50, 2000);
 
     const rows = await db.execute({
       sql: `SELECT s.id, s.symbol, s.direction, s.sl, s.tp_json, s.status,
