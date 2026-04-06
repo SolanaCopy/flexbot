@@ -2698,7 +2698,45 @@ app.post("/ea/status", async (req, res) => {
       });
     }
 
-    return res.json({ ok: true, stored_at: formatMt5(Date.now()) });
+    // --- Auto-close: if EA reports no position but there's an active signal, close it ---
+    let auto_closed = null;
+    if (!has_position && db) {
+      try {
+        const activeRows = await db.execute({
+          sql: `SELECT id, symbol, direction, created_at_ms FROM signals
+                WHERE status = 'active' AND symbol = ?
+                ORDER BY created_at_ms DESC LIMIT 1`,
+          args: [symbol || "XAUUSD"],
+        });
+        const activeSignal = activeRows.rows?.[0];
+        if (activeSignal) {
+          // Get previous balance from the last ea_positions record to calculate P/L
+          const prevRows = await db.execute({
+            sql: `SELECT balance FROM ea_positions WHERE account_login=? AND server=? AND symbol=? AND has_position=1 ORDER BY updated_at_ms DESC LIMIT 1`,
+            args: [account_login, server, symbol || "XAUUSD"],
+          });
+          const prevBalance = prevRows.rows?.[0]?.balance;
+          let pnl = null;
+          let outcome = "closed";
+          let resultStr = null;
+          if (Number.isFinite(prevBalance) && Number.isFinite(balance)) {
+            pnl = balance - prevBalance;
+            outcome = pnl >= 0 ? "TP hit" : "SL hit";
+            resultStr = `${pnl >= 0 ? "" : "-"}${Math.abs(pnl).toFixed(2)} USD`;
+          }
+          await db.execute({
+            sql: `UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?`,
+            args: [updated_at_ms, outcome, resultStr, activeSignal.id],
+          });
+          auto_closed = { signal_id: activeSignal.id, outcome, result: resultStr };
+          console.log(`[auto-close] Signal ${activeSignal.id} closed: ${outcome} ${resultStr}`);
+        }
+      } catch (e) {
+        console.error("[auto-close] Error:", e?.message || e);
+      }
+    }
+
+    return res.json({ ok: true, stored_at: formatMt5(Date.now()), auto_closed });
   } catch {
     return res.status(400).json({ ok: false, error: "bad_json" });
   }
