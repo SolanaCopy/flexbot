@@ -7153,7 +7153,8 @@ app.post("/api/mc/insert-trade", async (req, res) => {
     if (key !== (process.env.DASHBOARD_KEY || "Tanger2026@")) return res.status(401).json({ ok: false });
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false });
-    const b = req.body;
+    let b = req.body;
+    if (typeof b === "string") try { b = JSON.parse(b); } catch { b = {}; }
     // Update existing signal by id
     if (b.update_id) {
       await db.execute({
