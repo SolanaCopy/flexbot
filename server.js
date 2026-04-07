@@ -7215,6 +7215,43 @@ app.get("/api/mc/trades", async (req, res) => {
 });
 
 // GET /api/trades  — public endpoint for closed trades (website Live Results)
+// Public endpoint for current active signal (no auth, CORS)
+app.get("/api/active-signal", async (req, res) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const symbol = (req.query.symbol ? String(req.query.symbol) : "XAUUSD").toUpperCase();
+    const rows = await db.execute({
+      sql: `SELECT s.id, s.symbol, s.direction, s.sl, s.tp_json, s.created_at_ms,
+                   e.fill_price as entry_price
+            FROM signals s
+            LEFT JOIN signal_exec2 e ON e.signal_id = s.id AND e.ok_mod = 1
+            WHERE s.status = 'active' AND s.symbol = ?
+            ORDER BY s.created_at_ms DESC LIMIT 1`,
+      args: [symbol],
+    });
+    const r = rows.rows?.[0];
+    let signal = null;
+    if (r) {
+      let tp = null;
+      try { tp = JSON.parse(String(r.tp_json || "[]"))[0] || null; } catch {}
+      signal = {
+        id: String(r.id),
+        symbol: String(r.symbol),
+        direction: String(r.direction),
+        entry_price: r.entry_price != null ? Number(r.entry_price) : null,
+        sl: r.sl != null ? Number(r.sl) : null,
+        tp: tp != null ? Number(tp) : null,
+        opened_at: Number(r.created_at_ms || 0),
+      };
+    }
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.json({ ok: true, signal });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 app.get("/api/trades", async (req, res) => {
   try {
     const db = await getDb();
