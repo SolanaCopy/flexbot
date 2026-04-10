@@ -1933,30 +1933,23 @@ app.post("/signal/closed", async (req, res) => {
             const line = pickTpLine();
 
             if (next === 2) {
-              // Send streak-2 VIDEO (Boss request)
-              const videoPath = path.join(__dirname, "assets", "streak_tp2.mp4");
-              if (fs.existsSync(videoPath)) {
-                const buf = fs.readFileSync(videoPath);
-                await tgSendVideo({ chatId, video: buf, caption: line });
-              } else {
-                await tgSendMessage({ chatId, text: line });
-              }
+              await tgSendMessage({ chatId, text: `🔥🔥 Double Win!\n\n${line}` });
             } else if (next === 3) {
-              // Send streak-3 VIDEO (Boss request)
-              const videoPath = path.join(__dirname, "assets", "streak_tp3.mp4");
-              if (fs.existsSync(videoPath)) {
-                const buf = fs.readFileSync(videoPath);
-                await tgSendVideo({ chatId, video: buf, caption: line });
-              } else {
-                await tgSendMessage({ chatId, text: line });
-              }
+              await tgSendMessage({ chatId, text: `🔥🔥🔥 3 Wins in a Row!\n\n${line}` });
+            } else if (next > 3) {
+              await tgSendMessage({ chatId, text: `🔥🔥🔥 ${next} Wins in a Row!\n\n${line}` });
             } else {
               await tgSendMessage({ chatId, text: line });
             }
           }
         }
-      } catch {
-        // best-effort
+      } catch (streakErr) {
+        console.error("streak_notification_failed", streakErr?.message || streakErr, {
+          signal_id,
+          outcome,
+          result,
+          symbol: sig?.symbol,
+        });
       }
     }
 
@@ -2208,6 +2201,22 @@ app.get("/debug/broadcast", async (req, res) => {
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "debug_failed", message: String(e?.message || e) });
+  }
+});
+
+// GET /debug/streak?secret=...
+// Shows current TP streak state from the database.
+app.get("/debug/streak", async (req, res) => {
+  try {
+    const secret = (req.query.secret != null ? String(req.query.secret) : "").trim();
+    const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET) : "";
+    if (!expected || secret !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    const db = await getDb();
+    const rows = await db.execute("SELECT * FROM tp_streak ORDER BY updated_at_ms DESC");
+    return res.json({ ok: true, streaks: rows.rows || [] });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
 
