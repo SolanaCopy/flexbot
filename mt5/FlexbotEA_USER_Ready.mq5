@@ -49,6 +49,11 @@ input bool InpEnableExecPost = true;
 // CLOSE recap posting (disabled in user EA; handled by master account)
 input bool InpEnableClosePost = false;
 
+// MANUAL trade broadcast: when true, manual trades opened on this account are posted
+// to /signal/manual/open so other EA accounts pick them up via /signal/next (copy-trading).
+// Enable only on the MASTER account to avoid duplicate signals.
+input bool InpEnableManualBroadcast = false;
+
 input bool InpDebugHttp = true;
 input bool InpDebugTrade = true;
 
@@ -823,9 +828,64 @@ bool ExecuteSignal(const string json) {
   return true;
 }
 
+// De-dupe: remember last manual position we broadcast
+string g_lastManualBroadcastPos = "";
+
 // ---- Close recap notifier ----
 void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest& request, const MqlTradeResult& result)
 {
+  // ---- Manual trade broadcast (master-only copy-trading) ----
+  if(InpEnableManualBroadcast && trans.type == TRADE_TRANSACTION_DEAL_ADD) {
+    ulong mDeal = trans.deal;
+    if(mDeal != 0 && HistoryDealSelect(mDeal)) {
+      string mSym       = HistoryDealGetString(mDeal, DEAL_SYMBOL);
+      long   mMagic     = (long)HistoryDealGetInteger(mDeal, DEAL_MAGIC);
+      long   mEntryType = HistoryDealGetInteger(mDeal, DEAL_ENTRY);
+      long   mType      = HistoryDealGetInteger(mDeal, DEAL_TYPE);
+      long   mPosId     = (long)HistoryDealGetInteger(mDeal, DEAL_POSITION_ID);
+
+      // Only opening deals (IN) on our symbol, with a non-EA magic, BUY/SELL market
+      if(mSym == InpSymbol
+         && mEntryType == DEAL_ENTRY_IN
+         && (ulong)mMagic != InpMagic
+         && mPosId > 0
+         && (mType == DEAL_TYPE_BUY || mType == DEAL_TYPE_SELL)) {
+
+        string posKey = (string)mPosId;
+        if(posKey != g_lastManualBroadcastPos) {
+          if(PositionSelectByTicket((ulong)mPosId)) {
+            double sl    = PositionGetDouble(POSITION_SL);
+            double tp    = PositionGetDouble(POSITION_TP);
+            double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+            string dir   = (mType == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+
+            if(Trim(InpEaApiKey) == "") {
+              Print("⚠️ Manual broadcast skipped: InpEaApiKey not set");
+            } else if(sl <= 0 || tp <= 0) {
+              Print("⚠️ Manual trade ", posKey, " skipped (SL=", sl, " TP=", tp,
+                    ") — set both SL and TP when opening to broadcast");
+            } else {
+              long login    = (long)AccountInfoInteger(ACCOUNT_LOGIN);
+              string server = AccountInfoString(ACCOUNT_SERVER);
+              string body = StringFormat(
+                "{\"symbol\":\"%s\",\"direction\":\"%s\",\"sl\":%.5f,\"tp\":[%.5f],\"ticket\":\"%s\",\"fill_price\":%.5f,\"comment\":\"manual\",\"account_login\":%I64d,\"server\":\"%s\"}",
+                InpSymbol, dir, sl, tp, posKey, entry, login, server);
+              string hdr = "X-API-Key: " + InpEaApiKey + "\r\n";
+              int st = HttpPostJson(BuildUrl("/signal/manual/open"), body, hdr);
+              if(st >= 200 && st < 300) {
+                g_lastManualBroadcastPos = posKey;
+                Print("✅ Manual trade broadcast: ", dir, " ", InpSymbol,
+                      " entry=", entry, " SL=", sl, " TP=", tp, " pos=", posKey);
+              } else {
+                Print("❌ Manual trade broadcast failed HTTP=", st, " body=", body);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Disabled in user EA
   if(!InpEnableClosePost) return;
   if(g_lastSignalId=="") return;
