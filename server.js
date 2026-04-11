@@ -6559,6 +6559,14 @@ async function autoWeeklyRecapHandler(req, res) {
     });
 
     const pngBuf = renderSvgToPngBuffer(svg);
+
+    // Preview mode: return PNG directly without posting to Telegram
+    if (String(req.query.preview || "") === "1") {
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Content-Length", pngBuf.length);
+      return res.end(pngBuf);
+    }
+
     await tgSendPhoto({ chatId, photo: pngBuf, caption: "WEEKLY RECAP" });
 
     return res.json({ ok: true, acted: true, symbol, startMs, endMs, totalTrades, totalUsd, totalPct, startEquity });
