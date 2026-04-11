@@ -34,6 +34,9 @@ function inAmsterdamParts(tsMs = Date.now()) {
   const fmt = new Intl.DateTimeFormat("nl-NL", {
     timeZone: "Europe/Amsterdam",
     weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -41,9 +44,12 @@ function inAmsterdamParts(tsMs = Date.now()) {
   const parts = fmt.formatToParts(new Date(tsMs));
   const get = (t) => parts.find((p) => p.type === t)?.value;
   const weekday = (get("weekday") || "").toLowerCase(); // e.g., "vr", "za", "zo"
+  const y = Number(get("year"));
+  const m = Number(get("month"));
+  const d = Number(get("day"));
   const hour = Number(get("hour"));
   const minute = Number(get("minute"));
-  return { weekday, hour, minute, minutesOfDay: hour * 60 + minute };
+  return { weekday, y, m, d, hour, minute, minutesOfDay: hour * 60 + minute };
 }
 
 function marketBlockedNow(tsMs = Date.now()) {
