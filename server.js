@@ -6549,16 +6549,26 @@ async function autoWeeklyRecapHandler(req, res) {
       pctStr: startEquity && d.trades ? fmtPct((d.usd / startEquity) * 100) : "",
     }));
 
-    const svg = createWeeklyRecapSvg({
+    const svgInput = {
       symbol,
       weekLabel,
       totalTrades,
       totalUsdStr: fmtUsd(totalUsd),
       totalPctStr: totalPct != null ? fmtPct(totalPct) : "",
       days: dayOut,
-    });
+    };
+    if (String(req.query.debug || "") === "1") {
+      return res.json({ ok: true, debug: true, svgInput, startEquity, rowCount: rows.length });
+    }
+    const svg = createWeeklyRecapSvg(svgInput);
 
-    const pngBuf = renderSvgToPngBuffer(svg);
+    let pngBuf;
+    try {
+      pngBuf = renderSvgToPngBuffer(svg);
+    } catch (renderErr) {
+      console.error("weekly_recap_render_failed", renderErr?.message, { svgInput });
+      throw renderErr;
+    }
 
     // Preview mode: return PNG directly without posting to Telegram
     if (String(req.query.preview || "") === "1") {
