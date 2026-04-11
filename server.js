@@ -6344,7 +6344,7 @@ async function autoDailyRecapHandler(req, res) {
       await tgSendPhoto({ chatId, photo: pngTop, caption: "TOP TRADES" });
     }
 
-    return res.json({ ok: true, acted: true, closed: items.length, totalUsd, pct, startEquity, start_ms: startMsSafe, pages, top_trades_posted: top.length });
+    return res.json({ ok: true, acted: true, closed: items.length, totalUsd, pct, startBalance, start_ms: startMsSafe, pages, top_trades_posted: top.length });
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_daily_recap_failed", message: String(e?.message || e) });
   }
