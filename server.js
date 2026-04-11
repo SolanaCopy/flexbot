@@ -6446,7 +6446,7 @@ async function autoWeeklyRecapHandler(req, res) {
 
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
 
-    // Range: Monday 00:00 → Friday 00:00 (Amsterdam). At Fri 00:00 this covers Mon–Thu closes.
+    // Range: Monday 00:00 → Saturday 00:00 (Amsterdam) — covers full Mon–Fri closes.
     const nowMs = Date.now();
     const parts = inAmsterdamParts(nowMs);
     const d = new Date(Date.UTC(parts.y, parts.m - 1, parts.d, 0, 0, 0, 0));
@@ -6456,7 +6456,7 @@ async function autoWeeklyRecapHandler(req, res) {
     const monday = new Date(d);
     monday.setUTCDate(d.getUTCDate() - mondayOffset);
     const startMs = monday.getTime();
-    const endMs = startMs + 4 * 24 * 60 * 60 * 1000; // Fri 00:00
+    const endMs = startMs + 5 * 24 * 60 * 60 * 1000; // Sat 00:00 (includes Friday)
 
     const q = await db.execute({
       sql:
