@@ -3375,7 +3375,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
         const binLimit = 200;
         const binUrl = `https://api.binance.com/api/v3/klines?symbol=${binSymbol}&interval=${binInterval}&limit=${binLimit}`;
         console.log("binance_chart_fetch", binUrl);
-        const binResp = await fetch(binUrl);
+        const binResp = await fetchFn(binUrl);
         console.log("binance_chart_resp", binResp.status, binResp.ok);
         if (binResp.ok) {
           const klines = JSON.parse(await binResp.text());
