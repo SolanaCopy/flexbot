@@ -3326,8 +3326,9 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
     return out;
   }
 
-  // Load candles either from DB (preferred) or in-memory store.
+  // Load candles either from DB (preferred), in-memory store, or Binance (crypto fallback).
   async function loadCandlesForChart(baseInterval, sinceMs) {
+    // 1) Try local DB
     const db = await getDb();
     if (db) {
       const rows = await db.execute({
@@ -3335,7 +3336,7 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           "SELECT start_iso,end_iso,open,high,low,close,last_ts,gap,seeded FROM candles WHERE symbol=? AND interval=? AND start_ms >= ? ORDER BY start_ms ASC LIMIT ?",
         args: [symbol, baseInterval, sinceMs, 200000],
       });
-      return (rows.rows || [])
+      const local = (rows.rows || [])
         .map((r) => ({
           symbol,
           interval: baseInterval,
@@ -3350,15 +3351,52 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           seeded: Number(r.seeded) === 1,
         }))
         .filter((c) => [c.open, c.high, c.low, c.close].every(Number.isFinite) && !c.gap);
+      if (local.length >= 10) return local;
     }
 
+    // 2) Try in-memory store
     const s = getStoreIfExists(symbol, baseInterval);
-    if (!s) return [];
-    const all = s.current ? [...s.history, s.current] : [...s.history];
-    return all.filter((c) => !c.gap).filter((c) => {
-      const ms = Date.parse(c.start);
-      return Number.isFinite(ms) && ms >= sinceMs;
-    });
+    if (s) {
+      const all = s.current ? [...s.history, s.current] : [...s.history];
+      const mem = all.filter((c) => !c.gap).filter((c) => {
+        const ms = Date.parse(c.start);
+        return Number.isFinite(ms) && ms >= sinceMs;
+      });
+      if (mem.length >= 10) return mem;
+    }
+
+    // 3) Crypto fallback: fetch from Binance
+    const cryptoMap = { BTCUSD: "BTCUSDT", BTCUSDT: "BTCUSDT", ETHUSD: "ETHUSDT", ETHUSDT: "ETHUSDT" };
+    const binSymbol = cryptoMap[symbol.toUpperCase()];
+    if (binSymbol) {
+      try {
+        const ivMap = { "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "4h": "4h", "1d": "1d" };
+        const binInterval = ivMap[baseInterval] || "1m";
+        const binLimit = 200;
+        const binUrl = `https://api.binance.com/api/v3/klines?symbol=${binSymbol}&interval=${binInterval}&limit=${binLimit}`;
+        const binResp = await fetchFn(binUrl);
+        if (binResp.ok) {
+          const klines = JSON.parse(await binResp.text());
+          return klines.map((k) => ({
+            symbol,
+            interval: baseInterval,
+            start: new Date(k[0]).toISOString(),
+            end: new Date(k[6]).toISOString(),
+            open: Number(k[1]),
+            high: Number(k[2]),
+            low: Number(k[3]),
+            close: Number(k[4]),
+            lastTs: k[6],
+            gap: false,
+            seeded: false,
+          })).filter((c) => [c.open, c.high, c.low, c.close].every(Number.isFinite));
+        }
+      } catch (e) {
+        console.error("binance_chart_fallback_failed", e?.message);
+      }
+    }
+
+    return [];
   }
 
   // Decide interval and range.
