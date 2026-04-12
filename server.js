@@ -1463,7 +1463,8 @@ app.post("/signal/manual/open", async (req, res) => {
     const executed_at_ms = Number.isFinite(tsMs) ? tsMs : Date.now();
     const executed_at_mt5 = formatMt5(executed_at_ms);
 
-    if (!symbol || !["XAUUSD"].includes(symbol)) return res.status(400).json({ ok: false, error: "bad_symbol" });
+    const allowedManualSymbols = ["XAUUSD", "BTCUSD", "BTCUSDT", "ETHUSD", "ETHUSDT"];
+    if (!symbol || !allowedManualSymbols.includes(symbol)) return res.status(400).json({ ok: false, error: "bad_symbol" });
     if (!["BUY", "SELL"].includes(direction)) return res.status(400).json({ ok: false, error: "bad_direction" });
     if (!Number.isFinite(sl) || sl <= 0) return res.status(400).json({ ok: false, error: "bad_sl" });
     if (!tp.length) return res.status(400).json({ ok: false, error: "bad_tp" });

@@ -1449,9 +1449,11 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
   if(!HistoryDealSelect(deal)) return;
 
   string sym = HistoryDealGetString(deal, DEAL_SYMBOL);
-  if(sym != InpSymbol) { if(InpDebugTrade) Print("ClosePost skip: symbol mismatch dealSym=", sym); return; }
-
   long magic = (long)HistoryDealGetInteger(deal, DEAL_MAGIC);
+
+  // EA trades: must match InpSymbol + InpMagic
+  // Manual trades (magic=0): any symbol allowed (for manual broadcast)
+  if((ulong)magic == InpMagic && sym != InpSymbol) { if(InpDebugTrade) Print("ClosePost skip: symbol mismatch dealSym=", sym); return; }
   if((ulong)magic != InpMagic && magic != 0) { if(InpDebugTrade) Print("ClosePost skip: magic mismatch dealMagic=", magic); return; }
 
   long entryType = HistoryDealGetInteger(deal, DEAL_ENTRY);
@@ -1475,7 +1477,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
       if(t==0) continue;
       if(!PositionSelectByTicket(t)) continue;
       if((ulong)PositionGetInteger(POSITION_TICKET) != posTicket) continue;
-      if(PositionGetString(POSITION_SYMBOL) != InpSymbol) continue;
+      if(PositionGetString(POSITION_SYMBOL) != sym) continue;
       slP = PositionGetDouble(POSITION_SL);
       tpP = PositionGetDouble(POSITION_TP);
       fillP = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -1497,12 +1499,12 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
 
     string body2 = "{";
     body2 += "\"id\":\"" + manualId + "\"";
-    body2 += ",\"symbol\":\"" + InpSymbol + "\"";
+    body2 += ",\"symbol\":\"" + sym + "\"";
     body2 += ",\"direction\":\"" + dir2 + "\"";
-    body2 += ",\"sl\":" + DoubleToString(slP, (int)SymbolInfoInteger(InpSymbol, SYMBOL_DIGITS));
-    body2 += ",\"tp\":[" + DoubleToString(tpP, (int)SymbolInfoInteger(InpSymbol, SYMBOL_DIGITS)) + "]";
+    body2 += ",\"sl\":" + DoubleToString(slP, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS));
+    body2 += ",\"tp\":[" + DoubleToString(tpP, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS)) + "]";
     body2 += ",\"ticket\":\"" + (string)posTicket + "\"";
-    body2 += ",\"fill_price\":" + DoubleToString(fillP, (int)SymbolInfoInteger(InpSymbol, SYMBOL_DIGITS));
+    body2 += ",\"fill_price\":" + DoubleToString(fillP, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS));
     body2 += ",\"risk_pct\":" + DoubleToString(InpRiskPercent, 2);
     body2 += ",\"comment\":\"manual\"";
     body2 += ",\"account_login\":" + (string)AccountInfoInteger(ACCOUNT_LOGIN);
