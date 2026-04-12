@@ -3367,16 +3367,19 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
 
     // 3) Crypto fallback: fetch from Binance
     const cryptoMap = { BTCUSD: "BTCUSDT", BTCUSDT: "BTCUSDT", ETHUSD: "ETHUSDT", ETHUSDT: "ETHUSDT" };
-    const binSymbol = cryptoMap[symbol.toUpperCase()];
+    const binSymbol = cryptoMap[String(symbol).toUpperCase()];
     if (binSymbol) {
       try {
         const ivMap = { "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "4h": "4h", "1d": "1d" };
         const binInterval = ivMap[baseInterval] || "1m";
         const binLimit = 200;
         const binUrl = `https://api.binance.com/api/v3/klines?symbol=${binSymbol}&interval=${binInterval}&limit=${binLimit}`;
-        const binResp = await fetchFn(binUrl);
+        console.log("binance_chart_fetch", binUrl);
+        const binResp = await fetch(binUrl);
+        console.log("binance_chart_resp", binResp.status, binResp.ok);
         if (binResp.ok) {
           const klines = JSON.parse(await binResp.text());
+          console.log("binance_chart_klines", klines.length);
           return klines.map((k) => ({
             symbol,
             interval: baseInterval,
@@ -3392,8 +3395,10 @@ async function renderChart(req, res, format /* "png" | "jpg" */) {
           })).filter((c) => [c.open, c.high, c.low, c.close].every(Number.isFinite));
         }
       } catch (e) {
-        console.error("binance_chart_fallback_failed", e?.message);
+        console.error("binance_chart_fallback_failed", e?.message, e?.stack);
       }
+    } else {
+      console.log("binance_chart_skip: no mapping for symbol", symbol);
     }
 
     return [];
