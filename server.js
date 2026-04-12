@@ -1514,16 +1514,42 @@ app.post("/signal/manual/open", async (req, res) => {
 
         // Render chart as binary PNG buffer (bypass Telegram URL caching)
         let chartBuf = null;
-        try {
-          const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&streak=${winStreak}&t=${Date.now()}`;
-          const chartResp = await fetchFn(chartUrl);
-          if (chartResp.ok) {
-            const buf = Buffer.from(await chartResp.arrayBuffer());
-            if (buf.length > 1000) chartBuf = buf; // only use if chart has real data
-          }
-        } catch (e) { console.error("chart_render_fetch_failed", e?.message); }
 
-        // Fallback: render a styled open-signal card if no chart data (e.g. BTC/ETH)
+        // For crypto symbols: fetch candles from Binance and render chart directly
+        const cryptoChartMap = { BTCUSD: "BTCUSDT", BTCUSDT: "BTCUSDT", ETHUSD: "ETHUSDT", ETHUSDT: "ETHUSDT" };
+        const binSym = cryptoChartMap[symbol.toUpperCase()];
+        if (binSym) {
+          try {
+            const binUrl = `https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=1m&limit=180`;
+            const binResp = await fetchFn(binUrl);
+            if (binResp.ok) {
+              const klines = JSON.parse(await binResp.text());
+              if (klines.length >= 10) {
+                // Build candle array for chart renderer
+                const fakeReq = { query: { symbol, interval: "1m", limit: "180" } };
+                const chartCandles = klines.map((k) => ({
+                  open: Number(k[1]), high: Number(k[2]), low: Number(k[3]), close: Number(k[4]),
+                  start: new Date(k[0]).toISOString(),
+                }));
+                chartBuf = renderCandleChartPng({ candles: chartCandles, symbol, streak: winStreak });
+              }
+            }
+          } catch (e) { console.error("crypto_chart_direct_failed", e?.message); }
+        }
+
+        // For XAUUSD: use existing chart endpoint
+        if (!chartBuf) {
+          try {
+            const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&streak=${winStreak}&t=${Date.now()}`;
+            const chartResp = await fetchFn(chartUrl);
+            if (chartResp.ok) {
+              const buf = Buffer.from(await chartResp.arrayBuffer());
+              if (buf.length > 1000) chartBuf = buf;
+            }
+          } catch (e) { console.error("chart_render_fetch_failed", e?.message); }
+        }
+
+        // Last fallback: styled signal card
         if (!chartBuf) {
           try {
             const fillPrice = Number.isFinite(fill_price) ? fill_price : null;
@@ -1687,6 +1713,100 @@ app.post("/signal", async (req, res) => {
     return res.status(400).json({ ok: false, error: "bad_json" });
   }
 });
+
+// ─── Standalone candlestick chart renderer (for crypto / non-local symbols) ───
+function renderCandleChartPng({ candles, symbol, streak = 0 }) {
+  const W = 1280, H = 720;
+  const CL = 68, CT = 110, CW = 1090, CH = 520, CB = CT + CH, CR = CL + CW;
+
+  let minL = Infinity, maxH = -Infinity;
+  for (const c of candles) { minL = Math.min(minL, c.low); maxH = Math.max(maxH, c.high); }
+  const range = maxH - minL || 1;
+  const pad = Math.max(range * 0.03, maxH * 0.0005);
+  const yMin = minL - pad, yMax = maxH + pad, yRange = yMax - yMin;
+  const priceToY = (p) => CT + CH * (1 - (p - yMin) / yRange);
+  const candleW = Math.max(3, Math.floor(CW / candles.length * 0.7));
+  const wickW = Math.max(1, Math.round(candleW * 0.18));
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const fmt = (n) => Number(n).toFixed(n >= 1000 ? 2 : n >= 1 ? 4 : 6).replace(/\.?0+$/, "");
+
+  // Y-axis ticks
+  const rough = yRange / 8, mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const norm = rough / mag;
+  let step = norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10;
+  step *= mag;
+  const yTicks = [];
+  for (let v = Math.ceil(yMin / step) * step; v <= yMax; v += step) yTicks.push(Number(v.toFixed(6)));
+
+  // X-axis labels
+  const xSkip = Math.max(1, Math.ceil(candles.length / 12));
+  const labels = candles.map((c) => {
+    if (!c.start) return "";
+    const d = new Date(c.start);
+    return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
+  });
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+<linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0e1520"/><stop offset="1" stop-color="#080b14"/></linearGradient>
+<linearGradient id="accentBar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7c948"/><stop offset="0.5" stop-color="#e6b820"/><stop offset="1" stop-color="#c9960c"/></linearGradient>
+<pattern id="dots" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse"><circle cx="16" cy="16" r="1.5" fill="rgba(255,255,255,0.06)"/></pattern>
+<filter id="glowGold" x="-30%" y="-50%" width="160%" height="200%"><feGaussianBlur stdDeviation="8" result="b"/><feColorMatrix in="b" type="matrix" values="2.5 1.5 0 0 0 1.5 1 0 0 0 0 0 0 0 0 0 0 0 0.65 0" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="glowCyan" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/><feFlood flood-color="#00e5ff" flood-opacity="0.4"/><feComposite in2="b" operator="in" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="glowRed" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/><feFlood flood-color="#ff4d4d" flood-opacity="0.4"/><feComposite in2="b" operator="in" result="g"/><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<clipPath id="chartClip"><rect x="${CL}" y="${CT}" width="${CW}" height="${CH}"/></clipPath>
+</defs>
+<rect width="${W}" height="${H}" fill="url(#bgGrad)"/>
+<rect width="${W}" height="${H}" fill="url(#dots)"/>
+<rect x="0" y="0" width="6" height="${H}" fill="url(#accentBar)"/>
+<text x="30" y="40" font-family="Inter,Segoe UI,Arial" font-size="18" font-weight="900" fill="#f7c948" letter-spacing="6" filter="url(#glowGold)">FLEXBOT</text>
+<text x="30" y="75" font-family="Inter,Segoe UI,Arial" font-size="32" font-weight="900" fill="#ffffff" letter-spacing="1">LIVE TRADE</text>
+<text x="250" y="75" font-family="Inter,Segoe UI,Arial" font-size="32" font-weight="900" fill="rgba(255,255,255,0.5)">${esc(symbol)}</text>
+<line x1="30" y1="92" x2="${W - 30}" y2="92" stroke="#f7c948" stroke-width="1" stroke-opacity="0.2"/>`;
+
+  // Grid
+  for (const tick of yTicks) {
+    const ty = priceToY(tick);
+    if (ty >= CT && ty <= CB) svg += `<line x1="${CL}" y1="${ty.toFixed(1)}" x2="${CR}" y2="${ty.toFixed(1)}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
+  }
+
+  // Candles
+  svg += `<g clip-path="url(#chartClip)">`;
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    const cx = CL + (i + 0.5) * (CW / candles.length);
+    const yO = priceToY(c.open), yC = priceToY(c.close), yH = priceToY(c.high), yL = priceToY(c.low);
+    const bull = c.close >= c.open;
+    const bodyTop = Math.min(yO, yC), bodyH = Math.max(1, Math.abs(yO - yC));
+    const color = bull ? "#00d4e8" : "#ff4d4d";
+    const filt = candles.length <= 200 ? ` filter="url(#${bull ? "glowCyan" : "glowRed"})"` : "";
+    svg += `<line x1="${cx.toFixed(1)}" y1="${yH.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${yL.toFixed(1)}" stroke="${color}" stroke-width="${wickW}" opacity="0.8"${filt}/>`;
+    svg += `<rect x="${(cx - candleW / 2).toFixed(1)}" y="${bodyTop.toFixed(1)}" width="${candleW}" height="${bodyH.toFixed(1)}" rx="1" fill="${color}" opacity="0.92"${filt}/>`;
+  }
+  svg += `</g>`;
+
+  // Y-axis labels
+  for (const tick of yTicks) {
+    const ty = priceToY(tick);
+    if (ty >= CT && ty <= CB) svg += `<text x="${CR + 10}" y="${(ty + 4).toFixed(1)}" font-family="Inter,Segoe UI,Arial" font-size="12" fill="rgba(255,255,255,0.4)">${fmt(tick)}</text>`;
+  }
+
+  // X-axis labels
+  for (let i = 0; i < labels.length; i++) {
+    if (i % xSkip !== 0) continue;
+    const cx = CL + (i + 0.5) * (CW / candles.length);
+    svg += `<text x="${cx.toFixed(1)}" y="${CB + 22}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="11" fill="rgba(255,255,255,0.35)">${esc(labels[i])}</text>`;
+  }
+
+  // Footer
+  svg += `<rect x="0" y="${H - 50}" width="${W}" height="50" fill="rgba(0,0,0,0.4)"/>`;
+  svg += `<line x1="0" y1="${H - 50}" x2="${W}" y2="${H - 50}" stroke="#f7c948" stroke-width="1" stroke-opacity="0.18"/>`;
+  svg += `<text x="30" y="${H - 18}" font-family="Inter,Segoe UI,Arial" font-size="16" font-weight="900" fill="#f7c948" letter-spacing="5" filter="url(#glowGold)">FLEXBOT</text>`;
+  svg += `<text x="${W - 30}" y="${H - 18}" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="13" fill="rgba(255,255,255,0.25)">1m · LIVE</text>`;
+  svg += `</svg>`;
+
+  return renderSvgToPngBuffer(svg);
+}
 
 // ─── Manual Open Signal Card (SVG → PNG) for non-chart symbols ───
 function renderManualOpenCard({ symbol, direction, entry, sl, tp }) {
