@@ -1432,9 +1432,9 @@ app.post("/signal/manual/open", async (req, res) => {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
 
-    // Market pause guard
-    const m = marketBlockedNow();
-    if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
+    // Market pause guard — skip for manual trades (crypto trades 24/7)
+    // const m = marketBlockedNow();
+    // if (m.blocked) return res.status(409).json({ ok: false, error: "market_blocked", reason: m.reason });
 
     let body = req.body;
     if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
