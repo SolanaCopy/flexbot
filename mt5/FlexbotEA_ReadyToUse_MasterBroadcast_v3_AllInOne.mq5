@@ -41,14 +41,14 @@ input bool InpUseFixedLot = false; // AUTO (recommended): lot size from SL dista
 input double InpFixedLot = 1.0;  // (unused when InpUseFixedLot=false)
 
 // Risk gate: only open trades when risk with InpFixedLot is <= this %
-input double InpMaxRiskPercent = 0.5; // max risk per trade (AUTO lots). FTMO-safe: 0.5% risk.
+input double InpMaxRiskPercent = 1.0; // max risk per trade (AUTO lots). Echo strategy: 1.0%.
 input double InpMaxLot = 1.0; // HARD CAP lotsize (ready for users). Never exceed 1.0 lot.
 
 // Legacy scaling rule (only used if you re-enable it in code):
 // lots = (equity / 100000) * InpLotPer100k
 input double InpLotPer100k = 1.0;
 
-input double RR = 1.5; // fixed Risk:Reward for TP
+input double RR = 3.3; // fixed Risk:Reward for TP (fallback if server sends no TP)
 
 input int InpPollSeconds = 30; // reduce polling spam
 input ulong InpMagic = 8210317741;
