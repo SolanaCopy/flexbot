@@ -1517,8 +1517,21 @@ app.post("/signal/manual/open", async (req, res) => {
         try {
           const chartUrl = `http://127.0.0.1:${process.env.PORT || 10000}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&streak=${winStreak}&t=${Date.now()}`;
           const chartResp = await fetchFn(chartUrl);
-          if (chartResp.ok) chartBuf = Buffer.from(await chartResp.arrayBuffer());
+          if (chartResp.ok) {
+            const buf = Buffer.from(await chartResp.arrayBuffer());
+            if (buf.length > 1000) chartBuf = buf; // only use if chart has real data
+          }
         } catch (e) { console.error("chart_render_fetch_failed", e?.message); }
+
+        // Fallback: render a styled open-signal card if no chart data (e.g. BTC/ETH)
+        if (!chartBuf) {
+          try {
+            const fillPrice = Number.isFinite(fill_price) ? fill_price : null;
+            const slPrice = Number(body?.sl);
+            const tpPrice = tp.length ? tp[0] : null;
+            chartBuf = renderManualOpenCard({ symbol, direction, entry: fillPrice, sl: slPrice, tp: tpPrice });
+          } catch (e) { console.error("manual_open_card_failed", e?.message); }
+        }
 
         const caption = formatSignalCaption({ id, symbol, direction, riskPct: risk_pct, comment });
         const photo = chartBuf || `${BASE_URL}/chart.png?symbol=${encodeURIComponent(symbol)}&interval=1m&hours=3&streak=${winStreak}&t=${Date.now()}`;
@@ -1674,6 +1687,63 @@ app.post("/signal", async (req, res) => {
     return res.status(400).json({ ok: false, error: "bad_json" });
   }
 });
+
+// ─── Manual Open Signal Card (SVG → PNG) for non-chart symbols ───
+function renderManualOpenCard({ symbol, direction, entry, sl, tp }) {
+  const W = 800, H = 500;
+  const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const isBuy = String(direction).toUpperCase() === "BUY";
+  const accent = isBuy ? "#00d084" : "#ff4757";
+  const dirLabel = isBuy ? "BUY" : "SELL";
+  const sym = esc(String(symbol || "").toUpperCase());
+
+  const fmtPrice = (p) => {
+    if (!Number.isFinite(p)) return "-";
+    if (p >= 1000) return p.toFixed(2);
+    if (p >= 1) return p.toFixed(4);
+    return p.toFixed(6);
+  };
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0.5" y2="1"><stop offset="0" stop-color="#080b14"/><stop offset="1" stop-color="#04060c"/></linearGradient>
+  <radialGradient id="glow" cx="50%" cy="30%" r="60%"><stop offset="0" stop-color="${accent}" stop-opacity="0.12"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="${W}" height="${H}" fill="url(#bg)"/>
+<rect width="${W}" height="${H}" fill="url(#glow)"/>
+<rect x="0" y="0" width="5" height="${H}" fill="${accent}"/>
+
+<!-- Header -->
+<text x="40" y="60" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(255,255,255,0.4)" letter-spacing="4">LIVE SIGNAL</text>
+<text x="${W-40}" y="60" text-anchor="end" font-family="Inter,Segoe UI,Arial" font-size="22" fill="${accent}" font-weight="900">${dirLabel}</text>
+
+<!-- Symbol -->
+<text x="40" y="130" font-family="Inter,Segoe UI,Arial" font-size="56" fill="#ffffff" font-weight="900">${sym}</text>
+
+<!-- Divider -->
+<line x1="40" y1="160" x2="${W-40}" y2="160" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+<!-- Entry -->
+<text x="40" y="210" font-family="Inter,Segoe UI,Arial" font-size="16" fill="rgba(255,255,255,0.4)" letter-spacing="2">ENTRY</text>
+<text x="40" y="250" font-family="Inter,Segoe UI,Arial" font-size="36" fill="#ffffff" font-weight="900" style="font-variant-numeric:tabular-nums">${fmtPrice(entry)}</text>
+
+<!-- SL -->
+<text x="40" y="310" font-family="Inter,Segoe UI,Arial" font-size="16" fill="rgba(255,255,255,0.4)" letter-spacing="2">STOP LOSS</text>
+<text x="40" y="350" font-family="Inter,Segoe UI,Arial" font-size="32" fill="#ff4757" font-weight="900" style="font-variant-numeric:tabular-nums">${fmtPrice(sl)}</text>
+
+<!-- TP -->
+<text x="400" y="310" font-family="Inter,Segoe UI,Arial" font-size="16" fill="rgba(255,255,255,0.4)" letter-spacing="2">TAKE PROFIT</text>
+<text x="400" y="350" font-family="Inter,Segoe UI,Arial" font-size="32" fill="#00d084" font-weight="900" style="font-variant-numeric:tabular-nums">${fmtPrice(tp)}</text>
+
+<!-- Footer -->
+<rect x="0" y="${H-50}" width="${W}" height="50" fill="rgba(0,0,0,0.4)"/>
+<line x1="5" y1="${H-50}" x2="${W}" y2="${H-50}" stroke="rgba(240,160,48,0.18)" stroke-width="1"/>
+<text x="${W/2}" y="${H-18}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="18" fill="rgba(240,160,48,0.80)" letter-spacing="6" font-weight="900">FLEXBOT</text>
+</svg>`;
+
+  return renderSvgToPngBuffer(svg);
+}
 
 // GET /signal/next?symbol=XAUUSD&since_ms=<unix_ms>
 // - since_ms is optional; when present, only returns signals created at/after since_ms.
