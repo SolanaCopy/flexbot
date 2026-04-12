@@ -93,13 +93,14 @@ input int MaxEntryDistancePoints = 60;
 input int MinSLDistancePoints = 300;
 input int MinTPDistancePoints = 300;
 
-// ===== Trade Management =====
-input bool   InpEnableBreakEven   = false;  // DISABLED: backtest showed worse results with BE
-input double InpBreakEvenPct      = 50.0;   // % of TP distance to trigger break-even
-input double InpBreakEvenBuffer   = 1.0;    // Buffer in price above entry for BE (e.g. 1.0 = $1)
-input bool   InpEnableTrailing    = false;  // DISABLED: backtest showed worse results with trailing
-input double InpTrailStartPct     = 60.0;   // % of TP distance to start trailing
-input double InpTrailDistPoints   = 500;    // Trail distance in points (5.00 for XAUUSD)
+// ===== Trade Management (Echo: BE at 1.3R, Trail at 1.0R) =====
+input bool   InpEnableBreakEven   = true;   // Move SL to entry when profit reaches BE threshold
+input double InpBreakEvenPct      = 39.4;   // % of TP distance to trigger BE (1.3R/3.3R = 39.4%)
+input double InpBreakEvenBuffer   = 0.25;   // Buffer above entry for BE (spread)
+input bool   InpEnableTrailing    = true;   // Trail SL behind price after BE
+input double InpTrailStartPct     = 39.4;   // % of TP distance to start trailing (same as BE)
+input double InpTrailDistPoints   = 0;      // Fixed trail points (0 = use R-based: trail dist = SL dist)
+input double InpTrailDistR        = 1.0;    // Trail distance as R-multiple (used when TrailDistPoints=0)
 
 // ===== On-chart banner (lightweight) =====
 string BannerPrefix(){ return "FLEXBOT_BANNER_" + InpSymbol + "_" + (string)InpMagic; }
@@ -1254,7 +1255,17 @@ void ManageOpenPosition()
    // --- Trailing Stop ---
    if(InpEnableTrailing && profitPct >= InpTrailStartPct)
    {
-      double trailDist = InpTrailDistPoints * pt;
+      double trailDist;
+      if(InpTrailDistPoints > 0) {
+         trailDist = InpTrailDistPoints * pt;  // fixed points mode
+      } else {
+         // R-based mode: trail distance = SL distance * InpTrailDistR
+         double slDist = MathAbs(entry - PositionGetDouble(POSITION_SL));
+         // Use original SL distance (before BE moved it): approximate from TP distance / RR
+         if(slDist < pt * 10 && tpDist > 0) slDist = tpDist / RR;  // fallback if SL was already moved to BE
+         trailDist = slDist * InpTrailDistR;
+      }
+
       double newSl;
 
       if(type == POSITION_TYPE_BUY)
@@ -1272,6 +1283,7 @@ void ManageOpenPosition()
          if(ok && InpDebugTrade)
             Print("TRAILING: moved SL to ", DoubleToString(newSl, digits),
                   " price=", DoubleToString(curPrice, digits),
+                  " trailDist=", DoubleToString(trailDist, digits),
                   " profit%=", DoubleToString(profitPct, 1));
       }
    }

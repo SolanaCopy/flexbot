@@ -5568,209 +5568,176 @@ async function autoScalpRunHandler(req, res) {
     if (!claim?.ok) return res.status(502).json({ ok: false, error: "claim_failed" });
     if (!claim.notify) return res.json({ ok: true, acted: false, reason: "claimed" });
 
-    // 4) candles (5m) — fetch enough for indicators (BB20, EMA50, ATR14, ADX14)
-    const candles = await fetchJson(`${INTERNAL_BASE}/candles?symbol=${encodeURIComponent(symbol)}&interval=5m&limit=200`);
+    // 4) candles (15m) — fetch enough for MA69, ATR14, pivots, lookback, HTF
+    const candles = await fetchJson(`${INTERNAL_BASE}/candles?symbol=${encodeURIComponent(symbol)}&interval=15m&limit=800`);
     if (!candles?.ok || !Array.isArray(candles?.candles)) return res.status(502).json({ ok: false, error: "candles_failed" });
     const arr = candles.candles.filter((c) => !c.gap);
-    if (arr.length < 55) return res.status(502).json({ ok: false, error: "candles_insufficient" });
+    if (arr.length < 200) return res.status(502).json({ ok: false, error: "candles_insufficient" });
 
     const entry = Number(arr[arr.length - 1].close);
 
-    // ──────────── STRATEGY: BB Bounce + EMA Pullback (v2, 2026-03-24) ────────────
-    // Two complementary strategies:
-    // 1) BB Bounce: mean reversion when price hits Bollinger Band + Stochastic confirms
-    // 2) EMA Pullback: trend continuation when price pulls back to EMA20 in a trend
-    //
-    // Backtested on 21 trading days (5m XAUUSD):
-    // - BB Bounce: 1.6 trades/day, 46% winrate, +$6,081, max DD -$2,588
-    // - EMA Pullback: 3.9 trades/day, 35% winrate, +$2,316
-    // - Combined target: ~2-3 trades/day with RR 2.0
+    // ──────────── STRATEGY: Echo (MA20/69 + Candle Pattern + Pivot + HTF) ────────────
+    // Backtested 13 months XAUUSD M15:
+    // 123 trades, 62.6% WR, +93.8% gain, 4.07% DD, PF 2.51
+    // Filters: Stochastic 25-75 + HTF(2H) ADX>10 + direction match
 
     const closes = arr.map((c) => Number(c.close));
     const currATR = atr(arr, 14);
     if (!Number.isFinite(currATR) || currATR <= 0) return res.json({ ok: true, acted: false, reason: "no_atr" });
 
-    const slDist = currATR * 1.5;
-    if (slDist < 2 || slDist > 20) return res.json({ ok: true, acted: false, reason: "atr_out_of_range", atr: currATR, slDist });
+    const slDist = currATR * 1.9;
+    if (slDist < 2 || slDist > 40) return res.json({ ok: true, acted: false, reason: "atr_out_of_range", atr: currATR, slDist });
 
     let direction = null;
     let strategyName = "";
+    const _diag = {};
 
-    // --- Debug: collect strategy diagnostics ---
-    const _diag = { bb: {}, ema: {} };
+    // --- Session & day filter ---
+    const nowParts = inAmsterdamParts();
+    const utcHour = new Date().getUTCHours();
+    const utcDay = new Date().getUTCDay(); // 0=Sun..6=Sat
+    const inLondon = utcHour >= 7 && utcHour < 16;
+    const inNY = utcHour >= 12 && utcHour < 21;
+    const inSession = inLondon || inNY;
 
-    // --- Strategy 1: Bollinger Band Bounce ---
-    if (!direction) {
-      const bbPeriod = 20, bbMult = 2.0, stochPeriod = 14;
-      if (closes.length >= bbPeriod + 1) {
-        // SMA
-        const bbSlice = closes.slice(-bbPeriod);
-        const bbMid = bbSlice.reduce((s, v) => s + v, 0) / bbPeriod;
-        let sumSq = 0;
-        for (const v of bbSlice) sumSq += (v - bbMid) ** 2;
-        const bbStd = Math.sqrt(sumSq / bbPeriod);
-        const bbUpper = bbMid + bbMult * bbStd;
-        const bbLower = bbMid - bbMult * bbStd;
+    _diag.session = { utcHour, utcDay, inSession, inLondon, inNY };
 
-        // Stochastic %K
-        const stochSlice = arr.slice(-stochPeriod);
-        const stochHH = Math.max(...stochSlice.map((c) => Number(c.high)));
-        const stochLL = Math.min(...stochSlice.map((c) => Number(c.low)));
-        const stochRange = stochHH - stochLL;
-        const stochK = stochRange > 0 ? ((entry - stochLL) / stochRange) * 100 : 50;
+    if (!inSession) return res.json({ ok: true, acted: false, reason: "outside_session", diag: _diag });
+    if (utcDay === 3) return res.json({ ok: true, acted: false, reason: "no_wednesday", diag: _diag }); // Wed blocked
 
-        const bbWidth = bbUpper - bbLower;
-        const prevClose = closes[closes.length - 2];
+    // --- SMA 20/69 ---
+    const sma20 = (() => { const s = closes.slice(-20); return s.reduce((a, b) => a + b, 0) / s.length; })();
+    const sma69 = (() => { const s = closes.slice(-69); return s.reduce((a, b) => a + b, 0) / s.length; })();
 
-        // Diagnostics
-        _diag.bb = {
-          upper: +bbUpper.toFixed(2), lower: +bbLower.toFixed(2), mid: +bbMid.toFixed(2),
-          width: +bbWidth.toFixed(2), stochK: +stochK.toFixed(0),
-          prevClose: +prevClose.toFixed(2), price: +entry.toFixed(2),
-          widthOk: bbWidth >= 3,
-          buyFail: bbWidth >= 3 ? (prevClose > bbLower ? "prev not at lower band" : entry <= bbLower ? "not bouncing above lower" : entry >= bbMid ? "price above mid" : stochK >= 25 ? `stoch ${stochK.toFixed(0)} not <25` : null) : "width too narrow",
-          sellFail: bbWidth >= 3 ? (prevClose < bbUpper ? "prev not at upper band" : entry >= bbUpper ? "not dropping below upper" : entry <= bbMid ? "price below mid" : stochK <= 75 ? `stoch ${stochK.toFixed(0)} not >75` : null) : "width too narrow",
-        };
+    let bias = null;
+    if (sma20 > sma69 && entry > sma20) bias = "BUY";
+    else if (sma20 < sma69 && entry < sma20) bias = "SELL";
 
-        if (bbWidth >= 3) {
-          // BUY: price was at/below lower BB, now bouncing back, Stochastic oversold
-          if (prevClose <= bbLower && entry > bbLower && entry < bbMid && stochK < 25) {
-            direction = "BUY";
-            strategyName = `bb_bounce_up stoch=${stochK.toFixed(0)}`;
-          }
-          // SELL: price was at/above upper BB, now dropping back, Stochastic overbought
-          if (prevClose >= bbUpper && entry < bbUpper && entry > bbMid && stochK > 75) {
-            direction = "SELL";
-            strategyName = `bb_bounce_down stoch=${stochK.toFixed(0)}`;
-          }
+    _diag.ma = { sma20: +sma20.toFixed(2), sma69: +sma69.toFixed(2), price: +entry.toFixed(2), bias };
+
+    if (!bias) return res.json({ ok: true, acted: false, reason: "no_ma_bias", diag: _diag });
+
+    // --- Entry candle pattern (Hammer / Inverted Hammer / Spinning Top) ---
+    const lastC = arr[arr.length - 1];
+    const cBody = Math.abs(lastC.close - lastC.open);
+    const cRange = lastC.high - lastC.low;
+    const cLW = Math.min(lastC.open, lastC.close) - lastC.low;
+    const cUW = lastC.high - Math.max(lastC.open, lastC.close);
+    let isEntryCandle = false;
+    let candleType = "";
+
+    if (cRange >= 0.5) {
+      if (cLW >= cBody * 2 && cUW <= cBody * 0.5 && cBody <= cRange * 0.35) { isEntryCandle = true; candleType = "hammer"; }
+      else if (cUW >= cBody * 2 && cLW <= cBody * 0.5 && cBody <= cRange * 0.35) { isEntryCandle = true; candleType = "inv_hammer"; }
+      else if (cBody <= cRange * 0.30 && cLW >= cBody * 0.8 && cUW >= cBody * 0.8) { isEntryCandle = true; candleType = "spinning_top"; }
+    }
+
+    _diag.candle = { type: candleType || "none", body: +cBody.toFixed(2), range: +cRange.toFixed(2), isEntry: isEntryCandle };
+
+    if (!isEntryCandle) return res.json({ ok: true, acted: false, reason: "no_entry_candle", diag: _diag });
+
+    // --- Pivot support (Left 44, Right 9) ---
+    const leftBars = 44, rightBars = 9;
+    const lookback = bias === "BUY" ? 126 : 50;
+    let hasPivot = false;
+
+    if (bias === "BUY") {
+      // Need a pivot low within lookback range, confirmed by rightBars
+      for (let pi = arr.length - 1 - rightBars; pi >= Math.max(0, arr.length - lookback); pi--) {
+        if (pi < leftBars) break;
+        let isLow = true;
+        const pivL = Number(arr[pi].low);
+        for (let j = pi - leftBars; j < pi; j++) if (Number(arr[j].low) <= pivL) { isLow = false; break; }
+        if (!isLow) continue;
+        for (let j = pi + 1; j <= pi + rightBars && j < arr.length; j++) if (Number(arr[j].low) <= pivL) { isLow = false; break; }
+        if (isLow && pivL < entry) { hasPivot = true; break; }
+      }
+    } else {
+      // Need a pivot high within lookback range
+      for (let pi = arr.length - 1 - rightBars; pi >= Math.max(0, arr.length - lookback); pi--) {
+        if (pi < leftBars) break;
+        let isHigh = true;
+        const pivH = Number(arr[pi].high);
+        for (let j = pi - leftBars; j < pi; j++) if (Number(arr[j].high) >= pivH) { isHigh = false; break; }
+        if (!isHigh) continue;
+        for (let j = pi + 1; j <= pi + rightBars && j < arr.length; j++) if (Number(arr[j].high) >= pivH) { isHigh = false; break; }
+        if (isHigh && pivH > entry) { hasPivot = true; break; }
+      }
+    }
+
+    _diag.pivot = { hasPivot, lookback };
+
+    if (!hasPivot) return res.json({ ok: true, acted: false, reason: "no_pivot", diag: _diag });
+
+    // --- Filter 1: Stochastic 25-75 ---
+    const stochSlice = arr.slice(-14);
+    const stochHH = Math.max(...stochSlice.map((c) => Number(c.high)));
+    const stochLL = Math.min(...stochSlice.map((c) => Number(c.low)));
+    const stochRange = stochHH - stochLL;
+    const stochK = stochRange > 0 ? ((entry - stochLL) / stochRange) * 100 : 50;
+
+    _diag.stoch = { k: +stochK.toFixed(1), pass: stochK > 25 && stochK < 75 };
+
+    if (!(stochK > 25 && stochK < 75)) return res.json({ ok: true, acted: false, reason: "stoch_extreme", diag: _diag });
+
+    // --- Filter 2: HTF (2H = 8x M15) ADX > 10 + direction match ---
+    const htfRatio = 8;
+    const htfBars = [];
+    for (let hi = 0; hi + htfRatio <= arr.length; hi += htfRatio) {
+      let hh = -Infinity, hl = Infinity;
+      for (let j = hi; j < hi + htfRatio; j++) { hh = Math.max(hh, Number(arr[j].high)); hl = Math.min(hl, Number(arr[j].low)); }
+      htfBars.push({ high: hh, low: hl, open: Number(arr[hi].open), close: Number(arr[hi + htfRatio - 1].close) });
+    }
+
+    // HTF MA bias
+    const htfCloses = htfBars.map((b) => b.close);
+    const htfSma20 = htfCloses.length >= 20 ? htfCloses.slice(-20).reduce((a, b) => a + b, 0) / 20 : null;
+    const htfSma69 = htfCloses.length >= 69 ? htfCloses.slice(-69).reduce((a, b) => a + b, 0) / 69 : null;
+    const htfBias = htfSma20 != null && htfSma69 != null ? (htfSma20 > htfSma69 ? "BUY" : "SELL") : null;
+
+    // HTF ADX + DI direction
+    let htfAdxVal = NaN, htfPdi = 0, htfMdi = 0;
+    if (htfBars.length >= 30) {
+      const adxP = 14;
+      const pdm = [], mdm = [], trs = [];
+      for (let j = 1; j < htfBars.length; j++) {
+        const h = htfBars[j].high, l = htfBars[j].low, ph = htfBars[j - 1].high, pl = htfBars[j - 1].low, pc = htfBars[j - 1].close;
+        const up = h - ph, dn = pl - l;
+        pdm.push(up > dn && up > 0 ? up : 0);
+        mdm.push(dn > up && dn > 0 ? dn : 0);
+        trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+      }
+      if (trs.length >= adxP * 2) {
+        let sTR = 0, sPDM = 0, sMDM = 0;
+        for (let j = 0; j < adxP; j++) { sTR += trs[j]; sPDM += pdm[j]; sMDM += mdm[j]; }
+        const dxArr = [];
+        for (let j = adxP; j < trs.length; j++) {
+          if (j > adxP) { sTR = sTR - sTR / adxP + trs[j]; sPDM = sPDM - sPDM / adxP + pdm[j]; sMDM = sMDM - sMDM / adxP + mdm[j]; }
+          htfPdi = sTR > 0 ? (sPDM / sTR) * 100 : 0;
+          htfMdi = sTR > 0 ? (sMDM / sTR) * 100 : 0;
+          const dx = (htfPdi + htfMdi) > 0 ? Math.abs(htfPdi - htfMdi) / (htfPdi + htfMdi) * 100 : 0;
+          dxArr.push(dx);
+        }
+        if (dxArr.length >= adxP) {
+          htfAdxVal = dxArr.slice(-adxP).reduce((a, b) => a + b, 0) / adxP;
         }
       }
     }
 
-    // --- Strategy 2: EMA Pullback (trend continuation) ---
-    if (!direction) {
-      // Need EMA 20 and EMA 50 arrays for pullback detection
-      const emaFast = 20, emaSlow = 50;
-      if (closes.length >= emaSlow + 5) {
-        // Calculate EMA arrays (last ~60 values)
-        const emaWindow = closes.slice(-(emaSlow + 10));
-        const kF = 2 / (emaFast + 1), kS = 2 / (emaSlow + 1);
-        let eF = emaWindow[0], eS = emaWindow[0];
-        const ema20Arr = [eF], ema50Arr = [eS];
-        for (let j = 1; j < emaWindow.length; j++) {
-          eF = emaWindow[j] * kF + eF * (1 - kF);
-          eS = emaWindow[j] * kS + eS * (1 - kS);
-          ema20Arr.push(eF);
-          ema50Arr.push(eS);
-        }
-        const currEma20 = ema20Arr[ema20Arr.length - 1];
-        const currEma50 = ema50Arr[ema50Arr.length - 1];
+    const htfDirMatch = bias === "BUY" ? htfPdi > htfMdi : htfMdi > htfPdi;
+    const htfPass = htfBias === bias && Number.isFinite(htfAdxVal) && htfAdxVal > 10 && htfDirMatch;
 
-        // ADX filter (>18 = some trend present)
-        const adxArr = arr.slice(-30);
-        let adxVal = NaN;
-        if (adxArr.length >= 15) {
-          const plusDM = [], minusDM = [], trArr = [];
-          for (let j = 1; j < adxArr.length; j++) {
-            const h = Number(adxArr[j].high), l = Number(adxArr[j].low);
-            const ph = Number(adxArr[j - 1].high), pl = Number(adxArr[j - 1].low), pc = Number(adxArr[j - 1].close);
-            const up = h - ph, dn = pl - l;
-            plusDM.push(up > dn && up > 0 ? up : 0);
-            minusDM.push(dn > up && dn > 0 ? dn : 0);
-            trArr.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
-          }
-          const adxP = 14;
-          if (trArr.length >= adxP) {
-            let sTR = trArr.slice(0, adxP).reduce((a, b) => a + b, 0);
-            let sPDM = plusDM.slice(0, adxP).reduce((a, b) => a + b, 0);
-            let sMDM = minusDM.slice(0, adxP).reduce((a, b) => a + b, 0);
-            const dxArr = [];
-            for (let j = adxP; j <= trArr.length; j++) {
-              const pdi = sTR > 0 ? (sPDM / sTR) * 100 : 0;
-              const mdi = sTR > 0 ? (sMDM / sTR) * 100 : 0;
-              const sum = pdi + mdi;
-              dxArr.push(sum > 0 ? (Math.abs(pdi - mdi) / sum) * 100 : 0);
-              if (j < trArr.length) {
-                sTR = sTR - sTR / adxP + trArr[j];
-                sPDM = sPDM - sPDM / adxP + plusDM[j];
-                sMDM = sMDM - sMDM / adxP + minusDM[j];
-              }
-            }
-            if (dxArr.length > 0) adxVal = dxArr.reduce((a, b) => a + b, 0) / dxArr.length;
-          }
-        }
+    _diag.htf = { sma20: htfSma20 ? +htfSma20.toFixed(2) : null, sma69: htfSma69 ? +htfSma69.toFixed(2) : null, bias: htfBias, adx: Number.isFinite(htfAdxVal) ? +htfAdxVal.toFixed(1) : null, pdi: +htfPdi.toFixed(1), mdi: +htfMdi.toFixed(1), dirMatch: htfDirMatch, pass: htfPass };
 
-        // Diagnostics
-        const trendDir = currEma20 > currEma50 ? "UP" : currEma20 < currEma50 ? "DOWN" : "FLAT";
-        const priceVsEma20 = entry > currEma20 ? "above" : "below";
-        let emaTouched = false;
-        if (closes.length >= emaSlow + 5) {
-          for (let j = Math.max(0, ema20Arr.length - 6); j < ema20Arr.length - 1; j++) {
-            const candle = arr[arr.length - (ema20Arr.length - j)];
-            const lo = Number(candle.low), hi = Number(candle.high);
-            const eVal = ema20Arr[j];
-            if (trendDir === "UP" && Number.isFinite(lo) && Number.isFinite(eVal) && lo <= eVal * 1.002 && lo >= eVal * 0.998) emaTouched = true;
-            if (trendDir === "DOWN" && Number.isFinite(hi) && Number.isFinite(eVal) && hi >= eVal * 0.998 && hi <= eVal * 1.002) emaTouched = true;
-          }
-        }
-        const lastCandle = arr[arr.length - 1];
-        const candleBullish = lastCandle.close > lastCandle.open;
+    if (!htfPass) return res.json({ ok: true, acted: false, reason: "htf_filter", diag: _diag });
 
-        let emaFail = null;
-        if (!Number.isFinite(adxVal)) emaFail = "ADX niet berekenbaar";
-        else if (adxVal < 18) emaFail = `ADX ${adxVal.toFixed(0)} te laag (<18)`;
-        else if (trendDir === "UP" && priceVsEma20 !== "above") emaFail = "uptrend maar prijs onder EMA20";
-        else if (trendDir === "DOWN" && priceVsEma20 !== "below") emaFail = "downtrend maar prijs boven EMA20";
-        else if (!emaTouched) emaFail = "EMA20 niet geraakt in laatste 6 candles";
-        else if (trendDir === "UP" && !candleBullish) emaFail = "wacht op bullish candle";
-        else if (trendDir === "DOWN" && candleBullish) emaFail = "wacht op bearish candle";
+    // --- All filters passed → set direction ---
+    direction = bias;
+    strategyName = `echo_${candleType} stoch=${stochK.toFixed(0)} htfAdx=${Number.isFinite(htfAdxVal) ? htfAdxVal.toFixed(0) : "?"}`;
+    _diag.signal = { direction, strategy: strategyName };
 
-        _diag.ema = {
-          ema20: +currEma20.toFixed(2), ema50: +currEma50.toFixed(2),
-          adx: Number.isFinite(adxVal) ? +adxVal.toFixed(0) : null,
-          trend: trendDir, priceVsEma20, touched: emaTouched,
-          candle: candleBullish ? "bullish" : "bearish",
-          fail: emaFail,
-        };
-
-        if (Number.isFinite(adxVal) && adxVal >= 18) {
-          const price = entry;
-
-          // Uptrend pullback: EMA20 > EMA50, price above EMA20, recently touched EMA20
-          if (currEma20 > currEma50 && price > currEma20) {
-            let touched = false;
-            for (let j = Math.max(0, ema20Arr.length - 6); j < ema20Arr.length - 1; j++) {
-              const lo = Number(arr[arr.length - (ema20Arr.length - j)].low);
-              const eVal = ema20Arr[j];
-              if (Number.isFinite(lo) && Number.isFinite(eVal) && lo <= eVal * 1.002 && lo >= eVal * 0.998) touched = true;
-            }
-            if (touched && lastCandle.close > lastCandle.open) {
-              direction = "BUY";
-              strategyName = `ema_pullback_up adx=${adxVal.toFixed(0)}`;
-            }
-          }
-
-          // Downtrend pullback: EMA20 < EMA50, price below EMA20, recently touched EMA20
-          if (!direction && currEma20 < currEma50 && price < currEma20) {
-            let touched = false;
-            for (let j = Math.max(0, ema20Arr.length - 6); j < ema20Arr.length - 1; j++) {
-              const hi = Number(arr[arr.length - (ema20Arr.length - j)].high);
-              const eVal = ema20Arr[j];
-              if (Number.isFinite(hi) && Number.isFinite(eVal) && hi >= eVal * 0.998 && hi <= eVal * 1.002) touched = true;
-            }
-            if (touched && lastCandle.close < lastCandle.open) {
-              direction = "SELL";
-              strategyName = `ema_pullback_down adx=${adxVal.toFixed(0)}`;
-            }
-          }
-        }
-      }
-    }
-
-    if (!direction) return res.json({ ok: true, acted: false, reason: "no_signal", diag: _diag });
-
-    // SL/TP based on ATR (dynamic, not fixed)
-    const fixedRr = 2.0; // RR 2.0 (backtest winner)
+    // SL/TP: 1.9x ATR, RR 3.3
+    const fixedRr = 3.3;
     const sl = direction === "SELL" ? entry + slDist : entry - slDist;
     const tp = direction === "SELL" ? entry - slDist * fixedRr : entry + slDist * fixedRr;
 
