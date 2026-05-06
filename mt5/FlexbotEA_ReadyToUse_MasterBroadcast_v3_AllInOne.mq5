@@ -83,6 +83,9 @@ input int InpCooldownMinutes = 30;
 input int    InpDailyResetGmtOffsetHours = 1;
 input double InpMaxDailyLossPercent = 4.0;
 input bool   InpDailyLossClosePositions = true;
+// FTMO-strict mode: when daily-stop hits, close ALL positions on the account
+// (including manual trades and other magics). Account-wide daily DD protection.
+input bool   InpDailyLossCloseAllOnAccount = false;
 
 // Execution / slippage protection
 input int MaxSpreadPoints = 120; // 0 disables
@@ -481,18 +484,30 @@ double CalcStartBalanceToday()
 void LoadOrResetDayStartEquity() {
   int ymd = ResetYmdByGmtOffset();
   if(ymd != g_dailyYmd) {
+    bool wasLiveBeforeRollover = (g_dailyYmd != 0);
     g_dailyYmd = ymd;
     g_dailyStop = false;
 
     g_dayStartBalance = CalcStartBalanceToday();
-    g_dayStartEquity  = g_dayStartBalance;
+    if(wasLiveBeforeRollover) {
+      // FTMO-style: EA was running when the day rolled over → snapshot live equity
+      // so floating P&L of carry-over open trades is counted in the daily baseline.
+      g_dayStartEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    } else {
+      // First init / restart after EA was offline: floating P&L at 00:00 is unknown,
+      // fall back to reconstructed balance (correct for closed trades, ignores
+      // unrealized P&L of any pre-existing open positions).
+      g_dayStartEquity = g_dayStartBalance;
+    }
 
     GlobalVariableSet(GVNameDayStartBal(), g_dayStartBalance);
     GlobalVariableSet(GVNameDayStartEq(),  g_dayStartEquity);
     GlobalVariableSet(GVNameDayYmd(), (double)g_dailyYmd);
 
-    Print("Daily baseline set (reconstructed @00:00, GMT+", InpDailyResetGmtOffsetHours, "). ymd=", g_dailyYmd,
-          " startBalance=", DoubleToString(g_dayStartBalance,2));
+    Print("Daily baseline set (", (wasLiveBeforeRollover ? "live snapshot" : "balance reconstruction"),
+          ", GMT+", InpDailyResetGmtOffsetHours, "). ymd=", g_dailyYmd,
+          " startBalance=", DoubleToString(g_dayStartBalance,2),
+          " startEquity=", DoubleToString(g_dayStartEquity,2));
   } else {
     if(g_dayStartBalance<=0 && GlobalVariableCheck(GVNameDayStartBal()))
       g_dayStartBalance = GlobalVariableGet(GVNameDayStartBal());
@@ -566,6 +581,26 @@ bool ClosePositionsForThisEA() {
   return allOk;
 }
 
+bool CloseAllPositionsOnAccount() {
+  bool allOk = true;
+  for(int i=PositionsTotal()-1; i>=0; i--) {
+    ulong ticket = PositionGetTicket(i);
+    if(ticket==0) continue;
+    if(!PositionSelectByTicket(ticket)) continue;
+    string psym = PositionGetString(POSITION_SYMBOL);
+    long mg = (long)PositionGetInteger(POSITION_MAGIC);
+    bool ok = trade.PositionClose(ticket);
+    if(!ok) ok = trade.PositionClose(psym);
+    if(!ok) {
+      allOk = false;
+      Print("DailyLoss(strict): failed closing. ticket=", ticket, " sym=", psym, " magic=", mg, " ret=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+    } else {
+      Print("DailyLoss(strict): closed. ticket=", ticket, " sym=", psym, " magic=", mg);
+    }
+  }
+  return allOk;
+}
+
 void EnforceDailyLossGuard() {
   if(InpMaxDailyLossPercent <= 0) return;
   LoadOrResetDayStartEquity();
@@ -586,7 +621,17 @@ void EnforceDailyLossGuard() {
     g_dailyStop = true;
     Print("DailyLoss HIT (equity): ddEq=", DoubleToString(ddEq,2), "% limit=", DoubleToString(InpMaxDailyLossPercent,2),
           " ddBal=", DoubleToString(ddBal,2), "%");
-    if(InpDailyLossClosePositions) ClosePositionsForThisEA();
+    if(InpDailyLossClosePositions) {
+      if(InpDailyLossCloseAllOnAccount) CloseAllPositionsOnAccount();
+      else ClosePositionsForThisEA();
+    }
+  }
+
+  // Panic-loop: while daily-stop is active in strict mode, immediately close
+  // any new positions on the account (manual or otherwise) until reset at midnight.
+  if(g_dailyStop && InpDailyLossCloseAllOnAccount && PositionsTotal() > 0) {
+    Print("DailyLoss(strict): panic-close — ", PositionsTotal(), " open position(s) detected after hit");
+    CloseAllPositionsOnAccount();
   }
 }
 
