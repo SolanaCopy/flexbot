@@ -1943,9 +1943,11 @@ app.post("/signal/closed", async (req, res) => {
     const reqServer = String(body?.server ?? "").trim();
     const hasAccountInfo = !!(reqLogin && reqServer);
     if (hasAccountInfo && (reqLogin !== masterLogin || reqServer !== masterServer)) {
-      // Non-master account: update DB but don't post to Telegram
+      // Non-master accounts (copy/follower) trade with different lot sizes, so their
+      // DEAL_PROFIT is not the value the public Live Results page should display.
+      // Mark the signal closed but never overwrite master's close_result/close_outcome.
       await db.execute({
-        sql: "UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+        sql: "UPDATE signals SET status='closed', closed_at_ms=COALESCE(closed_at_ms,?), close_outcome=COALESCE(close_outcome,?), close_result=COALESCE(close_result,?) WHERE id=?",
         args: [closed_at_ms, outcome, result, signal_id],
       });
       return res.json({ ok: true, signal_id, posted: false, reason: "non_master_account" });
