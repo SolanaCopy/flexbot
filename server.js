@@ -410,6 +410,25 @@ async function getDb() {
     ")"
   );
 
+  // Licenses for the FlexBot installer wizard. One row per paying user.
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS licenses (" +
+      "id TEXT PRIMARY KEY," +
+      "email TEXT," +
+      "api_key TEXT NOT NULL UNIQUE," +
+      "magic INTEGER NOT NULL UNIQUE," +
+      "status TEXT NOT NULL DEFAULT 'active'," +  // active|revoked|expired
+      "notes TEXT," +
+      "created_at_ms INTEGER NOT NULL," +
+      "expires_at_ms INTEGER," +
+      "last_seen_ms INTEGER," +
+      "last_seen_account_login TEXT," +
+      "last_seen_server TEXT" +
+    ")"
+  );
+  await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_licenses_api_key ON licenses(api_key)");
+  await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_licenses_status ON licenses(status)");
+
   await libsqlClient.execute(
     "CREATE INDEX IF NOT EXISTS idx_signals_symbol_created ON signals(symbol, created_at_ms DESC)"
   );
@@ -7657,6 +7676,456 @@ app.get("/api/trades", async (req, res) => {
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
+});
+
+// ============================================================
+// LICENSE WIZARD — admin-only license creation, EA validation,
+// installer download. Manual flow: you receive crypto on MetaMask,
+// then create a license via /admin/licenses to email/share with user.
+// ============================================================
+
+// Generate a random hex string of N bytes (for api_key).
+function genApiKey(bytes = 24) {
+  const buf = crypto.randomBytes(bytes);
+  return "fb_" + buf.toString("hex");
+}
+
+// Generate a unique magic number (avoid 0 and the reserved master magic).
+async function genUniqueMagic(db) {
+  for (let i = 0; i < 10; i++) {
+    // Random uint32 in [10_000_000, 4_000_000_000]
+    const m = 10_000_000 + Math.floor(Math.random() * (4_000_000_000 - 10_000_000));
+    if (m === 8210317741 || m === 8210317742) continue; // reserved
+    const exist = await db.execute({ sql: "SELECT 1 FROM licenses WHERE magic=? LIMIT 1", args: [m] });
+    if (!exist.rows?.length) return m;
+  }
+  throw new Error("could not allocate unique magic");
+}
+
+// POST /admin/license/create  (?key=DASHBOARD_KEY)
+// Body: { email?, expires_at_ms?, notes? }
+// Returns: { ok, license_id, api_key, magic, download_url }
+app.post("/admin/license/create", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const email = body?.email != null ? String(body.email).trim() : null;
+    const notes = body?.notes != null ? String(body.notes).trim() : null;
+    const expiresAtMs = body?.expires_at_ms != null ? Number(body.expires_at_ms) : null;
+
+    const id = crypto.randomUUID();
+    const apiKey = genApiKey();
+    const magic = await genUniqueMagic(db);
+    const nowMs = Date.now();
+
+    await db.execute({
+      sql: "INSERT INTO licenses (id,email,api_key,magic,status,notes,created_at_ms,expires_at_ms) VALUES (?,?,?,?,?,?,?,?)",
+      args: [id, email, apiKey, magic, "active", notes, nowMs, Number.isFinite(expiresAtMs) ? expiresAtMs : null],
+    });
+
+    const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").replace(/\/+$/, "");
+    return res.json({
+      ok: true,
+      license_id: id,
+      api_key: apiKey,
+      magic,
+      download_url: `${baseUrl}/download/${id}`,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// POST /admin/license/:id/revoke  (?key=DASHBOARD_KEY)
+app.post("/admin/license/:id/revoke", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const id = String(req.params.id);
+    await db.execute({ sql: "UPDATE licenses SET status='revoked' WHERE id=?", args: [id] });
+    return res.json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// GET /download/:license_id
+// Public download of a per-user installer zip containing:
+//   - The EA .mq5 source
+//   - install.ps1 with the user's api_key + magic embedded
+//   - README.txt with simple install instructions
+app.get("/download/:license_id", async (req, res) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    const id = String(req.params.license_id || "");
+    const rows = await db.execute({
+      sql: "SELECT id,api_key,magic,status,expires_at_ms FROM licenses WHERE id=? LIMIT 1",
+      args: [id],
+    });
+    const lic = rows.rows?.[0];
+    if (!lic) return res.status(404).json({ ok: false, error: "unknown_license" });
+    if (String(lic.status) !== "active") return res.status(403).json({ ok: false, error: `license_${String(lic.status)}` });
+
+    const expiresAt = lic.expires_at_ms != null ? Number(lic.expires_at_ms) : null;
+    if (Number.isFinite(expiresAt) && expiresAt > 0 && Date.now() > expiresAt) {
+      return res.status(403).json({ ok: false, error: "license_expired" });
+    }
+
+    let eaSource;
+    try {
+      eaSource = require("fs").readFileSync(__dirname + "/mt5/FlexbotEA_ReadyToUse_MasterBroadcast_v3_AllInOne.mq5", "utf8");
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: "ea_source_missing" });
+    }
+
+    const apiKey = String(lic.api_key);
+    const magic = String(lic.magic);
+    const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").replace(/\/+$/, "");
+    const eaName = "FlexbotEA_ReadyToUse_MasterBroadcast_v3_AllInOne";
+
+    // PowerShell installer — detects MT5, installs EA, writes .set file with
+    // pre-filled inputs, adds WebRequest URL allowlist. User then drags the
+    // EA on a chart in MT5.
+    const installPs1 = `#requires -Version 5.1
+$ErrorActionPreference = 'Stop'
+
+$ApiKey = '${apiKey}'
+$Magic  = '${magic}'
+$Server = '${baseUrl}'
+$EaName = '${eaName}'
+
+Write-Host ''
+Write-Host '======================================'
+Write-Host '  FlexBot Installer'
+Write-Host '======================================'
+Write-Host ''
+
+# 1) Detect MT5 terminal data folders.
+$terminals = Get-ChildItem -Path "$env:APPDATA\\MetaQuotes\\Terminal" -Directory -ErrorAction SilentlyContinue |
+  Where-Object { Test-Path "$($_.FullName)\\MQL5\\Experts" }
+
+if (-not $terminals -or $terminals.Count -eq 0) {
+  Write-Host 'MT5 not detected. Make sure MT5 is installed and has been launched at least once.' -ForegroundColor Red
+  Read-Host 'Press Enter to exit'
+  exit 1
+}
+
+if ($terminals.Count -gt 1) {
+  Write-Host 'Multiple MT5 terminals found:'
+  for ($i=0; $i -lt $terminals.Count; $i++) {
+    Write-Host "  [$i] $($terminals[$i].Name)"
+  }
+  $idx = Read-Host 'Pick the terminal number to install into'
+  $terminal = $terminals[[int]$idx]
+} else {
+  $terminal = $terminals[0]
+}
+
+$expertsDir = Join-Path $terminal.FullName 'MQL5\\Experts'
+$presetsDir = Join-Path $terminal.FullName 'MQL5\\Presets'
+$configDir  = Join-Path $terminal.FullName 'config'
+New-Item -Path $expertsDir -ItemType Directory -Force | Out-Null
+New-Item -Path $presetsDir -ItemType Directory -Force | Out-Null
+
+# 2) Copy EA source file.
+$eaTarget = Join-Path $expertsDir "$EaName.mq5"
+Copy-Item -Path (Join-Path $PSScriptRoot "$EaName.mq5") -Destination $eaTarget -Force
+Write-Host "EA source installed: $eaTarget" -ForegroundColor Green
+
+# 3) Try to compile via MetaEditor CLI (best effort).
+$mtRoot = Split-Path -Parent (Split-Path -Parent $expertsDir)
+$metaEditor = $null
+foreach ($cand in @('terminal64.exe','terminal.exe')) {
+  $exe = Get-ChildItem -Path 'C:\\Program Files' -Recurse -Filter $cand -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($exe) {
+    $editor = Join-Path (Split-Path $exe.FullName) 'metaeditor64.exe'
+    if (Test-Path $editor) { $metaEditor = $editor; break }
+  }
+}
+if ($metaEditor) {
+  Write-Host 'Compiling EA...'
+  & $metaEditor /compile:"$eaTarget" /log | Out-Null
+  Write-Host 'Compiled.' -ForegroundColor Green
+} else {
+  Write-Host 'MetaEditor not found automatically. Open MT5 -> F4 -> open the EA -> press F7 to compile.' -ForegroundColor Yellow
+}
+
+# 4) Write .set file with the user's api_key + magic pre-filled.
+$setContent = @"
+; FlexBot preset — auto-generated by installer
+InpEaApiKey=$ApiKey
+InpSignalSecret=$ApiKey
+InpMagic=$Magic
+InpSymbol=XAUUSD
+InpBaseUrl=$Server
+InpMaxDailyLossPercent=4.0
+InpDailyLossCloseAllOnAccount=true
+InpDailyResetGmtOffsetHours=2
+"@
+$setPath = Join-Path $presetsDir "$EaName.set"
+Set-Content -Path $setPath -Value $setContent -Encoding ASCII
+Write-Host "Preset written: $setPath" -ForegroundColor Green
+
+# 5) Add WebRequest URL to allowlist (terminal.ini).
+$terminalIni = Join-Path $configDir 'terminal.ini'
+if (Test-Path $terminalIni) {
+  $iniRaw = Get-Content $terminalIni -Raw -Encoding Unicode
+  if ($iniRaw -notlike "*$Server*") {
+    if ($iniRaw -match '(?im)^WebRequest=') {
+      $iniRaw = $iniRaw -replace '(?im)^(WebRequest=.*)', "`$1`r`nWebRequest=$Server"
+    } else {
+      $iniRaw += "`r`n[Experts]`r`nWebRequest=$Server`r`n"
+    }
+    Set-Content -Path $terminalIni -Value $iniRaw -Encoding Unicode
+    Write-Host "WebRequest URL added: $Server" -ForegroundColor Green
+  } else {
+    Write-Host 'WebRequest URL already allowed.' -ForegroundColor Green
+  }
+} else {
+  Write-Host "terminal.ini not found — add $Server manually under Tools -> Options -> Expert Advisors -> Allow WebRequest." -ForegroundColor Yellow
+}
+
+Write-Host ''
+Write-Host '======================================'
+Write-Host '  Install complete'
+Write-Host '======================================'
+Write-Host ''
+Write-Host '1) Restart MT5 if it is currently running.'
+Write-Host '2) In MT5, open a XAUUSD M1 chart.'
+Write-Host '3) Drag FlexbotEA_ReadyToUse_MasterBroadcast_v3_AllInOne onto the chart.'
+Write-Host '4) In the input dialog: click Load, choose the FlexBot preset, click OK.'
+Write-Host '5) Make sure AutoTrading is enabled (top toolbar).'
+Write-Host ''
+Read-Host 'Press Enter to exit'
+`;
+
+    const readme = `FlexBot Installer\n\nQuick start:\n1. Right-click install.ps1 -> Run with PowerShell\n   (If Windows blocks it: right-click -> Properties -> Unblock -> OK, then try again.)\n2. The script will detect MT5 and copy everything in.\n3. Restart MT5, drag the EA onto a XAUUSD M1 chart, click Load preset.\n4. Enable AutoTrading. Done.\n\nNeed help? Reply to the email/message you received this from.\n\nLicense: ${id}\nMagic:   ${magic}\n`;
+
+    const archiver = require("archiver");
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="FlexBot-Installer-${id.slice(0, 8)}.zip"`);
+    const zip = archiver("zip", { zlib: { level: 9 } });
+    zip.on("error", (err) => {
+      console.error("zip_error", err?.message);
+      try { res.status(500).end(); } catch {}
+    });
+    zip.pipe(res);
+    zip.append(eaSource, { name: `${eaName}.mq5` });
+    zip.append(installPs1, { name: "install.ps1" });
+    zip.append(readme, { name: "README.txt" });
+    await zip.finalize();
+  } catch (e) {
+    console.error("download_error", e?.message);
+    if (!res.headersSent) return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// POST /license/validate
+// Body: { api_key, magic, account_login?, server? }
+// Public (the EA calls this from end-user machines, no shared secret).
+app.post("/license/validate", async (req, res) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const apiKey = body?.api_key != null ? String(body.api_key).trim() : "";
+    const magic = body?.magic != null ? Number(body.magic) : 0;
+    if (!apiKey) return res.status(400).json({ ok: false, status: "missing_key" });
+
+    const rows = await db.execute({
+      sql: "SELECT id,status,magic,expires_at_ms FROM licenses WHERE api_key=? LIMIT 1",
+      args: [apiKey],
+    });
+    const lic = rows.rows?.[0];
+    if (!lic) return res.json({ ok: false, status: "unknown_key" });
+
+    if (String(lic.status) === "revoked") return res.json({ ok: false, status: "revoked" });
+
+    const expiresAt = lic.expires_at_ms != null ? Number(lic.expires_at_ms) : null;
+    if (Number.isFinite(expiresAt) && expiresAt > 0 && Date.now() > expiresAt) {
+      // Auto-flag as expired so the admin sees it.
+      await db.execute({ sql: "UPDATE licenses SET status='expired' WHERE id=?", args: [String(lic.id)] });
+      return res.json({ ok: false, status: "expired" });
+    }
+
+    if (magic && Number(lic.magic) !== magic) {
+      return res.json({ ok: false, status: "magic_mismatch", expected_magic: Number(lic.magic) });
+    }
+
+    // Track last seen
+    const accLogin = body?.account_login != null ? String(body.account_login) : null;
+    const accServer = body?.server != null ? String(body.server) : null;
+    await db.execute({
+      sql: "UPDATE licenses SET last_seen_ms=?, last_seen_account_login=?, last_seen_server=? WHERE id=?",
+      args: [Date.now(), accLogin, accServer, String(lic.id)],
+    });
+
+    return res.json({ ok: true, status: "active", magic: Number(lic.magic) });
+  } catch (e) {
+    return res.status(500).json({ ok: false, status: "error", error: String(e?.message || e) });
+  }
+});
+
+// GET /admin/licenses  (?key=DASHBOARD_KEY) — HTML admin panel for licenses
+app.get("/admin/licenses", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  const key = String(req.query.key || "");
+  const db = await getDb();
+  let licenses = [];
+  if (db) {
+    try {
+      const rows = await db.execute({
+        sql: "SELECT id,email,api_key,magic,status,notes,created_at_ms,expires_at_ms,last_seen_ms,last_seen_account_login FROM licenses ORDER BY created_at_ms DESC LIMIT 500",
+      });
+      licenses = rows.rows || [];
+    } catch { /* ignore */ }
+  }
+
+  const fmtTs = (ms) => {
+    if (!ms) return "—";
+    const d = new Date(Number(ms));
+    return d.toISOString().slice(0, 16).replace("T", " ");
+  };
+  const escape = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").replace(/\/+$/, "");
+
+  const rowsHtml = licenses.map((l) => {
+    const expires = l.expires_at_ms ? fmtTs(l.expires_at_ms) : "never";
+    const lastSeen = l.last_seen_ms ? fmtTs(l.last_seen_ms) : "—";
+    const dl = `${baseUrl}/download/${l.id}`;
+    const stClass = l.status === "active" ? "ok" : "bad";
+    return `
+      <tr>
+        <td>${escape(l.email || "—")}</td>
+        <td><span class="status ${stClass}">${escape(l.status)}</span></td>
+        <td><code>${escape(l.magic)}</code></td>
+        <td>${escape(fmtTs(l.created_at_ms))}</td>
+        <td>${escape(expires)}</td>
+        <td>${escape(lastSeen)}<br><small>${escape(l.last_seen_account_login || "")}</small></td>
+        <td>
+          <button onclick="copyText('${escape(dl)}')">Copy link</button>
+          <button onclick="copyText('${escape(l.api_key)}')">Copy key</button>
+          ${l.status === "active" ? `<button class="danger" onclick="revoke('${escape(l.id)}')">Revoke</button>` : ""}
+        </td>
+      </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FlexBot — License Admin</title>
+<style>
+  :root { --bg:#0a0a0c; --card:#15151a; --muted:#7a7a85; --text:#e7e7eb; --acc:#5b9dff; --ok:#22c55e; --bad:#ef4444; --border:#26262d; }
+  * { box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; margin:0; padding:24px; }
+  h1 { margin:0 0 16px; font-size:20px; }
+  h2 { margin:24px 0 8px; font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+  form { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, button { background:#0a0a0c; color:var(--text); border:1px solid var(--border); padding:8px 12px; border-radius:6px; font:inherit; }
+  input { min-width:180px; }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--acc); }
+  button.danger { color:var(--bad); border-color:#3a1f22; }
+  button.danger:hover { border-color:var(--bad); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); }
+  th { font-size:11px; text-transform:uppercase; color:var(--muted); letter-spacing:.06em; }
+  tr:last-child td { border-bottom:none; }
+  code { background:#0a0a0c; padding:2px 6px; border-radius:4px; font-family:Menlo,Consolas,monospace; font-size:12px; }
+  small { color:var(--muted); }
+  .status { padding:2px 8px; border-radius:999px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  .status.ok { background:rgba(34,197,94,.12); color:var(--ok); }
+  .status.bad { background:rgba(239,68,68,.12); color:var(--bad); }
+  #toast { position:fixed; bottom:20px; right:20px; background:var(--card); border:1px solid var(--acc); padding:10px 16px; border-radius:6px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #toast.show { opacity:1; }
+  #result { margin-top:12px; padding:12px; background:#0a0a0c; border:1px solid var(--ok); border-radius:6px; display:none; }
+  #result code { display:block; padding:8px; margin-top:6px; word-break:break-all; }
+</style>
+</head>
+<body>
+  <h1>FlexBot — License Admin</h1>
+
+  <div class="card">
+    <h2>Create new license</h2>
+    <form id="createForm" onsubmit="createLicense(event)">
+      <input name="email" type="email" placeholder="user@example.com (optional)">
+      <input name="days" type="number" placeholder="days (blank = forever)" min="1">
+      <input name="notes" type="text" placeholder="notes (e.g. tx hash)">
+      <button type="submit">Generate</button>
+    </form>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h2>Licenses (${licenses.length})</h2>
+    <table>
+      <thead>
+        <tr><th>Email</th><th>Status</th><th>Magic</th><th>Created</th><th>Expires</th><th>Last seen</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        ${rowsHtml || '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">No licenses yet — create one above.</td></tr>'}
+      </tbody>
+    </table>
+  </div>
+
+  <div id="toast"></div>
+
+<script>
+const KEY = ${JSON.stringify(key)};
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+function copyText(s) {
+  navigator.clipboard.writeText(s).then(() => showToast('Copied'));
+}
+async function createLicense(ev) {
+  ev.preventDefault();
+  const f = ev.target;
+  const email = f.email.value.trim() || null;
+  const days = Number(f.days.value);
+  const notes = f.notes.value.trim() || null;
+  const expires_at_ms = Number.isFinite(days) && days > 0 ? Date.now() + days * 86400000 : null;
+  const r = await fetch('/admin/license/create?key=' + encodeURIComponent(KEY), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, expires_at_ms, notes }),
+  });
+  const j = await r.json();
+  if (!j.ok) { alert('Failed: ' + (j.error || 'unknown')); return; }
+  const el = document.getElementById('result');
+  el.style.display = 'block';
+  el.innerHTML = '<strong>License created.</strong> Send this link to the user:<code>' + j.download_url + '</code>API key: <code>' + j.api_key + '</code>Magic: <code>' + j.magic + '</code>';
+  setTimeout(() => location.reload(), 2000);
+}
+async function revoke(id) {
+  if (!confirm('Revoke this license? The EA will stop working immediately.')) return;
+  const r = await fetch('/admin/license/' + encodeURIComponent(id) + '/revoke?key=' + encodeURIComponent(KEY), { method: 'POST' });
+  const j = await r.json();
+  if (!j.ok) { alert('Failed: ' + (j.error || 'unknown')); return; }
+  location.reload();
+}
+</script>
+</body>
+</html>`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.send(html);
 });
 
 // GET /mc  (?key=DASHBOARD_KEY) — HTML dashboard

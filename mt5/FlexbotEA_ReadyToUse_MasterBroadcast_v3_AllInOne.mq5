@@ -247,6 +247,11 @@ int g_dailyYmd = 0;
 double g_dayStartEquity = 0.0;
 double g_dayStartBalance = 0.0;
 
+// License gate
+bool g_licenseInvalid = false;
+string g_licenseStatus = "";
+long g_lastLicenseCheckMs = 0;
+
 // Cooldown reporting to backend
 bool g_cdReportedActive = false;
 long g_cdReportedUntilMs = 0;
@@ -640,6 +645,70 @@ bool CloseAllPositionsOnAccount() {
     }
   }
   return allOk;
+}
+
+// Validate license against the server. Sets g_licenseInvalid only on
+// explicit revoked/expired/unknown_key responses; transient network
+// failures are tolerated (we don't want to brick the EA for a flaky
+// connection). Re-checks every 6 hours by default.
+void ValidateLicenseOrFail(const bool force = false) {
+  long nowMs = NowMsUtc();
+  if(!force && g_lastLicenseCheckMs != 0 && (nowMs - g_lastLicenseCheckMs) < 21600000) return; // 6h
+  g_lastLicenseCheckMs = nowMs;
+
+  if(Trim(InpEaApiKey)=="" || Trim(InpBaseUrl)=="") {
+    g_licenseInvalid = true;
+    g_licenseStatus  = "missing_key";
+    return;
+  }
+
+  long login = AccountInfoInteger(ACCOUNT_LOGIN);
+  string srv = AccountInfoString(ACCOUNT_SERVER);
+
+  string body = "{";
+  body += "\"api_key\":\"" + InpEaApiKey + "\"";
+  body += ",\"magic\":" + (string)InpMagic;
+  body += ",\"account_login\":" + (string)login;
+  body += ",\"server\":\"" + srv + "\"";
+  body += "}";
+
+  int len = StringLen(body);
+  uchar data[];
+  ArrayResize(data, len);
+  StringToCharArray(body, data, 0, len);
+  uchar result[];
+  string headers = "Content-Type: application/json\r\n";
+  string resp_headers;
+  ResetLastError();
+  int code = WebRequest("POST", BuildUrl("/license/validate"), headers, 8000, data, result, resp_headers);
+
+  if(code < 0) {
+    if(InpDebugHttp) Print("License check: network error code=", code, " err=", GetLastError(), " — tolerating");
+    return;
+  }
+
+  string resp = CharArrayToString(result);
+  if(InpDebugHttp) Print("License check: code=", code, " resp=", resp);
+
+  // Parse minimal { ok, status }
+  bool ok = (StringFind(resp, "\"ok\":true") >= 0);
+  string status = "";
+  int sIdx = StringFind(resp, "\"status\":\"");
+  if(sIdx >= 0) {
+    sIdx += 10;
+    int eIdx = StringFind(resp, "\"", sIdx);
+    if(eIdx > sIdx) status = StringSubstr(resp, sIdx, eIdx - sIdx);
+  }
+
+  if(!ok && (status == "revoked" || status == "expired" || status == "unknown_key" || status == "magic_mismatch")) {
+    g_licenseInvalid = true;
+    g_licenseStatus  = status;
+    Print("License INVALID: status=", status);
+    return;
+  }
+
+  // Anything else (server error, missing fields) — don't lock out.
+  if(ok) { g_licenseInvalid = false; g_licenseStatus = status; }
 }
 
 void PostDailyStopBroadcast(const bool active, const double ddEq, const double ddBal) {
@@ -1737,6 +1806,13 @@ int OnInit() {
   if(Trim(g_persistedClosedSignalId)!="") g_lastClosedSignalId = g_persistedClosedSignalId;
 
   Print("flexbot EA initialized. BaseUrl=",InpBaseUrl, " Symbol=",InpSymbol, " since_ms(UTC)=", g_sinceMs, " persistedSignal=", g_lastSignalId);
+
+  ValidateLicenseOrFail(true);
+  if(g_licenseInvalid) {
+    Print("License check failed at init: ", g_licenseStatus, ". EA will idle on this chart.");
+    if(InpEnableBanner) SetBanner("FLEXBOT EA", "Status: LICENSE " + g_licenseStatus, "Contact support to renew.");
+  }
+
   EventSetTimer(1);
 
   if(InpDoSeed)
@@ -1757,6 +1833,13 @@ void OnTick() {
 }
 
 void OnTimer() {
+  // Periodic license re-check (every 6h, see ValidateLicenseOrFail).
+  ValidateLicenseOrFail(false);
+  if(g_licenseInvalid) {
+    if(InpEnableBanner) SetBanner("FLEXBOT EA", "Status: LICENSE " + g_licenseStatus, "Contact support to renew.");
+    return;
+  }
+
   // Seed M15 history (once after startup)
   if(InpDoSeed && !g_seedDone && TimeCurrent() >= g_nextSeedTry) {
     g_seedDone = TrySeedM15();
