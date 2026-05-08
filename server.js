@@ -7483,6 +7483,58 @@ app.get("/api/active-signal", async (req, res) => {
   }
 });
 
+// GET /api/risk-status — public daily-loss guard status (no equity amounts exposed)
+app.get("/api/risk-status", async (req, res) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    const symbol = (req.query.symbol ? String(req.query.symbol) : "XAUUSD").toUpperCase();
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
+    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
+    const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
+    const maxDailyLossPct = 5;
+
+    const eaRows = await db.execute({
+      sql: "SELECT equity, updated_at_ms FROM ea_positions WHERE account_login=? AND server=? AND symbol=? AND equity IS NOT NULL ORDER BY updated_at_ms DESC LIMIT 1",
+      args: [mcLogin, mcServer, symbol],
+    });
+    const latest = eaRows.rows?.[0];
+    const currentEq = latest?.equity != null ? Number(latest.equity) : null;
+    const updatedAtMs = latest?.updated_at_ms != null ? Number(latest.updated_at_ms) : null;
+
+    let ddPct = 0;
+    let hasDayData = false;
+    if (Number.isFinite(currentEq) && currentEq > 0) {
+      const fp = riskStatePath("risk-day", symbol);
+      const dayKey = dayKeyInTz(riskTz);
+      const st = readJsonFileSafe(fp, { dayKey: "", startEquity: null });
+      const startEq = Number(st?.startEquity);
+      if (Number.isFinite(startEq) && startEq > 0 && st.dayKey === dayKey) {
+        ddPct = Math.max(0, ((startEq - currentEq) / startEq) * 100.0);
+        hasDayData = true;
+      }
+    }
+
+    const pass = ddPct < maxDailyLossPct;
+    const status = !hasDayData ? "no_data" : !pass ? "halted" : ddPct >= maxDailyLossPct * 0.6 ? "warning" : "safe";
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.json({
+      ok: true,
+      daily_dd_pct: Number(ddPct.toFixed(2)),
+      daily_dd_max_pct: maxDailyLossPct,
+      pass,
+      status,
+      has_day_data: hasDayData,
+      ea_updated_at_ms: updatedAtMs,
+      as_of_ms: Date.now(),
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 app.get("/api/trades", async (req, res) => {
   try {
     const db = await getDb();
