@@ -7427,6 +7427,16 @@ app.post("/api/mc/reset-daily", (req, res) => {
   try {
     const symbol = String(req.query.symbol || "XAUUSD");
     const fp = riskStatePath("risk-day", symbol);
+    const startEquityRaw = req.query.start_equity != null ? Number(req.query.start_equity) : null;
+
+    if (Number.isFinite(startEquityRaw) && startEquityRaw > 0) {
+      const tz = String(process.env.RISK_TZ || "Europe/Prague");
+      const dayKey = dayKeyInTz(tz);
+      const next = { dayKey, tz, startEquity: startEquityRaw, updatedAtMs: Date.now() };
+      writeJsonFileSafe(fp, next);
+      return res.json({ ok: true, set: next, file: fp });
+    }
+
     writeJsonFileSafe(fp, { dayKey: "", startEquity: null, updatedAtMs: 0 });
     return res.json({ ok: true, reset: fp });
   } catch (e) {
