@@ -79,13 +79,13 @@ input int InpCooldownMinutes = 30;
 
 // Prop / FTMO guard
 // Daily loss (banner) is measured on BALANCE: (DayStartBalance - currentBalance) / DayStartBalance.
-// Reset time is at midnight for an offset from GMT (default: NL winter time = +1). Set to +2 in summer time.
-input int    InpDailyResetGmtOffsetHours = 1;
+// Reset time is at midnight for an offset from GMT. NL: +2 in summer (DST), +1 in winter.
+input int    InpDailyResetGmtOffsetHours = 2;
 input double InpMaxDailyLossPercent = 4.0;
 input bool   InpDailyLossClosePositions = true;
 // FTMO-strict mode: when daily-stop hits, close ALL positions on the account
 // (including manual trades and other magics). Account-wide daily DD protection.
-input bool   InpDailyLossCloseAllOnAccount = false;
+input bool   InpDailyLossCloseAllOnAccount = true;
 
 // Execution / slippage protection
 input int MaxSpreadPoints = 120; // 0 disables
