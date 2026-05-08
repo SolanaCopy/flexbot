@@ -3056,6 +3056,63 @@ app.post("/ea/cooldown", async (req, res) => {
   }
 });
 
+// POST /ea/daily-stop
+// Auth: X-API-Key
+// Body: { account_login, server, symbol, magic, active, ddPctEquity?, ddPctBalance?, limitPct?, equity?, balance? }
+// Master account broadcasts to Telegram group when daily DD limit is hit (active=true)
+// or when a new day resets the guard (active=false).
+app.post("/ea/daily-stop", async (req, res) => {
+  try {
+    const apiKey = req.header("x-api-key");
+    const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
+    if (!expected || !apiKey || String(apiKey) !== expected) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    if (!isMasterBroadcaster(body)) {
+      return res.json({ ok: true, broadcast: false, reason: "not_master" });
+    }
+
+    const active = body?.active === true || body?.active === 1 || body?.active === "1";
+    const ddEq = Number(body?.ddPctEquity);
+    const ddBal = Number(body?.ddPctBalance);
+    const limitPct = Number.isFinite(Number(body?.limitPct)) ? Number(body.limitPct) : 4.0;
+    const equity = Number(body?.equity);
+    const balance = Number(body?.balance);
+
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+
+    let text;
+    if (active) {
+      const lines = [];
+      lines.push("🛑 DAILY STOP — limit reached");
+      lines.push("");
+      if (Number.isFinite(ddEq)) lines.push(`Drawdown: ${ddEq.toFixed(2)}% (limit ${limitPct.toFixed(1)}%)`);
+      if (Number.isFinite(ddBal) && Math.abs(ddBal - ddEq) > 0.05) lines.push(`Balance DD: ${ddBal.toFixed(2)}%`);
+      if (Number.isFinite(equity)) lines.push(`Equity: $${equity.toFixed(2)}`);
+      if (Number.isFinite(balance)) lines.push(`Balance: $${balance.toFixed(2)}`);
+      lines.push("");
+      lines.push("All positions closed. New trades paused until midnight (NL time).");
+      text = lines.join("\n");
+    } else {
+      text = "✅ Trading resumed — new day, daily-loss guard reset.";
+    }
+
+    try {
+      await tgSendMessage({ chatId, text });
+    } catch (e) {
+      console.error("tg_daily_stop_send_failed", e?.message);
+    }
+
+    return res.json({ ok: true, broadcast: true, active });
+  } catch {
+    return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
 // GET /ea/cooldown?symbol=XAUUSD
 app.get("/ea/cooldown", async (req, res) => {
   try {

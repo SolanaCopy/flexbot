@@ -242,6 +242,7 @@ string g_persistedClosedSignalId = "";
 
 // Daily loss guard
 bool g_dailyStop = false;
+bool g_dailyStopReported = false; // dedupe Telegram broadcast across ticks
 int g_dailyYmd = 0;
 double g_dayStartEquity = 0.0;
 double g_dayStartBalance = 0.0;
@@ -485,8 +486,11 @@ void LoadOrResetDayStartEquity() {
   int ymd = ResetYmdByGmtOffset();
   if(ymd != g_dailyYmd) {
     bool wasLiveBeforeRollover = (g_dailyYmd != 0);
+    bool wasStoppedYesterday = g_dailyStop && g_dailyStopReported;
     g_dailyYmd = ymd;
     g_dailyStop = false;
+    g_dailyStopReported = false;
+    if(wasStoppedYesterday) PostDailyStopBroadcast(false, 0.0, 0.0);
 
     g_dayStartBalance = CalcStartBalanceToday();
     if(wasLiveBeforeRollover) {
@@ -601,6 +605,39 @@ bool CloseAllPositionsOnAccount() {
   return allOk;
 }
 
+void PostDailyStopBroadcast(const bool active, const double ddEq, const double ddBal) {
+  // Dedupe: only broadcast on transitions, never repeat for the same state.
+  if(active && g_dailyStopReported) return;
+  if(!active && !g_dailyStopReported) return;
+
+  if(Trim(InpEaApiKey)=="" || Trim(InpBaseUrl)=="") return;
+
+  string hdr = "X-API-Key: " + InpEaApiKey + "\r\n";
+  long login = AccountInfoInteger(ACCOUNT_LOGIN);
+  string srv = AccountInfoString(ACCOUNT_SERVER);
+  double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+  double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+
+  string body = "{";
+  body += "\"account_login\":" + (string)login;
+  body += ",\"server\":\"" + srv + "\"";
+  body += ",\"symbol\":\"" + InpSymbol + "\"";
+  body += ",\"magic\":" + (string)InpMagic;
+  body += ",\"active\":" + string(active ? "true" : "false");
+  body += ",\"limitPct\":" + DoubleToString(InpMaxDailyLossPercent, 2);
+  if(active) {
+    body += ",\"ddPctEquity\":" + DoubleToString(ddEq, 2);
+    body += ",\"ddPctBalance\":" + DoubleToString(ddBal, 2);
+    body += ",\"equity\":" + DoubleToString(eq, 2);
+    body += ",\"balance\":" + DoubleToString(bal, 2);
+  }
+  body += "}";
+
+  int st = HttpPostJson(BuildUrl("/ea/daily-stop"), body, hdr);
+  if(InpDebugHttp) Print("POST /ea/daily-stop active=", active, " code=", st);
+  if(st >= 200 && st < 300) g_dailyStopReported = active;
+}
+
 void EnforceDailyLossGuard() {
   if(InpMaxDailyLossPercent <= 0) return;
   LoadOrResetDayStartEquity();
@@ -625,6 +662,7 @@ void EnforceDailyLossGuard() {
       if(InpDailyLossCloseAllOnAccount) CloseAllPositionsOnAccount();
       else ClosePositionsForThisEA();
     }
+    PostDailyStopBroadcast(true, ddEq, ddBal);
   }
 
   // Panic-loop: while daily-stop is active in strict mode, immediately close
