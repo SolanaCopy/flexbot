@@ -11,12 +11,12 @@ const INTERNAL_BASE = `http://localhost:${process.env.PORT || 3000}`;
 
 // --- Master broadcast gate (prevents other EA instances from posting to your Telegram group) ---
 // Configure in Render env:
-// - MASTER_LOGIN=12033719
+// - MASTER_LOGIN=24983551
 // - MASTER_SERVER=VantageInternational-Demo
 function isMasterBroadcaster(body) {
   const login = String(body?.account_login ?? "").trim();
   const server = String(body?.server ?? "").trim();
-  const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+  const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
   const masterServer = String(process.env.MASTER_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
 
   // If EA didn't send account info, deny.
@@ -1921,7 +1921,7 @@ app.post("/signal/closed", async (req, res) => {
     try { tp = JSON.parse(String(sig.tp_json || "[]")); } catch { tp = []; }
 
     // Always use master account execution for entry price (consistent reporting)
-    const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+    const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
     const masterServer = String(process.env.MASTER_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
     const exRow = await db.execute({
       sql: "SELECT fill_price, account_login FROM signal_exec2 WHERE signal_id=? AND ok_mod=1 AND account_login=? AND server=? LIMIT 1",
@@ -2370,7 +2370,7 @@ app.get("/debug/broadcast", async (req, res) => {
     const masterServer = String(process.env.MASTER_SERVER || "").trim();
     const mainAccountServer = String(process.env.MAIN_ACCOUNT_SERVER || "").trim();
 
-    const resolvedLogin = masterLogin || mainAccountLogin || "12033719";
+    const resolvedLogin = masterLogin || mainAccountLogin || "24983551";
     const resolvedServer = masterServer || mainAccountServer || "VantageInternational-Demo";
 
     let recentExecs = [];
@@ -2859,7 +2859,7 @@ app.post("/ea/status", async (req, res) => {
 
     // Track daily start equity — only for master account to avoid wrong startEquity
     try {
-      const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+      const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
       if (Number.isFinite(equity) && equity > 0 && String(account_login) === masterLogin) {
         getAndUpdateDailyEquityStart({ symbol, tz: "Europe/Amsterdam", equityUsd: equity });
       }
@@ -7017,7 +7017,7 @@ app.get("/api/mc/state", async (req, res) => {
     const market = marketBlockedNow();
 
     // EA positions — alleen Flexbot test account
-    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
     const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
     let eaPositions = [];
     if (db) {
@@ -7402,7 +7402,7 @@ app.post("/api/mc/insert-trade", async (req, res) => {
     });
     if (b.entry_price) {
       await db.execute({
-        sql: `INSERT OR IGNORE INTO signal_exec2 (signal_id, account_login, server, fill_price, filled_at_ms, ok_mod) VALUES (?, '12033719', 'VantageInternational-Demo', ?, ?, 1)`,
+        sql: `INSERT OR IGNORE INTO signal_exec2 (signal_id, account_login, server, fill_price, filled_at_ms, ok_mod) VALUES (?, '24983551', 'VantageInternational-Demo', ?, ?, 1)`,
         args: [String(id), Number(b.entry_price), Number(b.opened_at_ms) || Date.now()],
       });
     }
@@ -7515,7 +7515,7 @@ app.get("/api/trades", async (req, res) => {
       closed_at: Number(r.closed_at_ms || 0),
     }));
 
-    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "12033719").trim();
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
     const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
     let account = null;
     try {
@@ -7961,7 +7961,7 @@ async function load(){
     }
 
     // EA positions
-    const EA_NAMES={'12033719':'Flexbot test'};
+    const EA_NAMES={'24983551':'Flexbot test'};
     const eaEl=document.getElementById('ea-body');
     const activeEa=(d.ea_positions||[]).filter(ea=>ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<24*60*60*1000);
     if(activeEa.length===0){
