@@ -548,6 +548,43 @@ double DailyDdPctEquity()
   return pct;
 }
 
+// Worst-case equity DD% if all open positions were market-closed RIGHT NOW
+// with up to MaxSlippagePoints of fill slippage. ACCOUNT_EQUITY already
+// reflects current bid/ask, so we only need to deduct the extra cost of
+// expected slippage during execution. Use this as the trigger metric so
+// the EA closes BEFORE realised DD overshoots InpMaxDailyLossPercent.
+double WorstCaseDailyDdPctEquity()
+{
+  double denom = (g_dayStartBalance > 0.0 ? g_dayStartBalance : (g_dayStartEquity > 0.0 ? g_dayStartEquity : 0.0));
+  if(denom <= 0.0) return 0.0;
+
+  double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+  double slipCost = 0.0;
+
+  double slipPoints = (double)MaxSlippagePoints;
+  if(slipPoints <= 0.0) slipPoints = 30.0;
+
+  for(int i = PositionsTotal()-1; i >= 0; i--) {
+    ulong ticket = PositionGetTicket(i);
+    if(ticket == 0) continue;
+    if(!PositionSelectByTicket(ticket)) continue;
+    string sym  = PositionGetString(POSITION_SYMBOL);
+    double vol  = PositionGetDouble(POSITION_VOLUME);
+    double pt   = SymbolInfoDouble(sym, SYMBOL_POINT);
+    double tv   = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
+    double ts   = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
+    if(pt <= 0.0 || tv <= 0.0 || ts <= 0.0) continue;
+    double pointValuePerLot = tv * (pt / ts);
+    slipCost += slipPoints * pointValuePerLot * vol;
+  }
+
+  double worstCaseEq = eq - slipCost;
+  double dd = denom - worstCaseEq;
+  double pct = (dd / denom) * 100.0;
+  if(pct < 0.0) pct = 0.0;
+  return pct;
+}
+
 double PnlTodayUsd()
 {
   double startBal = g_dayStartBalance;
@@ -642,22 +679,26 @@ void EnforceDailyLossGuard() {
   if(InpMaxDailyLossPercent <= 0) return;
   LoadOrResetDayStartEquity();
 
-  double ddBal = DailyDdPctBalance();
-  double ddEq  = DailyDdPctEquity();
-  double pnlT  = PnlTodayUsd();
-  double pnlO  = PnlOpenUsd();
+  double ddBal     = DailyDdPctBalance();
+  double ddEq      = DailyDdPctEquity();
+  double ddEqWorst = WorstCaseDailyDdPctEquity();
+  double pnlT      = PnlTodayUsd();
+  double pnlO      = PnlOpenUsd();
 
   if(InpEnableBanner) {
     string l1 = "FLEXBOT EA";
     string l2 = g_dailyStop ? "Status: DAILY STOP (limit hit)" : "Status: Waiting for signals...";
-    string l3 = "DD Eq: " + DoubleToString(ddEq, 2) + "% / " + DoubleToString(InpMaxDailyLossPercent, 2) + "% | PnL T: " + DoubleToString(pnlT, 2) + "$ | Open: " + DoubleToString(pnlO, 2) + "$";
+    string l3 = "DD Eq: " + DoubleToString(ddEq, 2) + "% (worst " + DoubleToString(ddEqWorst, 2) + "%) / " + DoubleToString(InpMaxDailyLossPercent, 2) + "% | PnL T: " + DoubleToString(pnlT, 2) + "$ | Open: " + DoubleToString(pnlO, 2) + "$";
     SetBanner(l1, l2, l3);
   }
 
-  if(!g_dailyStop && ddEq >= InpMaxDailyLossPercent) {
+  // Trigger on worst-case projection so realised DD stays under the limit.
+  if(!g_dailyStop && ddEqWorst >= InpMaxDailyLossPercent) {
     g_dailyStop = true;
-    Print("DailyLoss HIT (equity): ddEq=", DoubleToString(ddEq,2), "% limit=", DoubleToString(InpMaxDailyLossPercent,2),
-          " ddBal=", DoubleToString(ddBal,2), "%");
+    Print("DailyLoss HIT (worst-case): ddEqWorst=", DoubleToString(ddEqWorst,2),
+          "% ddEq=", DoubleToString(ddEq,2),
+          "% limit=", DoubleToString(InpMaxDailyLossPercent,2),
+          "% ddBal=", DoubleToString(ddBal,2), "%");
     if(InpDailyLossClosePositions) {
       if(InpDailyLossCloseAllOnAccount) CloseAllPositionsOnAccount();
       else ClosePositionsForThisEA();
