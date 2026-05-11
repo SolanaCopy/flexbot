@@ -4702,7 +4702,6 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
     `${kind}: ${sym} ${dir}\n` +
     `\n` +
     `🚀 Start Flexbot: www.fxflexbot.com\n` +
-    `🤖 Try bot commands: @Flexbotaiclaudebot\n` +
     `\n` +
     `💰 Risk: ${riskStr}%\n` +
     `❗ Not Financial Advice.`
