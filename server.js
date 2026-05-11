@@ -7884,9 +7884,9 @@ if (Test-Path $terminalIni) {
   $iniRaw = Get-Content $terminalIni -Raw -Encoding Unicode
   if ($iniRaw -notlike "*$Server*") {
     if ($iniRaw -match '(?im)^WebRequest=') {
-      $iniRaw = $iniRaw -replace '(?im)^(WebRequest=.*)', "`$1`r`nWebRequest=$Server"
+      $iniRaw = $iniRaw -replace '(?im)^(WebRequest=.*)', "\`$1\`r\`nWebRequest=$Server"
     } else {
-      $iniRaw += "`r`n[Experts]`r`nWebRequest=$Server`r`n"
+      $iniRaw += "\`r\`n[Experts]\`r\`nWebRequest=$Server\`r\`n"
     }
     Set-Content -Path $terminalIni -Value $iniRaw -Encoding Unicode
     Write-Host "WebRequest URL added: $Server" -ForegroundColor Green
