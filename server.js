@@ -7867,6 +7867,9 @@ $Magic  = '${magic}'
 $Server = '${baseUrl}'
 $EaName = '${eaName}'
 
+# Wrap entire installer in try/catch so the window never closes silently on error.
+try {
+
 Write-Host ''
 Write-Host '======================================'
 Write-Host '  FlexBot Installer'
@@ -7969,10 +7972,27 @@ Write-Host '3) Drag FlexbotEA_ReadyToUse_MasterBroadcast_v3_AllInOne onto the ch
 Write-Host '4) In the input dialog: click Load, choose the FlexBot preset, click OK.'
 Write-Host '5) Make sure AutoTrading is enabled (top toolbar).'
 Write-Host ''
-Read-Host 'Press Enter to exit'
+
+} catch {
+  Write-Host ''
+  Write-Host '======================================' -ForegroundColor Red
+  Write-Host '  Installer hit an error' -ForegroundColor Red
+  Write-Host '======================================' -ForegroundColor Red
+  Write-Host ''
+  Write-Host $_.Exception.Message -ForegroundColor Yellow
+  Write-Host ''
+  Write-Host 'Please screenshot this and send it to support.' -ForegroundColor Yellow
+  Write-Host ''
+}
+
+Read-Host 'Press Enter to close this window'
 `;
 
-    const readme = `FlexBot Installer\n\nQuick start:\n1. Right-click install.ps1 -> Run with PowerShell\n   (If Windows blocks it: right-click -> Properties -> Unblock -> OK, then try again.)\n2. The script will detect MT5 and copy everything in.\n3. Restart MT5, drag the EA onto a XAUUSD M1 chart, click Load preset.\n4. Enable AutoTrading. Done.\n\nNeed help? Reply to the email/message you received this from.\n\nLicense: ${id}\nMagic:   ${magic}\n`;
+    // Tiny .bat wrapper so right-click → double-click works even when PowerShell
+    // execution policy is restricted. Keeps the window open after completion.
+    const installBat = `@echo off\r\ntitle FlexBot Installer\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"\r\nif errorlevel 1 (\r\n  echo.\r\n  echo Installer exited with an error. Screenshot the message above and send to support.\r\n)\r\necho.\r\npause\r\n`;
+
+    const readme = `FlexBot Installer\n\nQuick start (easiest):\n1. Double-click  install.bat\n2. A black window opens, the installer runs, you press Enter at the end.\n3. Restart MT5, drag the EA onto a XAUUSD M1 chart, click Load preset.\n4. Enable AutoTrading. Done.\n\nIf Windows SmartScreen warns "Windows protected your PC":\n  Click "More info" -> "Run anyway".\n\nAlternative (PowerShell users):\n  Right-click install.ps1 -> Run with PowerShell.\n  If it closes immediately: right-click the file -> Properties -> tick "Unblock" -> OK -> try again.\n\nNeed help? Reply to the message you received this from.\n\nLicense: ${id}\nMagic:   ${magic}\n`;
 
     const archiver = require("archiver");
     res.setHeader("Content-Type", "application/zip");
@@ -7985,6 +8005,7 @@ Read-Host 'Press Enter to exit'
     zip.pipe(res);
     zip.append(eaSource, { name: `${eaName}.mq5` });
     zip.append(installPs1, { name: "install.ps1" });
+    zip.append(installBat, { name: "install.bat" });
     zip.append(readme, { name: "README.txt" });
     await zip.finalize();
   } catch (e) {
