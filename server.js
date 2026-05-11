@@ -11,13 +11,13 @@ const INTERNAL_BASE = `http://localhost:${process.env.PORT || 3000}`;
 
 // --- Master broadcast gate (prevents other EA instances from posting to your Telegram group) ---
 // Configure in Render env:
-// - MASTER_LOGIN=24983551
-// - MASTER_SERVER=VantageInternational-Demo
+// - MASTER_LOGIN=511253083
+// - MASTER_SERVER=FTMO-Server
 function isMasterBroadcaster(body) {
   const login = String(body?.account_login ?? "").trim();
   const server = String(body?.server ?? "").trim();
-  const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
-  const masterServer = String(process.env.MASTER_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
+  const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
+  const masterServer = String(process.env.MASTER_SERVER || process.env.MAIN_ACCOUNT_SERVER || "FTMO-Server").trim();
 
   // If EA didn't send account info, deny.
   if (!login || !server) return false;
@@ -1964,8 +1964,8 @@ app.post("/signal/closed", async (req, res) => {
     try { tp = JSON.parse(String(sig.tp_json || "[]")); } catch { tp = []; }
 
     // Always use master account execution for entry price (consistent reporting)
-    const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
-    const masterServer = String(process.env.MASTER_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
+    const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
+    const masterServer = String(process.env.MASTER_SERVER || process.env.MAIN_ACCOUNT_SERVER || "FTMO-Server").trim();
     const exRow = await db.execute({
       sql: "SELECT fill_price, account_login FROM signal_exec2 WHERE signal_id=? AND ok_mod=1 AND account_login=? AND server=? LIMIT 1",
       args: [signal_id, masterLogin, masterServer],
@@ -2900,7 +2900,7 @@ app.post("/ea/status", async (req, res) => {
 
     // Track daily start equity — only for master account to avoid wrong startEquity
     try {
-      const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
+      const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
       if (Number.isFinite(equity) && equity > 0 && String(account_login) === masterLogin) {
         getAndUpdateDailyEquityStart({ symbol, tz: "Europe/Amsterdam", equityUsd: equity });
       }
