@@ -7992,7 +7992,12 @@ Read-Host 'Press Enter to close this window'
     // execution policy is restricted. Keeps the window open after completion.
     const installBat = `@echo off\r\ntitle FlexBot Installer\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"\r\nif errorlevel 1 (\r\n  echo.\r\n  echo Installer exited with an error. Screenshot the message above and send to support.\r\n)\r\necho.\r\npause\r\n`;
 
-    const readme = `FlexBot Installer\n\nQuick start (easiest):\n1. Double-click  install.bat\n2. A black window opens, the installer runs, you press Enter at the end.\n3. Restart MT5, drag the EA onto a XAUUSD M1 chart, click Load preset.\n4. Enable AutoTrading. Done.\n\nIf Windows SmartScreen warns "Windows protected your PC":\n  Click "More info" -> "Run anyway".\n\nAlternative (PowerShell users):\n  Right-click install.ps1 -> Run with PowerShell.\n  If it closes immediately: right-click the file -> Properties -> tick "Unblock" -> OK -> try again.\n\nNeed help? Reply to the message you received this from.\n\nLicense: ${id}\nMagic:   ${magic}\n`;
+    // Pre-baked preset (same content the installer writes). Shipped in the zip
+    // so the customer always has a fallback they can drop into MQL5\Presets
+    // manually if the installer fails.
+    const presetSet = `; FlexBot preset — pre-filled for this license\r\nInpEaApiKey=${apiKey}\r\nInpSignalSecret=${apiKey}\r\nInpMagic=${magic}\r\nInpSymbol=XAUUSD\r\nInpBaseUrl=${baseUrl}\r\nInpMaxDailyLossPercent=4.0\r\nInpDailyLossCloseAllOnAccount=true\r\nInpDailyResetGmtOffsetHours=2\r\n`;
+
+    const readme = `FlexBot Installer\n\nQuick start (easiest):\n1. Double-click  install.bat\n2. A black window opens, the installer runs, you press Enter at the end.\n3. Restart MT5, drag the EA onto a XAUUSD M1 chart, click Load preset.\n4. Enable AutoTrading. Done.\n\nIf Windows SmartScreen warns "Windows protected your PC":\n  Click "More info" -> "Run anyway".\n\nMANUAL INSTALL (if the installer won't run):\n1. In MT5: File -> Open Data Folder.\n2. Copy  ${eaName}.mq5  into  MQL5\\Experts.\n3. Copy  ${eaName}.set  into  MQL5\\Presets.\n4. In MT5: Tools -> Options -> Expert Advisors -> tick "Allow WebRequest for listed URL"\n   and add:  ${baseUrl}\n5. Restart MT5, drag EA on a XAUUSD chart, Load preset, enable AutoTrading.\n\nNeed help? Reply to the message you received this from.\n\nLicense: ${id}\nMagic:   ${magic}\n`;
 
     const archiver = require("archiver");
     res.setHeader("Content-Type", "application/zip");
@@ -8004,6 +8009,7 @@ Read-Host 'Press Enter to close this window'
     });
     zip.pipe(res);
     zip.append(eaSource, { name: `${eaName}.mq5` });
+    zip.append(presetSet, { name: `${eaName}.set` });
     zip.append(installPs1, { name: "install.ps1" });
     zip.append(installBat, { name: "install.bat" });
     zip.append(readme, { name: "README.txt" });
