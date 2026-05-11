@@ -7758,6 +7758,68 @@ app.post("/admin/license/:id/revoke", async (req, res) => {
   }
 });
 
+// GET/POST /api/cron/license-reminders  (?key=DASHBOARD_KEY)
+// Daily cron: DM the admin a list of licenses expiring within 3 days or already
+// expired. Schedule via cron-job.org at 09:00 local time.
+async function _runLicenseReminderJob(db) {
+  const nowMs = Date.now();
+  const threshMs = nowMs + 3 * 24 * 60 * 60 * 1000;
+  const rows = await db.execute({
+    sql: "SELECT id,email,magic,status,notes,expires_at_ms FROM licenses WHERE status='active' AND expires_at_ms IS NOT NULL AND expires_at_ms <= ? ORDER BY expires_at_ms ASC",
+    args: [threshMs],
+  });
+  const list = rows.rows || [];
+  if (list.length === 0) return { ok: true, sent: 0, count: 0 };
+
+  const fmt = (ms) => new Date(Number(ms)).toISOString().slice(0, 16).replace("T", " ");
+  const extractTg = (notes) => {
+    const m = String(notes || "").match(/@([A-Za-z0-9_]+)/);
+    return m ? "@" + m[1] : null;
+  };
+
+  const lines = list.map((l) => {
+    const tg = extractTg(l.notes) || l.email || "—";
+    const diffMs = Number(l.expires_at_ms) - nowMs;
+    const status = diffMs <= 0
+      ? `❌ EXPIRED`
+      : `⚠️ ${Math.ceil(diffMs / (24 * 60 * 60 * 1000))}d left`;
+    return `• ${tg} — ${status} (${fmt(l.expires_at_ms)} UTC, magic ${l.magic})`;
+  });
+
+  const text =
+    `🔔 License Renewal Reminder\n` +
+    `${list.length} license(s) need attention:\n\n` +
+    lines.join("\n") +
+    `\n\nSend 30 USDC renewal to extend, or revoke via admin panel.`;
+
+  const adminChatId = String(process.env.ADMIN_CHAT_ID || "8210317741");
+  await tgSendMessage({ chatId: adminChatId, text });
+  return { ok: true, sent: 1, count: list.length };
+}
+
+app.post("/api/cron/license-reminders", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const result = await _runLicenseReminderJob(db);
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+app.get("/api/cron/license-reminders", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const result = await _runLicenseReminderJob(db);
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /download/:license_id
 // Public download of a per-user installer zip containing:
 //   - The EA .mq5 source
@@ -7989,7 +8051,7 @@ app.get("/admin/licenses", async (req, res) => {
   if (db) {
     try {
       const rows = await db.execute({
-        sql: "SELECT id,email,api_key,magic,status,notes,created_at_ms,expires_at_ms,last_seen_ms,last_seen_account_login FROM licenses ORDER BY created_at_ms DESC LIMIT 500",
+        sql: "SELECT id,email,api_key,magic,status,notes,created_at_ms,expires_at_ms,last_seen_ms,last_seen_account_login FROM licenses ORDER BY CASE WHEN expires_at_ms IS NULL THEN 1 ELSE 0 END, expires_at_ms ASC LIMIT 500",
       });
       licenses = rows.rows || [];
     } catch { /* ignore */ }
@@ -8003,18 +8065,49 @@ app.get("/admin/licenses", async (req, res) => {
   const escape = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").replace(/\/+$/, "");
 
+  const nowMs = Date.now();
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const extractTg = (notes) => {
+    const m = String(notes || "").match(/@([A-Za-z0-9_]+)/);
+    return m ? "@" + m[1] : null;
+  };
+
   const rowsHtml = licenses.map((l) => {
     const expires = l.expires_at_ms ? fmtTs(l.expires_at_ms) : "never";
     const lastSeen = l.last_seen_ms ? fmtTs(l.last_seen_ms) : "—";
     const dl = `${baseUrl}/download/${l.id}`;
     const stClass = l.status === "active" ? "ok" : "bad";
+    const tg = extractTg(l.notes);
+    const contact = tg || l.email || "—";
+
+    let daysLeft = "—";
+    let rowClass = "";
+    if (l.expires_at_ms && l.status === "active") {
+      const diffMs = Number(l.expires_at_ms) - nowMs;
+      const d = Math.ceil(diffMs / DAY_MS);
+      if (diffMs <= 0) {
+        daysLeft = `<span class="status bad">EXPIRED</span>`;
+        rowClass = " class=\"expired\"";
+      } else if (d <= 3) {
+        daysLeft = `<span class="status warn">${d}d left</span>`;
+        rowClass = " class=\"warn\"";
+      } else if (d <= 7) {
+        daysLeft = `<span class="days-soon">${d}d</span>`;
+      } else {
+        daysLeft = `${d}d`;
+      }
+    } else if (!l.expires_at_ms) {
+      daysLeft = "∞";
+    }
+
     return `
-      <tr>
-        <td>${escape(l.email || "—")}</td>
+      <tr${rowClass}>
+        <td><strong>${escape(contact)}</strong></td>
         <td><span class="status ${stClass}">${escape(l.status)}</span></td>
+        <td>${daysLeft}</td>
+        <td>${escape(expires)}</td>
         <td><code>${escape(l.magic)}</code></td>
         <td>${escape(fmtTs(l.created_at_ms))}</td>
-        <td>${escape(expires)}</td>
         <td>${escape(lastSeen)}<br><small>${escape(l.last_seen_account_login || "")}</small></td>
         <td>
           <button onclick="copyText('${escape(dl)}')">Copy link</button>
@@ -8031,7 +8124,7 @@ app.get("/admin/licenses", async (req, res) => {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FlexBot — License Admin</title>
 <style>
-  :root { --bg:#0a0a0c; --card:#15151a; --muted:#7a7a85; --text:#e7e7eb; --acc:#5b9dff; --ok:#22c55e; --bad:#ef4444; --border:#26262d; }
+  :root { --bg:#0a0a0c; --card:#15151a; --muted:#7a7a85; --text:#e7e7eb; --acc:#5b9dff; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b; --border:#26262d; }
   * { box-sizing:border-box; }
   body { background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; margin:0; padding:24px; }
   h1 { margin:0 0 16px; font-size:20px; }
@@ -8053,6 +8146,10 @@ app.get("/admin/licenses", async (req, res) => {
   .status { padding:2px 8px; border-radius:999px; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
   .status.ok { background:rgba(34,197,94,.12); color:var(--ok); }
   .status.bad { background:rgba(239,68,68,.12); color:var(--bad); }
+  .status.warn { background:rgba(245,158,11,.15); color:var(--warn); }
+  .days-soon { color:var(--warn); font-weight:600; }
+  tr.warn td { background:rgba(245,158,11,.06); }
+  tr.expired td { background:rgba(239,68,68,.06); opacity:.7; }
   #toast { position:fixed; bottom:20px; right:20px; background:var(--card); border:1px solid var(--acc); padding:10px 16px; border-radius:6px; opacity:0; transition:opacity .2s; pointer-events:none; }
   #toast.show { opacity:1; }
   #result { margin-top:12px; padding:12px; background:#0a0a0c; border:1px solid var(--ok); border-radius:6px; display:none; }
@@ -8077,7 +8174,7 @@ app.get("/admin/licenses", async (req, res) => {
     <h2>Licenses (${licenses.length})</h2>
     <table>
       <thead>
-        <tr><th>Email</th><th>Status</th><th>Magic</th><th>Created</th><th>Expires</th><th>Last seen</th><th>Actions</th></tr>
+        <tr><th>Contact</th><th>Status</th><th>Renewal</th><th>Expires</th><th>Magic</th><th>Created</th><th>Last seen</th><th>Actions</th></tr>
       </thead>
       <tbody>
         ${rowsHtml || '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">No licenses yet — create one above.</td></tr>'}
