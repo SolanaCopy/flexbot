@@ -4701,8 +4701,7 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
     `🚨 LIVE SIGNAL OPEN${shortRef ? ` (Ref ${shortRef})` : ""}\n` +
     `${kind}: ${sym} ${dir}\n` +
     `\n` +
-    `Full entry/SL/TP + updates = MEMBERS ONLY\n` +
-    `➡️ DM de bot: /unlock\n` +
+    `🚀 Start Flexbot: www.fxflexbot.com\n` +
     `\n` +
     `💰 Risk: ${riskStr}%\n` +
     `❗ Not Financial Advice.`
@@ -5319,12 +5318,14 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
     const s = String(v || "").trim().toLowerCase();
     if (s === "sl hit" || s === "sl") return "SL";
     if (s === "tp hit" || s === "tp") return "TP";
+    if (s === "closed" || s === "manual" || s === "manual close" || s === "early") return "CLOSED";
     return String(v || "").trim();
   };
   const colOut = out => {
     const s = String(out || "").toLowerCase();
     if (s.includes("tp")) return "#00d084";
     if (s.includes("sl")) return "#ff4757";
+    if (s.includes("closed")) return "rgba(255,255,255,0.78)";
     return "rgba(255,255,255,0.88)";
   };
   const colPnl = (res, out) => {
@@ -5348,11 +5349,11 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
 
   // Layout offsets for aligned columns
   const numW = twoCols ? 30 : 36;
-  const dirBadgeX = twoCols ? 44 : 54;
-  const dirBadgeW = twoCols ? 68 : 78;
-  const outBadgeX = twoCols ? 120 : 140;
-  const outBadgeW = twoCols ? 48 : 52;
-  const resOffX = twoCols ? 160 : 182;
+  const dirBadgeX = twoCols ? 44 : 56;
+  const dirBadgeW = twoCols ? 68 : 82;
+  const outBadgeX = twoCols ? 132 : 158;
+  const outBadgeW = twoCols ? 80 : 96;
+  const resOffX = twoCols ? 224 : 268;
   const badgeH = twoCols ? 26 : 30;
   const badgeR = twoCols ? 6 : 7;
 
@@ -5379,8 +5380,8 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
     const num = leftMatch ? leftMatch[1] : "";
     const dir = leftMatch ? leftMatch[2].toUpperCase() : leftRaw;
     const dirColor = dir === "BUY" ? "#00d084" : dir === "SELL" ? "#ff4757" : "#ffffff";
-    const outBg = out === "TP" ? "rgba(0,208,132,0.12)" : out === "SL" ? "rgba(255,71,87,0.12)" : "rgba(255,255,255,0.05)";
-    const outStroke = out === "TP" ? "rgba(0,208,132,0.30)" : out === "SL" ? "rgba(255,71,87,0.30)" : "rgba(255,255,255,0.10)";
+    const outBg = out === "TP" ? "rgba(0,208,132,0.12)" : out === "SL" ? "rgba(255,71,87,0.12)" : out === "CLOSED" ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.05)";
+    const outStroke = out === "TP" ? "rgba(0,208,132,0.30)" : out === "SL" ? "rgba(255,71,87,0.30)" : out === "CLOSED" ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.10)";
     const dirBg = dir === "BUY" ? "rgba(0,208,132,0.12)" : dir === "SELL" ? "rgba(255,71,87,0.12)" : "rgba(255,255,255,0.05)";
     const dirStroke = dir === "BUY" ? "rgba(0,208,132,0.30)" : dir === "SELL" ? "rgba(255,71,87,0.30)" : "rgba(255,255,255,0.10)";
 
@@ -7440,7 +7441,9 @@ app.get("/api/mc/state", async (req, res) => {
   }
 });
 
-// POST /api/mc/reset-daily  (?key=DASHBOARD_KEY) — reset daily loss state
+// POST /api/mc/reset-daily  (?key=DASHBOARD_KEY[&start_equity=N][&symbol=XAUUSD])
+// Reset daily loss state. If start_equity is provided, sets it explicitly for today's
+// dayKey (Europe/Prague); otherwise clears the file so the next /ea/status post recaptures.
 app.post("/api/mc/reset-daily", (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
   try {
