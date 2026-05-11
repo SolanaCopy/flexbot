@@ -2413,8 +2413,8 @@ app.get("/debug/broadcast", async (req, res) => {
     const masterServer = String(process.env.MASTER_SERVER || "").trim();
     const mainAccountServer = String(process.env.MAIN_ACCOUNT_SERVER || "").trim();
 
-    const resolvedLogin = masterLogin || mainAccountLogin || "24983551";
-    const resolvedServer = masterServer || mainAccountServer || "VantageInternational-Demo";
+    const resolvedLogin = masterLogin || mainAccountLogin || "511253083";
+    const resolvedServer = masterServer || mainAccountServer || "FTMO-Server";
 
     let recentExecs = [];
     try {
@@ -7114,8 +7114,8 @@ app.get("/api/mc/state", async (req, res) => {
     const market = marketBlockedNow();
 
     // EA positions — alleen Flexbot test account
-    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
-    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
+    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "FTMO-Server").trim();
     let eaPositions = [];
     if (db) {
       try {
@@ -7511,7 +7511,7 @@ app.post("/api/mc/insert-trade", async (req, res) => {
     });
     if (b.entry_price) {
       await db.execute({
-        sql: `INSERT OR IGNORE INTO signal_exec2 (signal_id, account_login, server, fill_price, filled_at_ms, ok_mod) VALUES (?, '24983551', 'VantageInternational-Demo', ?, ?, 1)`,
+        sql: `INSERT OR IGNORE INTO signal_exec2 (signal_id, account_login, server, fill_price, filled_at_ms, ok_mod) VALUES (?, '511253083', 'FTMO-Server', ?, ?, 1)`,
         args: [String(id), Number(b.entry_price), Number(b.opened_at_ms) || Date.now()],
       });
     }
@@ -7599,8 +7599,8 @@ app.get("/api/risk-status", async (req, res) => {
     if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
 
     const symbol = (req.query.symbol ? String(req.query.symbol) : "XAUUSD").toUpperCase();
-    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
-    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
+    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "FTMO-Server").trim();
     const riskTz = String(process.env.RISK_TZ || "Europe/Prague");
     const maxDailyLossPct = 5;
 
@@ -7676,8 +7676,8 @@ app.get("/api/trades", async (req, res) => {
       closed_at: Number(r.closed_at_ms || 0),
     }));
 
-    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "24983551").trim();
-    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "VantageInternational-Demo").trim();
+    const mcLogin = String(process.env.MC_GATE_ACCOUNT_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
+    const mcServer = String(process.env.MC_GATE_SERVER || process.env.MAIN_ACCOUNT_SERVER || "FTMO-Server").trim();
     let account = null;
     try {
       const eaRows = await db.execute({
@@ -8698,7 +8698,7 @@ async function load(){
     }
 
     // EA positions
-    const EA_NAMES={'24983551':'Flexbot test'};
+    const EA_NAMES={'511253083':'Flexbot FTMO Challenge','24983551':'Flexbot test (legacy)'};
     const eaEl=document.getElementById('ea-body');
     const activeEa=(d.ea_positions||[]).filter(ea=>ea.updated_at_ms&&(Date.now()-ea.updated_at_ms)<24*60*60*1000);
     if(activeEa.length===0){
