@@ -7731,7 +7731,7 @@ app.post("/admin/license/create", async (req, res) => {
       args: [id, email, apiKey, magic, "active", notes, nowMs, Number.isFinite(expiresAtMs) ? expiresAtMs : null],
     });
 
-    const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").replace(/\/+$/, "");
+    const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").trim().replace(/\/+$/, "");
     return res.json({
       ok: true,
       license_id: id,
@@ -7853,7 +7853,7 @@ app.get("/download/:license_id", async (req, res) => {
 
     const apiKey = String(lic.api_key);
     const magic = String(lic.magic);
-    const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").replace(/\/+$/, "");
+    const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").trim().replace(/\/+$/, "");
     const eaName = "FlexbotEA_ReadyToUse_MasterBroadcast_v3_AllInOne";
 
     // PowerShell installer — detects MT5, installs EA, writes .set file with
@@ -8092,7 +8092,7 @@ app.get("/admin/licenses", async (req, res) => {
     return d.toISOString().slice(0, 16).replace("T", " ");
   };
   const escape = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").replace(/\/+$/, "");
+  const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").trim().replace(/\/+$/, "");
 
   const nowMs = Date.now();
   const DAY_MS = 24 * 60 * 60 * 1000;
