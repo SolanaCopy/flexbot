@@ -7947,10 +7947,12 @@ $terminalIni = Join-Path $configDir 'terminal.ini'
 if (Test-Path $terminalIni) {
   $iniRaw = Get-Content $terminalIni -Raw -Encoding Unicode
   if ($iniRaw -notlike "*$Server*") {
+    $crlf = [string][char]13 + [string][char]10
     if ($iniRaw -match '(?im)^WebRequest=') {
-      $iniRaw = $iniRaw -replace '(?im)^(WebRequest=.*)', "\`$1\`r\`nWebRequest=$Server"
+      $replacement = '$1' + $crlf + 'WebRequest=' + $Server
+      $iniRaw = $iniRaw -replace '(?im)^(WebRequest=.*)', $replacement
     } else {
-      $iniRaw += "\`r\`n[Experts]\`r\`nWebRequest=$Server\`r\`n"
+      $iniRaw += $crlf + '[Experts]' + $crlf + 'WebRequest=' + $Server + $crlf
     }
     Set-Content -Path $terminalIni -Value $iniRaw -Encoding Unicode
     Write-Host "WebRequest URL added: $Server" -ForegroundColor Green
@@ -7958,7 +7960,7 @@ if (Test-Path $terminalIni) {
     Write-Host 'WebRequest URL already allowed.' -ForegroundColor Green
   }
 } else {
-  Write-Host "terminal.ini not found — add $Server manually under Tools -> Options -> Expert Advisors -> Allow WebRequest." -ForegroundColor Yellow
+  Write-Host "terminal.ini not found - add $Server manually under Tools, Options, Expert Advisors, Allow WebRequest." -ForegroundColor Yellow
 }
 
 Write-Host ''
