@@ -523,6 +523,31 @@ async function getDb() {
   return libsqlClient;
 }
 
+// Authorise an EA-side API key. Accepts either the legacy master EA_API_KEY env
+// var (your own/master account) or any active, non-expired license key issued
+// via /admin/license/create.
+async function isAuthorizedEaApiKey(apiKey) {
+  if (!apiKey) return false;
+  const key = String(apiKey);
+  const masterKey = process.env.EA_API_KEY ? String(process.env.EA_API_KEY).trim() : "";
+  if (masterKey && key === masterKey) return true;
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const r = await db.execute({
+      sql: "SELECT status,expires_at_ms FROM licenses WHERE api_key=? LIMIT 1",
+      args: [key],
+    });
+    const lic = r.rows?.[0];
+    if (!lic) return false;
+    if (String(lic.status) !== "active") return false;
+    if (lic.expires_at_ms != null && Number(lic.expires_at_ms) < Date.now()) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function claimSignalPostOnce({ db, signalId, kind }) {
   if (!db || !signalId || !kind) return { ok: false, claimed: false };
   const created_at_ms = Date.now();
@@ -1446,8 +1471,7 @@ app.get("/signal/auto/create", async (req, res) => {
 app.post("/signal/manual/open", async (req, res) => {
   try {
     const apiKey = req.header("x-api-key");
-    const expectedKey = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
-    if (!expectedKey || !apiKey || String(apiKey) !== expectedKey) {
+    if (!(await isAuthorizedEaApiKey(apiKey))) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
 
@@ -2620,8 +2644,7 @@ app.post("/signal/executed", async (req, res) => {
 app.post("/signal/reject", async (req, res) => {
   try {
     const apiKey = req.header("x-api-key");
-    const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
-    if (!expected || !apiKey || String(apiKey) !== expected) {
+    if (!(await isAuthorizedEaApiKey(apiKey))) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
 
@@ -2848,8 +2871,7 @@ app.get("/ea/cooldown/claim5m", async (req, res) => {
 app.post("/ea/status", async (req, res) => {
   try {
     const apiKey = req.header("x-api-key");
-    const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
-    if (!expected || !apiKey || String(apiKey) !== expected) {
+    if (!(await isAuthorizedEaApiKey(apiKey))) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
 
@@ -3035,8 +3057,7 @@ app.get("/ea/status", async (req, res) => {
 app.post("/ea/cooldown", async (req, res) => {
   try {
     const apiKey = req.header("x-api-key");
-    const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
-    if (!expected || !apiKey || String(apiKey) !== expected) {
+    if (!(await isAuthorizedEaApiKey(apiKey))) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
 
@@ -3083,8 +3104,7 @@ app.post("/ea/cooldown", async (req, res) => {
 app.post("/ea/daily-stop", async (req, res) => {
   try {
     const apiKey = req.header("x-api-key");
-    const expected = process.env.EA_API_KEY ? String(process.env.EA_API_KEY) : "";
-    if (!expected || !apiKey || String(apiKey) !== expected) {
+    if (!(await isAuthorizedEaApiKey(apiKey))) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
 
