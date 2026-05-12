@@ -1968,7 +1968,7 @@ app.post("/signal/closed", async (req, res) => {
     if (!secretOk) return res.status(401).json({ ok: false, error: "unauthorized" });
 
     const signal_id = body?.signal_id ? String(body.signal_id) : "";
-    const outcome = body?.outcome != null ? String(body.outcome) : null;
+    let outcome = body?.outcome != null ? String(body.outcome) : null;
     const result = body?.result != null ? String(body.result) : null;
     const closedDirection = body?.direction != null ? String(body.direction).toUpperCase() : null;
     // Ignore body.closed_at_ms — the EA constructs it from TimeCurrent() which is
@@ -2021,6 +2021,28 @@ app.post("/signal/closed", async (req, res) => {
           const fb = await db.execute({ sql: "SELECT fill_price FROM signal_exec2 WHERE signal_id=? AND ok_mod=1 ORDER BY filled_at_ms ASC LIMIT 1", args: [signal_id] });
           return fb.rows?.[0]?.fill_price != null ? Number(fb.rows[0].fill_price) : null;
         })();
+
+    // Relabel "SL hit" cases where the SL was actually moved past entry into a
+    // profit-taking exit. Direction-aware: for BUY a SL above entry that gets
+    // hit means break-even or locked profit, NOT a real stop-loss.
+    try {
+      const outcomeLower = String(outcome || "").toLowerCase();
+      if (outcomeLower.includes("sl") && Number.isFinite(entry) && entry > 0) {
+        const finalSl = sig.sl != null ? Number(sig.sl) : NaN;
+        const dirUp = String(sig.direction || "").toUpperCase();
+        const numResult = Number(String(result || "").replace(/[^0-9.+-]/g, ""));
+        const isProfit = Number.isFinite(numResult) && numResult > 0;
+        const slPastEntry =
+          (dirUp === "BUY" && Number.isFinite(finalSl) && finalSl >= entry) ||
+          (dirUp === "SELL" && Number.isFinite(finalSl) && finalSl <= entry);
+        if (slPastEntry) {
+          // Break-even (within $1 of entry) → "Break-even", further past → "Locked Profit"
+          const slDist = Math.abs(finalSl - entry);
+          if (isProfit && slDist > 1.0) outcome = "Locked Profit";
+          else outcome = "Break-even";
+        }
+      }
+    } catch { /* leave outcome as-is on failure */ }
 
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
 
