@@ -1936,9 +1936,17 @@ app.post("/signal/closed", async (req, res) => {
     let body = req.body;
     if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
 
+    // Accept either the legacy SIGNAL_SECRET (for the master EA's body.secret)
+    // OR a valid license api_key (sent by customer EAs as their InpSignalSecret).
+    // Without this, customer-side close notifications get 401 and the server
+    // never learns the trade actually closed on the customer's account.
     const secret = (body?.secret != null ? String(body.secret) : (req.query.secret != null ? String(req.query.secret) : "")).trim();
-    const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET) : "";
-    if (!expected || secret !== expected) return res.status(401).json({ ok: false, error: "unauthorized" });
+    const expected = process.env.SIGNAL_SECRET ? String(process.env.SIGNAL_SECRET).trim() : "";
+    let secretOk = expected && secret === expected;
+    if (!secretOk && secret) {
+      secretOk = await isAuthorizedEaApiKey(secret);
+    }
+    if (!secretOk) return res.status(401).json({ ok: false, error: "unauthorized" });
 
     const signal_id = body?.signal_id ? String(body.signal_id) : "";
     const outcome = body?.outcome != null ? String(body.outcome) : null;
