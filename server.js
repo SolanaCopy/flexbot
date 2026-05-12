@@ -6340,8 +6340,31 @@ async function autoNewsPauseHandler(req, res) {
     const notify = Number.isFinite(createdAt) && createdAt === insertedAt;
     if (!notify) return res.json({ ok: true, acted: false, reason: "dedup" });
 
-    const warn = minutes < 10 ? " ⚠️" : "";
-    const msg = `🚨 #UPDATE NEWS PAUSE — 🇺🇸 USD High in ${minutes}m: ${title} ⏳${warn}`;
+    const flags = { USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", JPY: "🇯🇵", CHF: "🇨🇭", AUD: "🇦🇺", CAD: "🇨🇦", NZD: "🇳🇿", CNY: "🇨🇳" };
+    const cur = String(upcoming.e.currency || "USD").toUpperCase();
+    const flag = flags[cur] || "🌐";
+    const eventDate = new Date(upcoming.ts);
+    const hhUtc = String(eventDate.getUTCHours()).padStart(2, "0");
+    const mmUtc = String(eventDate.getUTCMinutes()).padStart(2, "0");
+    // Amsterdam = UTC+2 in summer (May)
+    const nlDate = new Date(upcoming.ts + 2 * 3600 * 1000);
+    const hhNl = String(nlDate.getUTCHours()).padStart(2, "0");
+    const mmNl = String(nlDate.getUTCMinutes()).padStart(2, "0");
+
+    const urgent = minutes < 10;
+    const header = urgent ? "🚨 NEWS IMMINENT 🚨" : "⚠️ NEWS ALERT ⚠️";
+
+    const msg =
+      `${header}\n` +
+      `━━━━━━━━━━━━━━━━━━━\n` +
+      `${flag} ${cur} · High Impact\n` +
+      `📰 ${title}\n` +
+      `\n` +
+      `⏰ Releases in ${minutes} min\n` +
+      `🕐 ${hhUtc}:${mmUtc} UTC · ${hhNl}:${mmNl} NL\n` +
+      `━━━━━━━━━━━━━━━━━━━\n` +
+      `🛑 Trading auto-paused during the news window\n` +
+      `🛡️ Risk protected — back after release`;
 
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
     await tgSendMessage({ chatId, text: msg });
