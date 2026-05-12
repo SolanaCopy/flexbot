@@ -1957,12 +1957,22 @@ app.post("/signal/closed", async (req, res) => {
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
 
     const sigRow = await db.execute({
-      sql: "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,tg_open_chat_id,tg_open_message_id FROM signals WHERE id=? LIMIT 1",
+      sql: "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,tg_open_chat_id,tg_open_message_id FROM signals WHERE id=? LIMIT 1",
       args: [signal_id],
     });
     const dbSymbol = sigRow.rows?.[0]?.symbol != null ? String(sigRow.rows[0].symbol) : "XAUUSD";
     const sig = sigRow.rows?.[0] || null;
     if (!sig) return res.status(404).json({ ok: false, error: "signal_not_found" });
+
+    // Guard: ignore close calls that arrive within 5 seconds of signal creation.
+    // Master EA can fire spurious DEAL_ENTRY_OUT events in hedging mode (e.g. an
+    // unrelated old position closes right as the new one opens), which would
+    // mark the signal closed before any customer EA has a chance to poll for it.
+    // Real TP/SL hits, manual closes, etc. take more than 5s in practice.
+    const createdAtMs = sig.created_at_ms != null ? Number(sig.created_at_ms) : 0;
+    if (createdAtMs && (closed_at_ms - createdAtMs) < 5000 && String(sig.status) === "active") {
+      return res.json({ ok: true, ignored: "too_soon_after_open", age_ms: closed_at_ms - createdAtMs });
+    }
 
     let tp = [];
     try { tp = JSON.parse(String(sig.tp_json || "[]")); } catch { tp = []; }
