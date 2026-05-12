@@ -8898,6 +8898,69 @@ app.get("/admin/render-test/closed", async (req, res) => {
   }
 });
 
+// GET /admin/positions/all?key=DASHBOARD_KEY
+// Per-account snapshot: latest equity + balance + computed drawdowns. We define
+// drawdown two ways: (1) total = (balance - equity) shown as USD + % of balance,
+// for an instant "are they currently underwater on open positions" view, and
+// (2) starting = optional ?start_balance=100000 for FTMO-style total DD vs the
+// challenge starting capital. Stale rows (updated >24h ago) are flagged.
+app.get("/admin/positions/all", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const startBalance = Number(req.query.start_balance) || null;
+
+    const rows = await db.execute({
+      sql:
+        "SELECT account_login, server, magic, symbol, has_position, tickets_json, " +
+        "equity, balance, updated_at_ms " +
+        "FROM ea_positions ORDER BY updated_at_ms DESC",
+    });
+
+    const now = Date.now();
+    const accounts = (rows.rows || []).map((r) => {
+      const eq = r.equity != null ? Number(r.equity) : null;
+      const bal = r.balance != null ? Number(r.balance) : null;
+      const updMs = r.updated_at_ms != null ? Number(r.updated_at_ms) : 0;
+      const ageMs = updMs ? now - updMs : null;
+
+      // Floating P/L on currently-open positions: eq - bal (negative = drawdown)
+      const floating = (eq != null && bal != null) ? eq - bal : null;
+      const floatingPct = (floating != null && bal > 0) ? (floating / bal) * 100 : null;
+
+      // Total drawdown vs an optional challenge starting balance.
+      const fromStart = (eq != null && startBalance) ? eq - startBalance : null;
+      const fromStartPct = (fromStart != null && startBalance > 0) ? (fromStart / startBalance) * 100 : null;
+
+      let tickets = [];
+      try { tickets = JSON.parse(String(r.tickets_json || "[]")); } catch {}
+
+      return {
+        account_login: String(r.account_login),
+        server: String(r.server),
+        magic: Number(r.magic),
+        symbol: String(r.symbol),
+        has_position: Number(r.has_position) === 1,
+        open_tickets: tickets.length,
+        balance: bal,
+        equity: eq,
+        floating_usd: floating != null ? Number(floating.toFixed(2)) : null,
+        floating_pct: floatingPct != null ? Number(floatingPct.toFixed(3)) : null,
+        from_start_usd: fromStart != null ? Number(fromStart.toFixed(2)) : null,
+        from_start_pct: fromStartPct != null ? Number(fromStartPct.toFixed(3)) : null,
+        age_sec: ageMs != null ? Math.round(ageMs / 1000) : null,
+        stale: ageMs != null && ageMs > 24 * 60 * 60 * 1000,
+        updated_at_ms: updMs,
+      };
+    });
+
+    return res.json({ ok: true, count: accounts.length, start_balance: startBalance, accounts });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /admin/mod-pollers?key=DASHBOARD_KEY — who's calling /signal/mods?
 app.get("/admin/mod-pollers", (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
