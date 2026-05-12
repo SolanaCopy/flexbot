@@ -8714,11 +8714,26 @@ app.post("/admin/license/:id/telegram-invite", async (req, res) => {
           creates_join_request: false,
         }),
       });
-      tgJson = await tgRes.json();
+      const txt = await tgRes.text();
+      try { tgJson = JSON.parse(txt); }
+      catch {
+        return res.status(502).json({ ok: false, error: "telegram_non_json", status: tgRes.status, body: txt.slice(0, 400) });
+      }
     } catch (e) {
-      const cause = String(e?.cause?.message || e?.message || e);
-      console.error("[admin/telegram-invite] fetch_error", cause);
-      return res.status(502).json({ ok: false, error: "telegram_fetch_error", cause });
+      // Walk the cause chain for the real reason (undici nests it).
+      const chain = [];
+      let cur = e;
+      while (cur && chain.length < 5) {
+        chain.push({
+          name: cur?.name || null,
+          code: cur?.code || cur?.cause?.code || null,
+          errno: cur?.errno || null,
+          message: cur?.message || String(cur),
+        });
+        cur = cur?.cause;
+      }
+      console.error("[admin/telegram-invite] fetch_error_chain", JSON.stringify(chain));
+      return res.status(502).json({ ok: false, error: "telegram_fetch_error", chain });
     }
     if (!tgJson.ok) return res.status(502).json({ ok: false, error: "telegram_api_failed", detail: tgJson });
     const link = String(tgJson.result?.invite_link || "");
