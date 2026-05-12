@@ -8493,13 +8493,21 @@ $EaName = '${eaName}'
 
 # Helpers for pretty output
 function Write-Banner {
+  # Use UTF-8 for the console so box-drawing chars render correctly.
+  try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+
   Write-Host ''
-  Write-Host '   ============================================================' -ForegroundColor DarkYellow
-  Write-Host '                                                            ' -ForegroundColor DarkYellow -BackgroundColor Black
-  Write-Host '             FLEXBOT EA  -  Installer v2                    ' -ForegroundColor Yellow -BackgroundColor Black
-  Write-Host '             Automated XAUUSD trading                       ' -ForegroundColor DarkGray -BackgroundColor Black
-  Write-Host '                                                            ' -ForegroundColor DarkYellow -BackgroundColor Black
-  Write-Host '   ============================================================' -ForegroundColor DarkYellow
+  Write-Host '                                                                          ' -BackgroundColor Black
+  Write-Host '      ███████╗██╗     ███████╗██╗  ██╗██████╗  ██████╗ ████████╗     ' -ForegroundColor Yellow -BackgroundColor Black
+  Write-Host '      ██╔════╝██║     ██╔════╝╚██╗██╔╝██╔══██╗██╔═══██╗╚══██╔══╝     ' -ForegroundColor Yellow -BackgroundColor Black
+  Write-Host '      █████╗  ██║     █████╗   ╚███╔╝ ██████╔╝██║   ██║   ██║        ' -ForegroundColor Yellow -BackgroundColor Black
+  Write-Host '      ██╔══╝  ██║     ██╔══╝   ██╔██╗ ██╔══██╗██║   ██║   ██║        ' -ForegroundColor Yellow -BackgroundColor Black
+  Write-Host '      ██║     ███████╗███████╗██╔╝ ██╗██████╔╝╚██████╔╝   ██║        ' -ForegroundColor Yellow -BackgroundColor Black
+  Write-Host '      ╚═╝     ╚══════╝╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝    ╚═╝        ' -ForegroundColor Yellow -BackgroundColor Black
+  Write-Host '                                                                          ' -BackgroundColor Black
+  Write-Host '              Automated XAUUSD Trading  ·  Installer v2              ' -ForegroundColor White -BackgroundColor Black
+  Write-Host '                       www.fxflexbot.com                             ' -ForegroundColor DarkGray -BackgroundColor Black
+  Write-Host '                                                                          ' -BackgroundColor Black
   Write-Host ''
 }
 function Write-Step($num, $total, $label) {
@@ -8700,7 +8708,11 @@ Read-Host 'Press Enter to close this window'
     zip.pipe(res);
     zip.append(eaSource, { name: `${eaName}.mq5` });
     zip.append(presetSet, { name: `${eaName}.set` });
-    zip.append(installPs1, { name: "install.ps1" });
+    // Prepend a UTF-8 BOM so Windows PowerShell 5.1 reads box-drawing /
+    // emoji / accented chars correctly. Without this they get mangled.
+    const utf8Bom = Buffer.from([0xEF, 0xBB, 0xBF]);
+    const installPs1Buffer = Buffer.concat([utf8Bom, Buffer.from(installPs1, "utf8")]);
+    zip.append(installPs1Buffer, { name: "install.ps1" });
     zip.append(installBat, { name: "install.bat" });
     zip.append(readme, { name: "README.txt" });
     await zip.finalize();
