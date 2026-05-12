@@ -8301,7 +8301,7 @@ async function _getOrCreateInviter(db, telegramUserId, username) {
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
     if (token) {
       try {
-        const tgRes = await fetch(`https://api.telegram.org/bot${token}/createChatInviteLink`, {
+        const tgRes = await fetchFn(`https://api.telegram.org/bot${token}/createChatInviteLink`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ chat_id: chatId, name: `ref:${code}`, creates_join_request: false }),
@@ -8313,8 +8313,12 @@ async function _getOrCreateInviter(db, telegramUserId, username) {
             sql: "UPDATE inviters SET telegram_invite_link=? WHERE telegram_user_id=?",
             args: [link, uid],
           });
+        } else {
+          console.error("[inviter] telegram_createChatInviteLink_failed", JSON.stringify(tgJson).slice(0, 400));
         }
-      } catch { /* best-effort; user can retry */ }
+      } catch (e) {
+        console.error("[inviter] telegram_fetch_error", String(e?.cause?.message || e?.message || e));
+      }
     }
   }
 
@@ -8699,16 +8703,23 @@ app.post("/admin/license/:id/telegram-invite", async (req, res) => {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
     if (!token) return res.status(500).json({ ok: false, error: "missing_TELEGRAM_BOT_TOKEN" });
-    const tgRes = await fetch(`https://api.telegram.org/bot${token}/createChatInviteLink`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        name: `ref:${code}`,
-        creates_join_request: false,
-      }),
-    });
-    const tgJson = await tgRes.json();
+    let tgJson;
+    try {
+      const tgRes = await fetchFn(`https://api.telegram.org/bot${token}/createChatInviteLink`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          name: `ref:${code}`,
+          creates_join_request: false,
+        }),
+      });
+      tgJson = await tgRes.json();
+    } catch (e) {
+      const cause = String(e?.cause?.message || e?.message || e);
+      console.error("[admin/telegram-invite] fetch_error", cause);
+      return res.status(502).json({ ok: false, error: "telegram_fetch_error", cause });
+    }
     if (!tgJson.ok) return res.status(502).json({ ok: false, error: "telegram_api_failed", detail: tgJson });
     const link = String(tgJson.result?.invite_link || "");
     if (!link) return res.status(502).json({ ok: false, error: "no_invite_link_returned", detail: tgJson });
