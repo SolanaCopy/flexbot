@@ -66,6 +66,10 @@ input bool InpEnableRejectPost = true; // POST /signal/reject when we skip (e.g.
 input bool InpEnableClosePost = true;  // POST /signal/closed after trade closes
 input string InpSignalSecret = "";     // SIGNAL_SECRET for /signal/closed (keep private)
 
+// Live SL/TP modify propagation
+input bool InpEnableModSync = true;    // Poll /signal/mods to apply remote SL/TP changes
+input int  InpModPollSeconds = 5;      // How often to check for modifications
+
 input bool InpDebugHttp = true;
 input bool InpDebugTrade = true;
 
@@ -232,6 +236,11 @@ ulong  g_lastAttemptTick = 0;
 long g_sinceMs = 0;
 long g_lastOpenMs = 0;
 
+// Live SL/TP modification sync
+ulong  g_lastModPollMs = 0;     // throttle marker (uptime ms)
+long   g_lastModSeenMs = 0;     // last server ts_ms we've consumed; persisted
+long   g_lastModApplyMs = 0;    // guard against echoing back our own apply
+
 // Close recap state
 datetime g_lastCloseDealTime = 0;
 string g_lastClosedSignalId = "";
@@ -363,6 +372,29 @@ bool PosMapGet(const ulong posId, string &sigIdOut)
   return false;
 }
 
+// Reverse lookup: find a position ticket by signal_id (used to apply remote SL/TP mods).
+bool PosMapGetBySig(const string sigId, ulong &posIdOut)
+{
+  posIdOut = 0;
+  if(Trim(sigId)=="") return false;
+  int h = FileOpen(PosMapFileName(), FILE_READ|FILE_TXT|FILE_ANSI);
+  if(h == INVALID_HANDLE) return false;
+  while(!FileIsEnding(h)) {
+    string line = FileReadString(h);
+    int eq = StringFind(line, "=");
+    if(eq <= 0) continue;
+    string sigPart = Trim(StringSubstr(line, eq + 1));
+    if(sigPart == sigId) {
+      string idPart = Trim(StringSubstr(line, 0, eq));
+      posIdOut = (ulong)StringToInteger(idPart);
+      FileClose(h);
+      return (posIdOut != 0);
+    }
+  }
+  FileClose(h);
+  return false;
+}
+
 void PersistSaveSignalId(const string id) {
   g_persistedSignalId = id;
   int h = FileOpen(PersistFileName(), FILE_WRITE|FILE_TXT|FILE_ANSI);
@@ -390,7 +422,17 @@ void PersistLoad() {
     string line = FileReadString(h);
     if(StringFind(line, "signal_id=") == 0) g_persistedSignalId = Trim(StringSubstr(line, StringLen("signal_id=")));
     if(StringFind(line, "closed_signal_id=") == 0) g_persistedClosedSignalId = Trim(StringSubstr(line, StringLen("closed_signal_id=")));
+    if(StringFind(line, "last_mod_seen_ms=") == 0) g_lastModSeenMs = (long)StringToInteger(Trim(StringSubstr(line, StringLen("last_mod_seen_ms="))));
   }
+  FileClose(h);
+}
+
+void PersistSaveModSeen() {
+  int h = FileOpen(PersistFileName(), FILE_WRITE|FILE_TXT|FILE_ANSI);
+  if(h == INVALID_HANDLE) { Print("Persist: save mod-seen failed err=", GetLastError()); return; }
+  FileWriteString(h, "signal_id=" + g_persistedSignalId + "\n");
+  FileWriteString(h, "closed_signal_id=" + g_persistedClosedSignalId + "\n");
+  FileWriteString(h, "last_mod_seen_ms=" + (string)g_lastModSeenMs + "\n");
   FileClose(h);
 }
 
@@ -1636,6 +1678,37 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
     if(Trim(g_persistedSignalId)!="") g_lastSignalId = g_persistedSignalId;
   }
 
+  // ---- Position SL/TP change → broadcast modify to server ----
+  // MT5 fires TRADE_TRANSACTION_POSITION when SL/TP are updated on an open
+  // position. If this position is one we have a signal mapping for, push the
+  // new SL/TP so customer EAs receive it via /signal/mods.
+  if(InpEnableModSync && trans.type == TRADE_TRANSACTION_POSITION) {
+    // Skip if we just applied a remote mod ourselves (avoid echo).
+    long ageSinceApply = NowMsUtc() - g_lastModApplyMs;
+    if(g_lastModApplyMs == 0 || ageSinceApply > 2000) {
+      ulong posT = trans.position;
+      if(posT != 0 && PositionSelectByTicket(posT)) {
+        string mappedSig = "";
+        if(PosMapGet(posT, mappedSig) && Trim(mappedSig) != "") {
+          double psl = PositionGetDouble(POSITION_SL);
+          double ptp = PositionGetDouble(POSITION_TP);
+          string sym = PositionGetString(POSITION_SYMBOL);
+          int dig = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+          string body = "{";
+          body += "\"signal_id\":\"" + mappedSig + "\"";
+          if(psl > 0.0) body += ",\"sl\":" + DoubleToString(psl, dig);
+          if(ptp > 0.0) body += ",\"tp\":[" + DoubleToString(ptp, dig) + "]";
+          body += "}";
+          string hdr = "X-API-Key: " + InpEaApiKey + "\r\n";
+          int stMod = HttpPostJson(BuildUrl("/signal/modify"), body, hdr);
+          if(InpDebugHttp) Print("POST /signal/modify code=", stMod, " signal_id=", mappedSig,
+                                  " sl=", DoubleToString(psl, dig), " tp=", DoubleToString(ptp, dig));
+        }
+      }
+    }
+    return; // POSITION transaction handled — don't fall through to DEAL_ADD logic
+  }
+
   if(trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
   ulong deal = trans.deal;
   if(deal == 0) return;
@@ -1832,6 +1905,133 @@ void OnTick() {
   ManageOpenPosition();
 }
 
+// ---- /signal/mods polling: pick up live SL/TP changes ----
+// Parses ONE mod object at a time from a JSON like
+//   {"ok":true,"mods":[{"signal_id":"...","ts_ms":123,"sl":4700,"tp":[4720]},...]}
+// and applies it to the local position with that signal_id.
+double _parseJsonNumber(const string blob, const string key, const double fallback) {
+  string needle = "\"" + key + "\":";
+  int idx = StringFind(blob, needle);
+  if(idx < 0) return fallback;
+  idx += StringLen(needle);
+  // Skip whitespace
+  while(idx < StringLen(blob) && (StringGetCharacter(blob, idx) == ' ' || StringGetCharacter(blob, idx) == '\t')) idx++;
+  if(idx >= StringLen(blob)) return fallback;
+  // Capture until next , } ]
+  int end = idx;
+  while(end < StringLen(blob)) {
+    ushort ch = StringGetCharacter(blob, end);
+    if(ch == ',' || ch == '}' || ch == ']' || ch == ' ' || ch == '\n' || ch == '\r') break;
+    end++;
+  }
+  string num = StringSubstr(blob, idx, end - idx);
+  if(Trim(num) == "" || Trim(num) == "null") return fallback;
+  return StringToDouble(num);
+}
+string _parseJsonString(const string blob, const string key) {
+  string needle = "\"" + key + "\":\"";
+  int idx = StringFind(blob, needle);
+  if(idx < 0) return "";
+  idx += StringLen(needle);
+  int end = StringFind(blob, "\"", idx);
+  if(end < 0) return "";
+  return StringSubstr(blob, idx, end - idx);
+}
+
+void ApplyOneMod(const string modJson) {
+  string sigId = _parseJsonString(modJson, "signal_id");
+  if(Trim(sigId) == "") return;
+  double newSl = _parseJsonNumber(modJson, "sl", 0.0);
+  // tp is an array; capture the FIRST number inside [ ... ]
+  double newTp = 0.0;
+  int tpIdx = StringFind(modJson, "\"tp\":[");
+  if(tpIdx >= 0) {
+    tpIdx += 6;
+    int closeIdx = StringFind(modJson, "]", tpIdx);
+    if(closeIdx > tpIdx) {
+      string inner = StringSubstr(modJson, tpIdx, closeIdx - tpIdx);
+      // first number
+      int commaIdx = StringFind(inner, ",");
+      string first = (commaIdx >= 0) ? StringSubstr(inner, 0, commaIdx) : inner;
+      first = Trim(first);
+      if(first != "" && first != "null") newTp = StringToDouble(first);
+    }
+  }
+
+  ulong posTicket = 0;
+  if(!PosMapGetBySig(sigId, posTicket) || posTicket == 0) {
+    if(InpDebugTrade) Print("Mod skip: no local position for signal_id=", sigId);
+    return;
+  }
+  if(!PositionSelectByTicket(posTicket)) {
+    if(InpDebugTrade) Print("Mod skip: PositionSelectByTicket failed posId=", posTicket);
+    return;
+  }
+
+  double curSl = PositionGetDouble(POSITION_SL);
+  double curTp = PositionGetDouble(POSITION_TP);
+  double finalSl = (newSl > 0.0) ? newSl : curSl;
+  double finalTp = (newTp > 0.0) ? newTp : curTp;
+
+  // No-op if nothing changed (avoid bouncing OnTradeTransaction).
+  double tol = SymbolInfoDouble(PositionGetString(POSITION_SYMBOL), SYMBOL_POINT);
+  if(tol <= 0) tol = 0.00001;
+  if(MathAbs(finalSl - curSl) < tol && MathAbs(finalTp - curTp) < tol) return;
+
+  g_lastModApplyMs = NowMsUtc();
+  bool ok = trade.PositionModify(posTicket, finalSl, finalTp);
+  if(InpDebugTrade) Print("Mod apply ok=", ok, " posId=", posTicket, " signal_id=", sigId,
+                          " sl=", DoubleToString(finalSl, _Digits), " tp=", DoubleToString(finalTp, _Digits),
+                          " ret=", trade.ResultRetcode(), " ", trade.ResultRetcodeDescription());
+}
+
+void PollSignalMods() {
+  if(!InpEnableModSync) return;
+  if(Trim(InpBaseUrl) == "" || Trim(InpEaApiKey) == "") return;
+
+  ulong nowMs = (ulong)(GetMicrosecondCount() / 1000);
+  if(g_lastModPollMs != 0 && nowMs - g_lastModPollMs < (ulong)InpModPollSeconds * 1000) return;
+  g_lastModPollMs = nowMs;
+
+  long login = AccountInfoInteger(ACCOUNT_LOGIN);
+  string srvQ = UrlEncode(AccountInfoString(ACCOUNT_SERVER));
+  string url = BuildUrl("/signal/mods?account_login=" + (string)login +
+                        "&server=" + srvQ +
+                        "&since_ms=" + (string)g_lastModSeenMs);
+
+  int st = 0;
+  string resp = HttpGetText(url, st);
+  if(st < 200 || st >= 300) {
+    if(InpDebugHttp) Print("Mods poll: HTTP ", st);
+    return;
+  }
+  if(StringFind(resp, "\"mods\":[]") >= 0) return; // empty, fast-path
+
+  // Walk through each mod object {...}
+  int cursor = StringFind(resp, "\"mods\":[");
+  if(cursor < 0) return;
+  cursor += 8;
+
+  long maxTs = g_lastModSeenMs;
+  while(cursor < StringLen(resp)) {
+    int objStart = StringFind(resp, "{", cursor);
+    if(objStart < 0) break;
+    int objEnd = StringFind(resp, "}", objStart);
+    if(objEnd < 0) break;
+    string obj = StringSubstr(resp, objStart, objEnd - objStart + 1);
+    long modTs = (long)_parseJsonNumber(obj, "ts_ms", 0);
+    if(modTs > maxTs) maxTs = modTs;
+    ApplyOneMod(obj);
+    cursor = objEnd + 1;
+    // Stop at end of array
+    if(StringFind(resp, "]", cursor) == cursor || StringGetCharacter(resp, cursor) == ']') break;
+  }
+  if(maxTs > g_lastModSeenMs) {
+    g_lastModSeenMs = maxTs;
+    PersistSaveModSeen();
+  }
+}
+
 void OnTimer() {
   // Periodic license re-check (every 6h, see ValidateLicenseOrFail).
   ValidateLicenseOrFail(false);
@@ -1839,6 +2039,9 @@ void OnTimer() {
     if(InpEnableBanner) SetBanner("FLEXBOT EA", "Status: LICENSE " + g_licenseStatus, "Contact support to renew.");
     return;
   }
+
+  // Live SL/TP modifications — poll every InpModPollSeconds.
+  PollSignalMods();
 
   // Seed M15 history (once after startup)
   if(InpDoSeed && !g_seedDone && TimeCurrent() >= g_nextSeedTry) {
