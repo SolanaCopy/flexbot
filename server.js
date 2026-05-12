@@ -1222,6 +1222,7 @@ app.get("/signal/create", async (req, res) => {
       sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
       args: [id, symbol, direction, sl, JSON.stringify(tp), Number.isFinite(risk_pct) ? risk_pct : 0.5, comment, "new", nowMs, created_at_mt5],
     });
+    try { _invalidateNextSignalCache(symbol); } catch {}
 
     return res.json({ ok: true, id, symbol, direction, sl, tp, risk_pct, created_at: created_at_mt5 });
   } catch {
@@ -1472,6 +1473,7 @@ app.get("/signal/auto/create", async (req, res) => {
       sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
       args: [id, symbol, direction, sl, JSON.stringify(tp), Number.isFinite(risk_pct) ? risk_pct : 0.5, comment, "new", nowMs, created_at_mt5],
     });
+    try { _invalidateNextSignalCache(symbol); } catch {}
 
     return res.json({ ok: true, id, symbol, direction, sl, tp, risk_pct, created_at: created_at_mt5 });
   } catch {
@@ -1542,6 +1544,7 @@ app.post("/signal/manual/open", async (req, res) => {
       sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
       args: [id, symbol, direction, sl, JSON.stringify(tp), risk_pct, comment, "active", nowMs, created_at_mt5],
     });
+    try { _invalidateNextSignalCache(symbol); } catch {}
 
     // Record execution against the originating account so /signal/next won't
     // serve the manual broadcast back to the same account (would cause a duplicate trade).
@@ -1768,6 +1771,7 @@ app.post("/signal", async (req, res) => {
         created_at_mt5,
       ],
     });
+    try { _invalidateNextSignalCache(symbol); } catch {}
 
     return res.json({ ok: true, id, symbol, direction, sl, tp, risk_pct, created_at: created_at_mt5 });
   } catch {
@@ -2295,6 +2299,20 @@ async function _logPoll(db, account_login, server, symbol, since_ms, returned_si
   } catch { /* never let logging break the poll */ }
 }
 
+// Per-(account+server+symbol) cache for /signal/next responses. Tiny TTL so
+// freshness stays acceptable but DB load drops dramatically. The cache is
+// busted explicitly whenever a new signal is created or a mod is recorded,
+// so customers never miss a fresh broadcast.
+const _nextSignalCache = new Map(); // key -> { result, ts }
+const NEXT_CACHE_TTL_MS = 5000;
+function _invalidateNextSignalCache(symbol) {
+  if (!symbol) { _nextSignalCache.clear(); return; }
+  const sym = String(symbol).toUpperCase();
+  for (const k of [..._nextSignalCache.keys()]) {
+    if (k.startsWith(sym + ":")) _nextSignalCache.delete(k);
+  }
+}
+
 app.get("/signal/next", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
@@ -2309,6 +2327,13 @@ app.get("/signal/next", async (req, res) => {
     const sinceRaw = req.query.since_ms != null ? String(req.query.since_ms) : null;
     const sinceMs = sinceRaw && /^\d+$/.test(sinceRaw) ? Number(sinceRaw) : 0;
     const sinceMsSafe = Number.isFinite(sinceMs) && sinceMs > 0 ? sinceMs : 0;
+
+    // Cache check
+    const cacheKey = `${symbol}:${account_login}@${server}:${sinceMsSafe}`;
+    const cached = _nextSignalCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < NEXT_CACHE_TTL_MS) {
+      return res.json(cached.result);
+    }
 
     // TTL guard: never serve very old pending signals (prevents stale/ghost backlog).
     // Env: SIGNAL_TTL_MIN (default 120 minutes). Set to 0 to disable.
@@ -2344,8 +2369,10 @@ app.get("/signal/next", async (req, res) => {
 
       const r = rows.rows?.[0];
       if (!r) {
+        const result = { ok: true, signal: null };
+        _nextSignalCache.set(cacheKey, { result, ts: Date.now() });
         await _logPoll(db, account_login, server, symbol, sinceMsSafe, null, "no_signal");
-        return res.json({ ok: true, signal: null });
+        return res.json(result);
       }
 
       // If we have a fresh local price for this symbol, validate SL vs current price.
@@ -2399,7 +2426,7 @@ app.get("/signal/next", async (req, res) => {
 
       await _logPoll(db, account_login, server, symbol, sinceMsSafe, String(r.id), "returned");
 
-      return res.json({
+      const result = {
         ok: true,
         signal: {
           id: String(r.id),
@@ -2412,7 +2439,9 @@ app.get("/signal/next", async (req, res) => {
           created_at: String(r.created_at_mt5),
           comment: r.comment != null ? String(r.comment) : null,
         },
-      });
+      };
+      _nextSignalCache.set(cacheKey, { result, ts: Date.now() });
+      return res.json(result);
     }
 
     // If we skipped too many, fail safe.
@@ -8153,6 +8182,7 @@ app.post("/admin/signal/create", async (req, res) => {
       sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
       args: [id, symbol, direction, sl, JSON.stringify(tp), risk_pct, comment, "new", nowMs, created_at_mt5],
     });
+    try { _invalidateNextSignalCache(symbol); } catch {}
 
     return res.json({ ok: true, id, symbol, direction, sl, tp, risk_pct, created_at_ms: nowMs });
   } catch (e) {
