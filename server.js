@@ -8016,6 +8016,133 @@ app.get("/r/:code", async (req, res) => {
   return res.redirect(302, `${dest}/?ref=${encodeURIComponent(raw)}`);
 });
 
+// GET /leaderboard — visual HTML page of current month's referral standings.
+app.get("/leaderboard", async (req, res) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).send("DB unavailable");
+
+    const now = new Date();
+    const startMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0);
+    const endMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0);
+    const monthLabel = now.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+    const daysLeft = Math.ceil((endMs - Date.now()) / (24 * 60 * 60 * 1000));
+
+    const rows = await db.execute({
+      sql:
+        "SELECT l.referred_by_short_code AS code, COUNT(*) AS cnt " +
+        "FROM licenses l " +
+        "WHERE l.referred_by_short_code IS NOT NULL " +
+        "  AND l.referred_at_ms >= ? AND l.referred_at_ms < ? " +
+        "GROUP BY l.referred_by_short_code " +
+        "ORDER BY cnt DESC LIMIT 20",
+      args: [startMs, endMs],
+    });
+
+    const codes = (rows.rows || []).map((r) => String(r.code));
+    let names = {};
+    if (codes.length > 0) {
+      const ph = codes.map(() => "?").join(",");
+      const lookup = await db.execute({
+        sql: `SELECT short_code, notes, email FROM licenses WHERE short_code IN (${ph})`,
+        args: codes,
+      });
+      for (const row of lookup.rows || []) {
+        const code = String(row.short_code);
+        const m = String(row.notes || "").match(/@([A-Za-z0-9_]+)/);
+        names[code] = m ? "@" + m[1] : (row.email || code);
+      }
+    }
+
+    const escapeHtml = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const medals = ["🥇", "🥈", "🥉"];
+    const rowsHtml = (rows.rows || []).map((r, i) => {
+      const rank = i + 1;
+      const badge = rank <= 3 ? medals[rank - 1] : `<span class="rank-num">${rank}</span>`;
+      const name = names[String(r.code)] || String(r.code);
+      const tier = rank === 1 ? "tier-gold" : rank === 2 ? "tier-silver" : rank === 3 ? "tier-bronze" : "";
+      return `<tr class="${tier}"><td class="rank">${badge}</td><td class="name">${escapeHtml(name)}</td><td class="invites">${r.cnt}</td></tr>`;
+    }).join("");
+
+    const empty = !rowsHtml ? `<tr><td colspan="3" class="empty">No invites yet this month — be the first 🚀</td></tr>` : "";
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FlexBot — Referral Leaderboard</title>
+<style>
+  :root { --bg:#0a0a0c; --card:#15151a; --border:#26262d; --text:#e7e7eb; --muted:#7a7a85; --gold:#fbbf24; --silver:#cfcfcf; --bronze:#cd7f32; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; min-height:100vh; padding:24px 16px; }
+  .wrap { max-width:760px; margin:0 auto; }
+  header { text-align:center; padding:30px 20px 36px; }
+  header .brand { font-size:13px; font-weight:700; letter-spacing:3px; color:var(--gold); margin-bottom:8px; }
+  header h1 { font-size:36px; font-weight:800; letter-spacing:-1px; margin-bottom:6px; }
+  header .sub { color:var(--muted); font-size:14px; }
+  .summary { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:28px; }
+  .stat { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px; text-align:center; }
+  .stat .lbl { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:1.5px; margin-bottom:8px; }
+  .stat .val { font-size:24px; font-weight:700; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  table { width:100%; border-collapse:collapse; font-size:15px; }
+  th, td { padding:14px 18px; text-align:left; border-bottom:1px solid var(--border); }
+  th { background:#0a0a0c; font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--muted); }
+  tr:last-child td { border-bottom:none; }
+  td.rank { width:60px; font-size:22px; font-weight:700; }
+  .rank-num { color:var(--muted); font-size:16px; font-weight:600; margin-left:6px; }
+  td.invites { text-align:right; font-weight:700; font-size:18px; width:90px; font-variant-numeric:tabular-nums; }
+  tr.tier-gold td.name { color:var(--gold); font-weight:700; }
+  tr.tier-silver td.name { color:var(--silver); font-weight:600; }
+  tr.tier-bronze td.name { color:var(--bronze); font-weight:600; }
+  td.empty { text-align:center; padding:40px 20px; color:var(--muted); }
+  .prize { background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(251,191,36,.04)); border:1px solid rgba(251,191,36,.3); border-radius:10px; padding:18px; margin-top:24px; text-align:center; }
+  .prize .ttl { color:var(--gold); font-size:11px; text-transform:uppercase; letter-spacing:2px; margin-bottom:6px; font-weight:700; }
+  .prize .body { font-size:14px; color:#d4d4d8; }
+  footer { text-align:center; margin-top:32px; color:var(--muted); font-size:12px; }
+  footer a { color:var(--gold); text-decoration:none; }
+  @media (max-width:480px) { header h1 { font-size:28px; } th,td { padding:12px 12px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">FLEXBOT</div>
+    <h1>🏆 Referral Leaderboard</h1>
+    <div class="sub">${monthLabel} · Top inviters this month</div>
+  </header>
+
+  <div class="summary">
+    <div class="stat"><div class="lbl">Inviters</div><div class="val">${rows.rows?.length || 0}</div></div>
+    <div class="stat"><div class="lbl">Days remaining</div><div class="val">${daysLeft}</div></div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Rank</th><th>Name</th><th style="text-align:right">Invites</th></tr></thead>
+      <tbody>${rowsHtml}${empty}</tbody>
+    </table>
+  </div>
+
+  <div class="prize">
+    <div class="ttl">🎁 Monthly Prize</div>
+    <div class="body">#1 at the end of the month wins <b>+30 days free</b> on their Flexbot license.<br>Auto-applied · Announced in the community group.</div>
+  </div>
+
+  <footer>
+    Get your invite link in the community group: <code>/myref</code> · <a href="https://www.fxflexbot.com">www.fxflexbot.com</a>
+  </footer>
+</div>
+</body>
+</html>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(html);
+  } catch (e) {
+    return res.status(500).send("error: " + String(e?.message || e));
+  }
+});
+
 // GET /api/leaderboard  (?month=YYYY-MM optional)
 // Public referral leaderboard for the current calendar month (UTC).
 app.get("/api/leaderboard", async (req, res) => {
