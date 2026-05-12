@@ -8134,6 +8134,124 @@ app.get("/api/myref", async (req, res) => {
   }
 });
 
+// POST /admin/license/:id/extend?key=DASHBOARD_KEY&days=N
+// Extend a license's expiry by N days (used by monthly winner reward).
+app.post("/admin/license/:id/extend", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const id = String(req.params.id);
+    const days = Math.max(1, Math.min(366, Number(req.query.days) || 30));
+    const row = await db.execute({ sql: "SELECT expires_at_ms FROM licenses WHERE id=? LIMIT 1", args: [id] });
+    if (!row.rows?.[0]) return res.status(404).json({ ok: false, error: "license_not_found" });
+    const cur = row.rows[0].expires_at_ms != null ? Number(row.rows[0].expires_at_ms) : null;
+    // Extend from now if already expired, else from current expiry.
+    const base = cur && cur > Date.now() ? cur : Date.now();
+    const next = base + days * 24 * 60 * 60 * 1000;
+    await db.execute({ sql: "UPDATE licenses SET expires_at_ms=?, status='active' WHERE id=?", args: [next, id] });
+    return res.json({ ok: true, license_id: id, days_added: days, new_expiry_ms: next, new_expiry: new Date(next).toISOString() });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// Monthly winner cron: find the top referrer of the just-finished month,
+// extend their license by 30 days, announce in Telegram. Idempotent via a
+// completion marker stored in ea_notifs.
+async function _runMonthlyReferralWinnerJob(db, opts) {
+  if (!db) return { ok: false, error: "db_required" };
+  const force = opts && opts.force;
+  const now = new Date();
+  // Previous calendar month in UTC
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth(); // 0-based; we want previous = m-1
+  const prevMonthStart = Date.UTC(y, m - 1, 1, 0, 0, 0);
+  const prevMonthEnd = Date.UTC(y, m, 1, 0, 0, 0);
+  const monthLabel = `${new Date(prevMonthStart).getUTCFullYear()}-${String(new Date(prevMonthStart).getUTCMonth() + 1).padStart(2, "0")}`;
+
+  // De-dupe: only run once per month.
+  await db.execute(
+    "CREATE TABLE IF NOT EXISTS ea_notifs (symbol TEXT NOT NULL, kind TEXT NOT NULL, ref_ms INTEGER NOT NULL, created_at_ms INTEGER NOT NULL)"
+  );
+  const dedupKey = "REFERRAL_WINNER:" + monthLabel;
+  if (!force) {
+    const ex = await db.execute({ sql: "SELECT 1 FROM ea_notifs WHERE symbol=? AND kind=? LIMIT 1", args: [dedupKey, "month"] });
+    if (ex.rows?.length) return { ok: true, skipped: "already_announced", month: monthLabel };
+  }
+
+  // Find top referrer of previous month.
+  const top = await db.execute({
+    sql:
+      "SELECT referred_by_short_code AS code, COUNT(*) AS cnt FROM licenses " +
+      "WHERE referred_by_short_code IS NOT NULL AND referred_at_ms >= ? AND referred_at_ms < ? " +
+      "GROUP BY referred_by_short_code ORDER BY cnt DESC LIMIT 1",
+    args: [prevMonthStart, prevMonthEnd],
+  });
+  const winner = top.rows?.[0];
+  if (!winner) return { ok: true, skipped: "no_invites_last_month", month: monthLabel };
+
+  const code = String(winner.code);
+  const cnt = Number(winner.cnt);
+
+  // Look up the winner's license + display name.
+  const licRow = await db.execute({
+    sql: "SELECT id, notes, email FROM licenses WHERE short_code=? LIMIT 1",
+    args: [code],
+  });
+  const lic = licRow.rows?.[0];
+  if (!lic) return { ok: true, skipped: "winner_license_not_found", month: monthLabel, code };
+
+  const m2 = String(lic.notes || "").match(/@([A-Za-z0-9_]+)/);
+  const displayName = m2 ? "@" + m2[1] : (lic.email || code);
+
+  // Extend their license by 30 days.
+  const baseExp = await db.execute({ sql: "SELECT expires_at_ms FROM licenses WHERE id=?", args: [String(lic.id)] });
+  const curExp = baseExp.rows?.[0]?.expires_at_ms != null ? Number(baseExp.rows[0].expires_at_ms) : null;
+  const base = curExp && curExp > Date.now() ? curExp : Date.now();
+  const newExp = base + 30 * 24 * 60 * 60 * 1000;
+  await db.execute({ sql: "UPDATE licenses SET expires_at_ms=?, status='active' WHERE id=?", args: [newExp, String(lic.id)] });
+
+  // Telegram announcement (community group).
+  try {
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    const text =
+      `🏆 *Monthly Referral Winner — ${monthLabel}*\n\n` +
+      `Congrats *${displayName}* — ${cnt} invite${cnt === 1 ? "" : "s"} 🎉\n\n` +
+      `You've earned **+1 month free** on your Flexbot license.\n` +
+      `Already applied — your expiry is now extended.\n\n` +
+      `Want next month's prize? Share your invite link.\n` +
+      `Use /myref to get yours, /toprefs to see the board.`;
+    await tgSendMessage({ chatId, text });
+  } catch { /* announcement is best-effort */ }
+
+  await db.execute({
+    sql: "INSERT INTO ea_notifs (symbol, kind, ref_ms, created_at_ms) VALUES (?,?,?,?)",
+    args: [dedupKey, "month", prevMonthStart, Date.now()],
+  });
+
+  return { ok: true, month: monthLabel, winner_code: code, winner_name: displayName, invites: cnt, new_expiry_ms: newExp };
+}
+
+// POST/GET /admin/cron/referral-winner?key=DASHBOARD_KEY[&force=1]
+// Hit daily — only acts on the 1st of each month (or with force=1).
+app.all("/admin/cron/referral-winner", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const force = String(req.query.force || "") === "1";
+    const db = await getDb();
+    // Only run automatically on day-of-month 1 (UTC); manual override with ?force=1.
+    if (!force) {
+      const d = new Date();
+      if (d.getUTCDate() !== 1) return res.json({ ok: true, skipped: "not_first_of_month", today_utc_day: d.getUTCDate() });
+    }
+    const result = await _runMonthlyReferralWinnerJob(db, { force });
+    return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // POST /admin/license/:id/revoke  (?key=DASHBOARD_KEY)
 app.post("/admin/license/:id/revoke", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
@@ -10418,6 +10536,22 @@ async function main() {
     }
   }, 3 * 60 * 1000);
   console.log("[cron] news pause scheduler armed (3 min interval)");
+
+  // Monthly referral winner — check once per hour, only acts on the 1st of the
+  // month (de-duped via ea_notifs).
+  setInterval(async () => {
+    try {
+      const d = new Date();
+      if (d.getUTCDate() !== 1) return;
+      const db = await getDb();
+      if (!db) return;
+      const r = await _runMonthlyReferralWinnerJob(db);
+      if (r?.winner_code) console.log("[cron] referral winner:", r.winner_name, r.invites + " invites");
+    } catch (e) {
+      console.error("[cron] referral winner check failed:", e?.message || e);
+    }
+  }, 60 * 60 * 1000);
+  console.log("[cron] referral winner scheduler armed (hourly on day-1 UTC)");
 
   const port = process.env.PORT || 3000;
   app.listen(port, "0.0.0.0", () => console.log("listening", port));
