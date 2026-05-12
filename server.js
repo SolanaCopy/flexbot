@@ -1944,7 +1944,11 @@ app.post("/signal/closed", async (req, res) => {
     const outcome = body?.outcome != null ? String(body.outcome) : null;
     const result = body?.result != null ? String(body.result) : null;
     const closedDirection = body?.direction != null ? String(body.direction).toUpperCase() : null;
-    const closedAtMsRaw = body?.closed_at_ms != null ? Number(body.closed_at_ms) : Date.now();
+    // Ignore body.closed_at_ms — the EA constructs it from TimeCurrent() which is
+    // broker server time (e.g. GMT+3 on FTMO), causing the DB to store close times
+    // that are hours ahead of UTC. Always use Date.now() instead — the close-post
+    // fires within seconds of the actual fill, so server time is more reliable.
+    const closedAtMsRaw = Date.now();
     const closed_at_ms = Number.isFinite(closedAtMsRaw) ? closedAtMsRaw : Date.now();
 
     if (!signal_id) return res.status(400).json({ ok: false, error: "bad_signal_id" });
