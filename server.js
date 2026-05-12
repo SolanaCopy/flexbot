@@ -2140,10 +2140,17 @@ app.post("/signal/closed", async (req, res) => {
       "Control over risk = control over emotion. Drawdown managed.",
     ];
 
+    // Decide caption + mascot based on ACTUAL P/L, not on the SL/TP label.
+    // A stop that was moved above entry and got hit is still a winning trade
+    // — we shouldn't post the "loss managed" message in green-pnl cases.
     const out2 = String(outcome || "").toLowerCase();
-    const isSl2 = out2.includes("sl");
+    const labelIsSl = out2.includes("sl");
+    const resultNum = Number(String(result || "").replace(/[^0-9.+-]/g, ""));
+    const isProfit = Number.isFinite(resultNum) && resultNum > 0;
+    const isLoss = Number.isFinite(resultNum) && resultNum < 0;
+    // Only use the loss-recap line when SL was hit AND the P/L is actually negative.
     const slMsg = (() => {
-      if (!isSl2) return null;
+      if (!labelIsSl || !isLoss) return null;
       const seed = `${signal_id}:${closed_at_ms}`;
       let h = 0;
       for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
@@ -5140,14 +5147,23 @@ function createClosedCardSvgV3({ id, symbol, direction, outcome, result, entry, 
   const outcomeStr = outcome || "-";
   const resultStr = result || "-";
 
+  // Determine win/loss by ACTUAL P/L sign, not by SL/TP label — a stop that was
+  // moved above entry (BUY) and got hit is still a profitable trade.
+  const rawNum = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
+  const hasResultNum = Number.isFinite(rawNum);
+  const prettyNum = hasResultNum ? Math.abs(rawNum).toFixed(2) : null;
+  const isNeg = hasResultNum
+    ? rawNum < 0
+    : (String(resultStr).trim().startsWith("-") || String(outcomeStr).toLowerCase().includes("sl"));
+  const pnlColor = isNeg ? "#ff4d4d" : "#22c55e";
+
+  // Outcome badge color: green if P/L is positive (even on SL-trigger), red if negative.
+  // Falls back to SL/TP label only when no numeric result is available.
   const isTp = String(outcomeStr).toLowerCase().includes("tp");
   const isSl = String(outcomeStr).toLowerCase().includes("sl");
-  const outcomeColor = isTp ? "#22c55e" : (isSl ? "#ff4d4d" : "#f59e0b");
-
-  const rawNum = Number(String(resultStr).replace(/[^0-9.+-]/g, ""));
-  const prettyNum = Number.isFinite(rawNum) ? Math.abs(rawNum).toFixed(2) : null;
-  const isNeg = String(resultStr).trim().startsWith("-") || isSl;
-  const pnlColor = isNeg ? "#ff4d4d" : "#22c55e";
+  const outcomeColor = hasResultNum
+    ? (isNeg ? "#ff4d4d" : "#22c55e")
+    : (isTp ? "#22c55e" : (isSl ? "#ff4d4d" : "#f59e0b"));
 
   const resultBig = prettyNum ? `${prettyNum} USD` : String(resultStr);
   const resultBigFont = fitFontByChars(resultBig, 74, 48, 12);
