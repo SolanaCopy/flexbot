@@ -7967,6 +7967,16 @@ app.get("/admin/render-test/closed", async (req, res) => {
   }
 });
 
+// GET /admin/mod-pollers?key=DASHBOARD_KEY — who's calling /signal/mods?
+app.get("/admin/mod-pollers", (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  const now = Date.now();
+  const list = [...(_modPollerStats?.entries?.() || [])].map(([key, v]) => ({
+    key, count: v.count, last_ago_sec: Math.round((now - v.lastTs) / 1000),
+  })).sort((a, b) => a.last_ago_sec - b.last_ago_sec);
+  return res.json({ ok: true, pollers: list });
+});
+
 // POST /signal/modify
 // Auth: master EA_API_KEY or any active license key (via X-API-Key header),
 //   OR DASHBOARD_KEY in query string for admin/Claude-side modify.
@@ -8034,12 +8044,22 @@ app.post("/signal/modify", async (req, res) => {
 // Customer EAs poll this every few seconds to fetch SL/TP changes for signals
 // they have already executed. Returns mods newer than since_ms, scoped to
 // signals this account actually has a successful execution on.
+// Lightweight counter of who's polling /signal/mods — helps diagnose whether
+// a customer is on the new EA version (which polls this) or the old one.
+const _modPollerStats = new Map(); // key=`${account}@${server}` → { count, lastTs }
 app.get("/signal/mods", async (req, res) => {
   try {
     const account_login = req.query.account_login != null ? String(req.query.account_login).trim() : "";
     const server = req.query.server != null ? String(req.query.server).trim() : "";
     const since_ms = Number(req.query.since_ms || 0);
     if (!account_login || !server) return res.status(400).json({ ok: false, error: "missing_account_identity" });
+
+    // Track who's polling.
+    const key = `${account_login}@${server}`;
+    const cur = _modPollerStats.get(key) || { count: 0, lastTs: 0 };
+    cur.count++;
+    cur.lastTs = Date.now();
+    _modPollerStats.set(key, cur);
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
