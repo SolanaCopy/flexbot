@@ -444,6 +444,13 @@ async function getDb() {
   await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_licenses_api_key ON licenses(api_key)");
   await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_licenses_status ON licenses(status)");
 
+  // Referral program columns (best-effort: tolerate already-existing).
+  try { await libsqlClient.execute("ALTER TABLE licenses ADD COLUMN short_code TEXT"); } catch {}
+  try { await libsqlClient.execute("ALTER TABLE licenses ADD COLUMN referred_by_short_code TEXT"); } catch {}
+  try { await libsqlClient.execute("ALTER TABLE licenses ADD COLUMN referred_at_ms INTEGER"); } catch {}
+  try { await libsqlClient.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_licenses_short_code ON licenses(short_code)"); } catch {}
+  try { await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_licenses_ref ON licenses(referred_by_short_code)"); } catch {}
+
   await libsqlClient.execute(
     "CREATE INDEX IF NOT EXISTS idx_signals_symbol_created ON signals(symbol, created_at_ms DESC)"
   );
@@ -7905,6 +7912,22 @@ function genApiKey(bytes = 24) {
   return "fb_" + buf.toString("hex");
 }
 
+// Short, URL-safe referral code (base36, 6 chars). Avoid ambiguous chars.
+async function genUniqueShortCode(db) {
+  const alphabet = "abcdefghjkmnpqrstuvwxyz23456789"; // no o/0/i/l/1 ambiguity
+  for (let i = 0; i < 12; i++) {
+    let code = "";
+    for (let j = 0; j < 6; j++) {
+      code += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    try {
+      const exist = await db.execute({ sql: "SELECT 1 FROM licenses WHERE short_code=? LIMIT 1", args: [code] });
+      if (!exist.rows?.length) return code;
+    } catch { return code; }
+  }
+  throw new Error("could not allocate unique short_code");
+}
+
 // Generate a unique magic number (avoid 0 and the reserved master magic).
 async function genUniqueMagic(db) {
   for (let i = 0; i < 10; i++) {
@@ -7918,8 +7941,9 @@ async function genUniqueMagic(db) {
 }
 
 // POST /admin/license/create  (?key=DASHBOARD_KEY)
-// Body: { email?, expires_at_ms?, notes? }
-// Returns: { ok, license_id, api_key, magic, download_url }
+// Body: { email?, expires_at_ms?, notes?, ref? }
+//   ref = short_code of the inviting customer (for referral tracking)
+// Returns: { ok, license_id, api_key, magic, short_code, download_url, ref_link }
 app.post("/admin/license/create", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
   try {
@@ -7932,24 +7956,178 @@ app.post("/admin/license/create", async (req, res) => {
     const email = body?.email != null ? String(body.email).trim() : null;
     const notes = body?.notes != null ? String(body.notes).trim() : null;
     const expiresAtMs = body?.expires_at_ms != null ? Number(body.expires_at_ms) : null;
+    const refRaw = body?.ref != null ? String(body.ref).trim().toLowerCase() : (req.query.ref != null ? String(req.query.ref).trim().toLowerCase() : "");
+    let referredBy = null;
+    if (refRaw) {
+      const refRow = await db.execute({ sql: "SELECT short_code FROM licenses WHERE short_code=? LIMIT 1", args: [refRaw] });
+      if (refRow.rows?.[0]) referredBy = refRaw;
+    }
 
     const id = crypto.randomUUID();
     const apiKey = genApiKey();
     const magic = await genUniqueMagic(db);
+    const shortCode = await genUniqueShortCode(db);
     const nowMs = Date.now();
 
     await db.execute({
-      sql: "INSERT INTO licenses (id,email,api_key,magic,status,notes,created_at_ms,expires_at_ms) VALUES (?,?,?,?,?,?,?,?)",
-      args: [id, email, apiKey, magic, "active", notes, nowMs, Number.isFinite(expiresAtMs) ? expiresAtMs : null],
+      sql: "INSERT INTO licenses (id,email,api_key,magic,status,notes,created_at_ms,expires_at_ms,short_code,referred_by_short_code,referred_at_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      args: [id, email, apiKey, magic, "active", notes, nowMs, Number.isFinite(expiresAtMs) ? expiresAtMs : null, shortCode, referredBy, referredBy ? nowMs : null],
     });
 
     const baseUrl = String(process.env.PUBLIC_BASE_URL || "https://flexbot-qpf2.onrender.com").trim().replace(/\/+$/, "");
+    const publicSite = String(process.env.PUBLIC_SITE_URL || "https://www.fxflexbot.com").trim().replace(/\/+$/, "");
     return res.json({
       ok: true,
       license_id: id,
       api_key: apiKey,
       magic,
+      short_code: shortCode,
+      referred_by: referredBy,
       download_url: `${baseUrl}/download/${id}`,
+      ref_link: `${publicSite}/r/${shortCode}`,
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ============================================================
+// REFERRAL PROGRAM
+// ============================================================
+
+// GET /r/:code — public short-link. Redirects to landing page with ?ref=code.
+app.get("/r/:code", async (req, res) => {
+  const raw = String(req.params.code || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const dest = String(process.env.PUBLIC_SITE_URL || "https://www.fxflexbot.com").trim().replace(/\/+$/, "");
+  if (!raw) return res.redirect(302, dest);
+  // Track the click (best effort, no auth needed).
+  try {
+    const db = await getDb();
+    if (db) {
+      await db.execute(
+        "CREATE TABLE IF NOT EXISTS ref_clicks (short_code TEXT NOT NULL, ts_ms INTEGER NOT NULL, ip TEXT, ua TEXT)"
+      );
+      await db.execute({
+        sql: "INSERT INTO ref_clicks (short_code, ts_ms, ip, ua) VALUES (?,?,?,?)",
+        args: [raw, Date.now(), String(req.ip || "").slice(0, 64), String(req.headers["user-agent"] || "").slice(0, 200)],
+      });
+    }
+  } catch { /* ignore */ }
+  return res.redirect(302, `${dest}/?ref=${encodeURIComponent(raw)}`);
+});
+
+// GET /api/leaderboard  (?month=YYYY-MM optional)
+// Public referral leaderboard for the current calendar month (UTC).
+app.get("/api/leaderboard", async (req, res) => {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    const now = new Date();
+    const monthRaw = String(req.query.month || "").trim();
+    let startMs, endMs, label;
+    if (/^\d{4}-\d{2}$/.test(monthRaw)) {
+      const [y, m] = monthRaw.split("-").map(Number);
+      startMs = Date.UTC(y, m - 1, 1, 0, 0, 0);
+      endMs = Date.UTC(y, m, 1, 0, 0, 0);
+      label = monthRaw;
+    } else {
+      startMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0);
+      endMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0);
+      label = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    }
+
+    const rows = await db.execute({
+      sql:
+        "SELECT l.referred_by_short_code AS code, COUNT(*) AS cnt " +
+        "FROM licenses l " +
+        "WHERE l.referred_by_short_code IS NOT NULL " +
+        "  AND l.referred_at_ms >= ? AND l.referred_at_ms < ? " +
+        "GROUP BY l.referred_by_short_code " +
+        "ORDER BY cnt DESC LIMIT 20",
+      args: [startMs, endMs],
+    });
+
+    // Enrich with referrer's display name (parse @username from notes)
+    const codes = (rows.rows || []).map((r) => String(r.code));
+    let names = {};
+    if (codes.length > 0) {
+      const placeholders = codes.map(() => "?").join(",");
+      const lookup = await db.execute({
+        sql: `SELECT short_code, notes, email FROM licenses WHERE short_code IN (${placeholders})`,
+        args: codes,
+      });
+      for (const row of lookup.rows || []) {
+        const code = String(row.short_code);
+        const m = String(row.notes || "").match(/@([A-Za-z0-9_]+)/);
+        names[code] = m ? "@" + m[1] : (row.email || code);
+      }
+    }
+
+    const list = (rows.rows || []).map((r, i) => ({
+      rank: i + 1,
+      code: String(r.code),
+      name: names[String(r.code)] || String(r.code),
+      invites: Number(r.cnt),
+    }));
+
+    return res.json({ ok: true, month: label, leaderboard: list });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// GET /api/myref?api_key=...
+// Returns the caller's referral stats: their short_code, monthly count, rank.
+app.get("/api/myref", async (req, res) => {
+  try {
+    const apiKey = String(req.query.api_key || "").trim();
+    if (!apiKey) return res.status(400).json({ ok: false, error: "missing_api_key" });
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    const lic = await db.execute({
+      sql: "SELECT id,short_code,notes FROM licenses WHERE api_key=? LIMIT 1",
+      args: [apiKey],
+    });
+    const me = lic.rows?.[0];
+    if (!me) return res.status(404).json({ ok: false, error: "unknown_api_key" });
+
+    const code = String(me.short_code || "").toLowerCase();
+    if (!code) return res.json({ ok: true, short_code: null, invites_this_month: 0, total_invites: 0 });
+
+    const now = new Date();
+    const startMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0);
+    const endMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0);
+
+    const month = await db.execute({
+      sql: "SELECT COUNT(*) AS cnt FROM licenses WHERE referred_by_short_code=? AND referred_at_ms >= ? AND referred_at_ms < ?",
+      args: [code, startMs, endMs],
+    });
+    const total = await db.execute({
+      sql: "SELECT COUNT(*) AS cnt FROM licenses WHERE referred_by_short_code=?",
+      args: [code],
+    });
+
+    // Rank (count of referrers with strictly more invites this month + 1)
+    const rankRow = await db.execute({
+      sql:
+        "SELECT COUNT(*) AS ahead FROM (" +
+        "  SELECT referred_by_short_code, COUNT(*) AS c FROM licenses " +
+        "  WHERE referred_by_short_code IS NOT NULL AND referred_at_ms >= ? AND referred_at_ms < ? " +
+        "  GROUP BY referred_by_short_code HAVING c > ? AND referred_by_short_code != ?" +
+        ")",
+      args: [startMs, endMs, Number(month.rows?.[0]?.cnt || 0), code],
+    });
+
+    const publicSite = String(process.env.PUBLIC_SITE_URL || "https://www.fxflexbot.com").trim().replace(/\/+$/, "");
+    return res.json({
+      ok: true,
+      short_code: code,
+      ref_link: `${publicSite}/r/${code}`,
+      invites_this_month: Number(month.rows?.[0]?.cnt || 0),
+      total_invites: Number(total.rows?.[0]?.cnt || 0),
+      rank_this_month: Number(rankRow.rows?.[0]?.ahead || 0) + 1,
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
