@@ -2214,6 +2214,37 @@ app.post("/signal/closed", async (req, res) => {
   }
 });
 
+// Lightweight poll-log so we can debug 'why didn't customer X get a signal' cases
+// without asking them for screenshots. Auto-prunes anything older than 48 hours.
+async function _ensurePollLogTable(db) {
+  try {
+    await db.execute(
+      "CREATE TABLE IF NOT EXISTS ea_polls (" +
+      "ts_ms INTEGER NOT NULL," +
+      "account_login TEXT NOT NULL," +
+      "server TEXT NOT NULL," +
+      "symbol TEXT NOT NULL," +
+      "since_ms INTEGER," +
+      "returned_signal_id TEXT," +
+      "result TEXT" +
+      ")"
+    );
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_ea_polls_account ON ea_polls(account_login, ts_ms DESC)");
+  } catch { /* ignore */ }
+}
+async function _logPoll(db, account_login, server, symbol, since_ms, returned_signal_id, result) {
+  try {
+    await db.execute({
+      sql: "INSERT INTO ea_polls (ts_ms, account_login, server, symbol, since_ms, returned_signal_id, result) VALUES (?,?,?,?,?,?,?)",
+      args: [Date.now(), String(account_login || ""), String(server || ""), String(symbol || ""), Number(since_ms) || 0, returned_signal_id || null, result || null],
+    });
+    // Prune anything older than 48h. Sparse cleanup (5% chance per call to avoid pile-up).
+    if (Math.random() < 0.05) {
+      await db.execute({ sql: "DELETE FROM ea_polls WHERE ts_ms < ?", args: [Date.now() - 48 * 60 * 60 * 1000] });
+    }
+  } catch { /* never let logging break the poll */ }
+}
+
 app.get("/signal/next", async (req, res) => {
   try {
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
@@ -2239,6 +2270,7 @@ app.get("/signal/next", async (req, res) => {
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+    await _ensurePollLogTable(db);
 
     // We may need to skip/cancel stale/invalid signals (e.g., SELL signal where current price already crossed below SL).
     // To avoid the EA looping forever on an impossible signal, we cancel it server-side and try the next one.
@@ -2261,7 +2293,10 @@ app.get("/signal/next", async (req, res) => {
       });
 
       const r = rows.rows?.[0];
-      if (!r) return res.json({ ok: true, signal: null });
+      if (!r) {
+        await _logPoll(db, account_login, server, symbol, sinceMsSafe, null, "no_signal");
+        return res.json({ ok: true, signal: null });
+      }
 
       // If we have a fresh local price for this symbol, validate SL vs current price.
       // If not available, serve the signal as-is (best effort).
@@ -2301,6 +2336,7 @@ app.get("/signal/next", async (req, res) => {
           sql: "UPDATE signals SET status='canceled', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
           args: [nowMs2, "CANCEL", `invalid_sl (cur=${curMid.toFixed(2)} sl=${sl})`, String(r.id)],
         });
+        await _logPoll(db, account_login, server, symbol, sinceMsSafe, String(r.id), `canceled_invalid_price(cur=${curMid.toFixed(2)},sl=${sl})`);
         continue;
       }
 
@@ -2310,6 +2346,8 @@ app.get("/signal/next", async (req, res) => {
       } catch {
         tp = [];
       }
+
+      await _logPoll(db, account_login, server, symbol, sinceMsSafe, String(r.id), "returned");
 
       return res.json({
         ok: true,
@@ -7849,6 +7887,19 @@ app.get("/admin/customer/:login", async (req, res) => {
     const tookCount = sigDiagnostic.filter((s) => s.took && !s.from_this_account).length;
     const missedCount = sigDiagnostic.filter((s) => !s.took && !s.from_this_account).length;
 
+    // 6) Recent polls (last 24h)
+    let polls = [];
+    try {
+      const pollRows = await db.execute({
+        sql: "SELECT ts_ms,server,symbol,since_ms,returned_signal_id,result FROM ea_polls WHERE account_login=? AND ts_ms >= ? ORDER BY ts_ms DESC LIMIT 100",
+        args: [login, since24h],
+      });
+      polls = pollRows.rows || [];
+    } catch { /* table might not exist yet */ }
+
+    const lastPollMs = polls[0]?.ts_ms ? Number(polls[0].ts_ms) : null;
+    const pollsWithSignal = polls.filter((p) => p.returned_signal_id != null);
+
     return res.json({
       ok: true,
       login,
@@ -7862,6 +7913,11 @@ app.get("/admin/customer/:login", async (req, res) => {
       } : null,
       last_status_post_ms: lastSeen,
       last_status_age_minutes: lastSeen ? Math.round((Date.now() - lastSeen) / 60000) : null,
+      last_poll_ms: lastPollMs,
+      last_poll_age_minutes: lastPollMs ? Math.round((Date.now() - lastPollMs) / 60000) : null,
+      polls_24h_total: polls.length,
+      polls_24h_with_signal: pollsWithSignal.length,
+      polls_recent: polls.slice(0, 20),
       positions: positions.map((p) => ({
         server: p.server,
         magic: p.magic,
