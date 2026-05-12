@@ -2279,7 +2279,14 @@ app.get("/signal/next", async (req, res) => {
       const sl = Number(r.sl);
       const slOk = Number.isFinite(sl) && sl > 0;
 
+      // Manual master broadcasts (id starts with 'm-') are already filled on the
+      // master account — never auto-cancel them on transient price moves. The
+      // customer's broker will reject the order itself if SL is truly past
+      // price, and the next poll cycle can succeed when price retraces.
+      const isManualBroadcast = String(r.id || "").startsWith("m-");
+
       const invalidByPrice =
+        !isManualBroadcast &&
         Number.isFinite(curMid) && slOk &&
         ((dir === "SELL" && curMid >= sl) || (dir === "BUY" && curMid <= sl));
 
