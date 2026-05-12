@@ -390,6 +390,21 @@ async function getDb() {
   await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_exec2_signal ON signal_exec2(signal_id)");
   await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_exec2_account ON signal_exec2(account_login, server)");
 
+  // SL/TP modifications applied to a live signal, one row per change.
+  // Customer EAs poll /signal/mods to apply the latest values to their open
+  // copy of the trade. Auto-pruned after 24h via a sparse cleanup in /signal/mods.
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS signal_mods (" +
+      "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+      "signal_id TEXT NOT NULL," +
+      "ts_ms INTEGER NOT NULL," +
+      "sl REAL," +
+      "tp_json TEXT" +
+      ")"
+  );
+  await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_signal_mods_id_ts ON signal_mods(signal_id, ts_ms DESC)");
+  await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_signal_mods_ts ON signal_mods(ts_ms DESC)");
+
   // Best-effort migration from legacy table (safe to ignore failures)
   try {
     await libsqlClient.execute(
@@ -7897,6 +7912,115 @@ app.get("/admin/render-test/closed", async (req, res) => {
         payload,
       });
     }
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// POST /signal/modify
+// Auth: master EA_API_KEY or any active license key (via X-API-Key header),
+//   OR DASHBOARD_KEY in query string for admin/Claude-side modify.
+// Body: { signal_id, sl?, tp?:number|number[]|string }
+// Records an SL/TP change on a live signal. Customer EAs that have already
+// executed this signal will pick up the change via /signal/mods on their next
+// poll and apply it to their broker position.
+async function _recordSignalMod(db, signal_id, sl, tpArr) {
+  const ts = Date.now();
+  await db.execute({
+    sql: "INSERT INTO signal_mods (signal_id, ts_ms, sl, tp_json) VALUES (?,?,?,?)",
+    args: [signal_id, ts, Number.isFinite(sl) ? Number(sl) : null, JSON.stringify(tpArr || [])],
+  });
+  await db.execute({
+    sql: "UPDATE signals SET sl=COALESCE(?,sl), tp_json=COALESCE(?,tp_json) WHERE id=?",
+    args: [Number.isFinite(sl) ? Number(sl) : null, (tpArr && tpArr.length) ? JSON.stringify(tpArr) : null, signal_id],
+  });
+  return ts;
+}
+function _parseTp(raw) {
+  if (raw == null) return [];
+  if (typeof raw === "number") return [raw];
+  if (Array.isArray(raw)) return raw.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+  return String(raw).split(",").map((x) => Number(String(x).trim())).filter((n) => Number.isFinite(n) && n > 0);
+}
+
+app.post("/signal/modify", async (req, res) => {
+  try {
+    // Accept either X-API-Key (EA call) or ?key=DASHBOARD_KEY (admin).
+    const apiKey = req.header("x-api-key");
+    const dashKey = String(req.query.key || "");
+    const expectedDash = process.env.DASHBOARD_KEY ? String(process.env.DASHBOARD_KEY).trim() : "";
+    let authed = false;
+    if (expectedDash && dashKey === expectedDash) authed = true;
+    if (!authed && apiKey) authed = await isAuthorizedEaApiKey(apiKey);
+    if (!authed) return res.status(401).json({ ok: false, error: "unauthorized" });
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const signal_id = body?.signal_id ? String(body.signal_id) : "";
+    const sl = body?.sl != null ? Number(body.sl) : null;
+    const tpArr = _parseTp(body?.tp);
+    if (!signal_id) return res.status(400).json({ ok: false, error: "bad_signal_id" });
+    if ((sl == null || !Number.isFinite(sl)) && tpArr.length === 0) {
+      return res.status(400).json({ ok: false, error: "nothing_to_modify" });
+    }
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+    const sigRow = await db.execute({ sql: "SELECT id,status FROM signals WHERE id=? LIMIT 1", args: [signal_id] });
+    if (!sigRow.rows?.[0]) return res.status(404).json({ ok: false, error: "signal_not_found" });
+    if (!["new", "active"].includes(String(sigRow.rows[0].status))) {
+      return res.status(409).json({ ok: false, error: "signal_not_open", status: sigRow.rows[0].status });
+    }
+
+    const ts = await _recordSignalMod(db, signal_id, sl, tpArr);
+    return res.json({ ok: true, signal_id, sl, tp: tpArr, ts_ms: ts });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// GET /signal/mods?account_login=...&server=...&since_ms=...
+// Customer EAs poll this every few seconds to fetch SL/TP changes for signals
+// they have already executed. Returns mods newer than since_ms, scoped to
+// signals this account actually has a successful execution on.
+app.get("/signal/mods", async (req, res) => {
+  try {
+    const account_login = req.query.account_login != null ? String(req.query.account_login).trim() : "";
+    const server = req.query.server != null ? String(req.query.server).trim() : "";
+    const since_ms = Number(req.query.since_ms || 0);
+    if (!account_login || !server) return res.status(400).json({ ok: false, error: "missing_account_identity" });
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_required" });
+
+    // Sparse cleanup: drop mods older than 24h.
+    if (Math.random() < 0.02) {
+      try { await db.execute({ sql: "DELETE FROM signal_mods WHERE ts_ms < ?", args: [Date.now() - 86400000] }); } catch {}
+    }
+
+    const rows = await db.execute({
+      sql:
+        "SELECT m.id, m.signal_id, m.ts_ms, m.sl, m.tp_json " +
+        "FROM signal_mods m " +
+        "INNER JOIN signal_exec2 e ON e.signal_id = m.signal_id AND e.account_login = ? AND e.server = ? AND e.ok_mod = 1 " +
+        "WHERE m.ts_ms > ? " +
+        "ORDER BY m.ts_ms ASC LIMIT 50",
+      args: [account_login, server, Number.isFinite(since_ms) ? since_ms : 0],
+    });
+
+    const mods = (rows.rows || []).map((r) => {
+      let tp = [];
+      try { tp = JSON.parse(String(r.tp_json || "[]")); } catch { tp = []; }
+      return {
+        signal_id: String(r.signal_id),
+        ts_ms: Number(r.ts_ms),
+        sl: r.sl != null ? Number(r.sl) : null,
+        tp,
+      };
+    });
+
+    return res.json({ ok: true, mods, server_now_ms: Date.now() });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
