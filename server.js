@@ -8134,6 +8134,31 @@ app.get("/api/myref", async (req, res) => {
   }
 });
 
+// POST /admin/backfill-short-codes?key=DASHBOARD_KEY
+// One-shot: assign a short_code to any existing license that's still NULL.
+app.post("/admin/backfill-short-codes", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const rows = await db.execute({
+      sql: "SELECT id, notes, email FROM licenses WHERE short_code IS NULL OR short_code='' ORDER BY created_at_ms ASC",
+    });
+    const list = rows.rows || [];
+    const updated = [];
+    for (const r of list) {
+      const code = await genUniqueShortCode(db);
+      await db.execute({ sql: "UPDATE licenses SET short_code=? WHERE id=?", args: [code, String(r.id)] });
+      const m = String(r.notes || "").match(/@([A-Za-z0-9_]+)/);
+      const name = m ? "@" + m[1] : (r.email || String(r.id).slice(0, 8));
+      updated.push({ id: String(r.id), name, short_code: code });
+    }
+    return res.json({ ok: true, updated });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // POST /admin/license/:id/extend?key=DASHBOARD_KEY&days=N
 // Extend a license's expiry by N days (used by monthly winner reward).
 app.post("/admin/license/:id/extend", async (req, res) => {
