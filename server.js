@@ -795,6 +795,45 @@ const fetchFn =
   globalThis.fetch?.bind(globalThis) ||
   ((...args) => import("node-fetch").then(({ default: f }) => f(...args)));
 
+// Telegram Bot API call via the built-in https module with IPv4 forced.
+// Workaround for Render's flaky IPv6 outbound: undici's fetch tries both
+// stacks and waits for IPv6 to time out, which hangs cold calls. The hot
+// path (tgSendMessage) usually has a warm connection so this only bites
+// rarely-used endpoints like createChatInviteLink.
+function tgApiPost(method, payload, { timeoutMs = 12000 } = {}) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return Promise.reject(new Error("missing_TELEGRAM_BOT_TOKEN"));
+  const https = require("https");
+  const body = JSON.stringify(payload);
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        method: "POST",
+        hostname: "api.telegram.org",
+        path: `/bot${token}/${method}`,
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+        family: 4,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          try {
+            resolve({ status: res.statusCode || 0, json: JSON.parse(data) });
+          } catch {
+            resolve({ status: res.statusCode || 0, json: null, raw: data });
+          }
+        });
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("ETIMEDOUT_https")));
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 let last = null;
 
 // Laatste succesvolle chart per symbol+interval+format (fallback als QuickChart faalt)
@@ -8301,23 +8340,21 @@ async function _getOrCreateInviter(db, telegramUserId, username) {
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
     if (token) {
       try {
-        const tgRes = await fetchFn(`https://api.telegram.org/bot${token}/createChatInviteLink`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: chatId, name: `ref:${code}`, creates_join_request: false }),
+        const r = await tgApiPost("createChatInviteLink", {
+          chat_id: chatId, name: `ref:${code}`, creates_join_request: false,
         });
-        const tgJson = await tgRes.json();
-        if (tgJson.ok && tgJson.result?.invite_link) {
-          link = String(tgJson.result.invite_link);
+        if (r.json?.ok && r.json.result?.invite_link) {
+          link = String(r.json.result.invite_link);
           await db.execute({
             sql: "UPDATE inviters SET telegram_invite_link=? WHERE telegram_user_id=?",
             args: [link, uid],
           });
         } else {
-          console.error("[inviter] telegram_createChatInviteLink_failed", JSON.stringify(tgJson).slice(0, 400));
+          console.error("[inviter] telegram_createChatInviteLink_failed",
+            r.json ? JSON.stringify(r.json).slice(0, 400) : `status=${r.status} raw=${String(r.raw||"").slice(0,200)}`);
         }
       } catch (e) {
-        console.error("[inviter] telegram_fetch_error", String(e?.cause?.message || e?.message || e));
+        console.error("[inviter] telegram_https_error", String(e?.message || e));
       }
     }
   }
@@ -8705,35 +8742,16 @@ app.post("/admin/license/:id/telegram-invite", async (req, res) => {
     if (!token) return res.status(500).json({ ok: false, error: "missing_TELEGRAM_BOT_TOKEN" });
     let tgJson;
     try {
-      const tgRes = await fetchFn(`https://api.telegram.org/bot${token}/createChatInviteLink`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          name: `ref:${code}`,
-          creates_join_request: false,
-        }),
+      const r = await tgApiPost("createChatInviteLink", {
+        chat_id: chatId,
+        name: `ref:${code}`,
+        creates_join_request: false,
       });
-      const txt = await tgRes.text();
-      try { tgJson = JSON.parse(txt); }
-      catch {
-        return res.status(502).json({ ok: false, error: "telegram_non_json", status: tgRes.status, body: txt.slice(0, 400) });
-      }
+      tgJson = r.json;
+      if (!tgJson) return res.status(502).json({ ok: false, error: "telegram_non_json", status: r.status, raw: String(r.raw || "").slice(0, 400) });
     } catch (e) {
-      // Walk the cause chain for the real reason (undici nests it).
-      const chain = [];
-      let cur = e;
-      while (cur && chain.length < 5) {
-        chain.push({
-          name: cur?.name || null,
-          code: cur?.code || cur?.cause?.code || null,
-          errno: cur?.errno || null,
-          message: cur?.message || String(cur),
-        });
-        cur = cur?.cause;
-      }
-      console.error("[admin/telegram-invite] fetch_error_chain", JSON.stringify(chain));
-      return res.status(502).json({ ok: false, error: "telegram_fetch_error", chain });
+      console.error("[admin/telegram-invite] https_error", String(e?.message || e));
+      return res.status(502).json({ ok: false, error: "telegram_https_error", message: String(e?.message || e) });
     }
     if (!tgJson.ok) return res.status(502).json({ ok: false, error: "telegram_api_failed", detail: tgJson });
     const link = String(tgJson.result?.invite_link || "");
