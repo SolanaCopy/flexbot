@@ -8046,7 +8046,10 @@ app.post("/signal/modify", async (req, res) => {
 // signals this account actually has a successful execution on.
 // Lightweight counter of who's polling /signal/mods — helps diagnose whether
 // a customer is on the new EA version (which polls this) or the old one.
-const _modPollerStats = new Map(); // key=`${account}@${server}` → { count, lastTs }
+const _modPollerStats = new Map(); // key=`${account}@${server}` -> { count, lastTs }
+// Per-account result cache so polling every 5s only hits the DB once per ~10s.
+const _modPollCache = new Map(); // key=`${account}@${server}@${since_ms}` -> { result, ts }
+const MOD_POLL_CACHE_MS = 10000;
 app.get("/signal/mods", async (req, res) => {
   try {
     const account_login = req.query.account_login != null ? String(req.query.account_login).trim() : "";
@@ -8060,6 +8063,13 @@ app.get("/signal/mods", async (req, res) => {
     cur.count++;
     cur.lastTs = Date.now();
     _modPollerStats.set(key, cur);
+
+    // Cache hit? Return last DB result without hitting DB again.
+    const cacheKey = `${key}@${since_ms}`;
+    const cached = _modPollCache.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < MOD_POLL_CACHE_MS) {
+      return res.json(cached.result);
+    }
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_required" });
@@ -8090,7 +8100,14 @@ app.get("/signal/mods", async (req, res) => {
       };
     });
 
-    return res.json({ ok: true, mods, server_now_ms: Date.now() });
+    const result = { ok: true, mods, server_now_ms: Date.now() };
+    _modPollCache.set(cacheKey, { result, ts: Date.now() });
+    // Sparse cache cleanup
+    if (Math.random() < 0.02 && _modPollCache.size > 500) {
+      const cutoff = Date.now() - 60000;
+      for (const [k, v] of _modPollCache) if (v.ts < cutoff) _modPollCache.delete(k);
+    }
+    return res.json(result);
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
