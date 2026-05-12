@@ -7785,6 +7785,61 @@ app.post("/admin/license/:id/revoke", async (req, res) => {
   }
 });
 
+// GET /admin/signals/recent  (?key=DASHBOARD_KEY[&limit=20][&symbol=XAUUSD])
+// Returns recent signals with their full status + execution history per account.
+// Built for debugging "why didn't customer X get this signal" cases.
+app.get("/admin/signals/recent", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : null;
+
+    const sql = symbol
+      ? "SELECT id,symbol,direction,sl,tp_json,status,comment,created_at_ms,closed_at_ms,close_outcome,close_result FROM signals WHERE symbol=? ORDER BY created_at_ms DESC LIMIT ?"
+      : "SELECT id,symbol,direction,sl,tp_json,status,comment,created_at_ms,closed_at_ms,close_outcome,close_result FROM signals ORDER BY created_at_ms DESC LIMIT ?";
+    const args = symbol ? [symbol, limit] : [limit];
+    const sigRows = await db.execute({ sql, args });
+    const signals = sigRows.rows || [];
+
+    // Fetch all exec entries for these signals in one query
+    const ids = signals.map((s) => String(s.id));
+    let execMap = {};
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => "?").join(",");
+      const execRows = await db.execute({
+        sql: `SELECT signal_id,account_login,server,ticket,fill_price,filled_at_ms,ok_mod FROM signal_exec2 WHERE signal_id IN (${placeholders}) ORDER BY filled_at_ms ASC`,
+        args: ids,
+      });
+      for (const row of execRows.rows || []) {
+        const sid = String(row.signal_id);
+        if (!execMap[sid]) execMap[sid] = [];
+        execMap[sid].push(row);
+      }
+    }
+
+    const enriched = signals.map((s) => ({
+      id: String(s.id),
+      symbol: s.symbol,
+      direction: s.direction,
+      sl: s.sl,
+      tp: (() => { try { return JSON.parse(String(s.tp_json || "[]")); } catch { return []; } })(),
+      status: s.status,
+      comment: s.comment,
+      created_at_ms: s.created_at_ms,
+      closed_at_ms: s.closed_at_ms,
+      close_outcome: s.close_outcome,
+      close_result: s.close_result,
+      executions: execMap[String(s.id)] || [],
+    }));
+
+    return res.json({ ok: true, count: enriched.length, signals: enriched });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET/POST /api/cron/license-reminders  (?key=DASHBOARD_KEY)
 // Daily cron: DM the admin a list of licenses expiring within 3 days or already
 // expired. Schedule via cron-job.org at 09:00 local time.
