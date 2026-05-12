@@ -8491,35 +8491,67 @@ $Magic  = '${magic}'
 $Server = '${baseUrl}'
 $EaName = '${eaName}'
 
-# Wrap entire installer in try/catch so the window never closes silently on error.
+# Helpers for pretty output
+function Write-Banner {
+  Write-Host ''
+  Write-Host '   ============================================================' -ForegroundColor DarkYellow
+  Write-Host '                                                            ' -ForegroundColor DarkYellow -BackgroundColor Black
+  Write-Host '             FLEXBOT EA  -  Installer v2                    ' -ForegroundColor Yellow -BackgroundColor Black
+  Write-Host '             Automated XAUUSD trading                       ' -ForegroundColor DarkGray -BackgroundColor Black
+  Write-Host '                                                            ' -ForegroundColor DarkYellow -BackgroundColor Black
+  Write-Host '   ============================================================' -ForegroundColor DarkYellow
+  Write-Host ''
+}
+function Write-Step($num, $total, $label) {
+  Write-Host ''
+  Write-Host (" [" + $num + "/" + $total + "] ") -ForegroundColor Cyan -NoNewline
+  Write-Host $label -ForegroundColor White
+}
+function Write-Ok($msg)   { Write-Host "       OK  " -ForegroundColor Green -NoNewline; Write-Host $msg -ForegroundColor Gray }
+function Write-Warn($msg) { Write-Host "       !   " -ForegroundColor Yellow -NoNewline; Write-Host $msg -ForegroundColor Yellow }
+function Write-Fail($msg) { Write-Host "       X   " -ForegroundColor Red -NoNewline; Write-Host $msg -ForegroundColor Red }
+function Write-Info($msg) { Write-Host "       -   " -ForegroundColor DarkGray -NoNewline; Write-Host $msg -ForegroundColor Gray }
+
 try {
 
-Write-Host ''
-Write-Host '======================================'
-Write-Host '  FlexBot Installer'
-Write-Host '======================================'
-Write-Host ''
+Clear-Host
+Write-Banner
+Write-Host '   Welcome! This installer will set up Flexbot on your MT5.' -ForegroundColor White
+Write-Host '   No technical knowledge needed - just follow the prompts.' -ForegroundColor DarkGray
+Start-Sleep -Milliseconds 600
 
-# 1) Detect MT5 terminal data folders.
+# ============ STEP 1/5: detect MT5 ============
+Write-Step 1 5 'Looking for your MetaTrader 5...'
 $terminals = Get-ChildItem -Path "$env:APPDATA\\MetaQuotes\\Terminal" -Directory -ErrorAction SilentlyContinue |
   Where-Object { Test-Path "$($_.FullName)\\MQL5\\Experts" }
 
 if (-not $terminals -or $terminals.Count -eq 0) {
-  Write-Host 'MT5 not detected. Make sure MT5 is installed and has been launched at least once.' -ForegroundColor Red
-  Read-Host 'Press Enter to exit'
+  Write-Fail 'No MT5 installation found on this PC.'
+  Write-Host ''
+  Write-Host '   What to do:' -ForegroundColor Yellow
+  Write-Host '     1. Install MT5 from your broker (e.g. FTMO, Vantage)' -ForegroundColor White
+  Write-Host '     2. Open MT5 at least once and log in' -ForegroundColor White
+  Write-Host '     3. Run this installer again' -ForegroundColor White
+  Write-Host ''
+  Read-Host '   Press Enter to close'
   exit 1
 }
 
 if ($terminals.Count -gt 1) {
-  Write-Host 'Multiple MT5 terminals found:'
+  Write-Info ("Found " + $terminals.Count + " MT5 installations - pick which one to use:")
+  Write-Host ''
   for ($i=0; $i -lt $terminals.Count; $i++) {
-    Write-Host "  [$i] $($terminals[$i].Name)"
+    $name = $terminals[$i].Name
+    Write-Host ("         [" + $i + "] ") -ForegroundColor Cyan -NoNewline
+    Write-Host $name -ForegroundColor White
   }
-  $idx = Read-Host 'Pick the terminal number to install into'
+  Write-Host ''
+  $idx = Read-Host '       Type the number and press Enter'
   $terminal = $terminals[[int]$idx]
 } else {
   $terminal = $terminals[0]
 }
+Write-Ok ("Using terminal: " + $terminal.Name)
 
 $expertsDir = Join-Path $terminal.FullName 'MQL5\\Experts'
 $presetsDir = Join-Path $terminal.FullName 'MQL5\\Presets'
@@ -8527,13 +8559,19 @@ $configDir  = Join-Path $terminal.FullName 'config'
 New-Item -Path $expertsDir -ItemType Directory -Force | Out-Null
 New-Item -Path $presetsDir -ItemType Directory -Force | Out-Null
 
-# 2) Copy EA source file.
+# ============ STEP 2/5: copy EA + clear old cache ============
+Write-Step 2 5 'Installing the EA file...'
 $eaTarget = Join-Path $expertsDir "$EaName.mq5"
 Copy-Item -Path (Join-Path $PSScriptRoot "$EaName.mq5") -Destination $eaTarget -Force
-Write-Host "EA source installed: $eaTarget" -ForegroundColor Green
+Write-Ok 'EA source copied'
+$oldEx5 = Join-Path $expertsDir "$EaName.ex5"
+if (Test-Path $oldEx5) {
+  Remove-Item -Path $oldEx5 -Force
+  Write-Ok 'Old compiled version cleared (so MT5 picks up the new one)'
+}
 
-# 3) Try to compile via MetaEditor CLI (best effort).
-$mtRoot = Split-Path -Parent (Split-Path -Parent $expertsDir)
+# ============ STEP 3/5: compile ============
+Write-Step 3 5 'Compiling the EA so MT5 can load it...'
 $metaEditor = $null
 foreach ($cand in @('terminal64.exe','terminal.exe')) {
   $exe = Get-ChildItem -Path 'C:\\Program Files' -Recurse -Filter $cand -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -8543,16 +8581,22 @@ foreach ($cand in @('terminal64.exe','terminal.exe')) {
   }
 }
 if ($metaEditor) {
-  Write-Host 'Compiling EA...'
   & $metaEditor /compile:"$eaTarget" /log | Out-Null
-  Write-Host 'Compiled.' -ForegroundColor Green
+  Start-Sleep -Milliseconds 800
+  $newEx5 = Join-Path $expertsDir "$EaName.ex5"
+  if (Test-Path $newEx5) {
+    Write-Ok 'Compiled successfully'
+  } else {
+    Write-Warn 'Auto-compile did not produce .ex5 - MT5 will compile on its own at startup.'
+  }
 } else {
-  Write-Host 'MetaEditor not found automatically. Open MT5 -> F4 -> open the EA -> press F7 to compile.' -ForegroundColor Yellow
+  Write-Warn 'MetaEditor not found - MT5 will auto-compile when it starts (no action needed).'
 }
 
-# 4) Write .set file with the user's api_key + magic pre-filled.
+# ============ STEP 4/5: write preset ============
+Write-Step 4 5 'Saving your personal license preset...'
 $setContent = @"
-; FlexBot preset — auto-generated by installer
+; FlexBot preset - pre-filled for this license
 InpEaApiKey=$ApiKey
 InpSignalSecret=$ApiKey
 InpMagic=$Magic
@@ -8564,9 +8608,10 @@ InpDailyResetGmtOffsetHours=2
 "@
 $setPath = Join-Path $presetsDir "$EaName.set"
 Set-Content -Path $setPath -Value $setContent -Encoding ASCII
-Write-Host "Preset written: $setPath" -ForegroundColor Green
+Write-Ok 'Preset saved (your unique API key is baked in)'
 
-# 5) Add WebRequest URL to allowlist (terminal.ini).
+# ============ STEP 5/5: WebRequest allowlist ============
+Write-Step 5 5 'Allowing MT5 to talk to the Flexbot server...'
 $terminalIni = Join-Path $configDir 'terminal.ini'
 if (Test-Path $terminalIni) {
   $iniRaw = Get-Content $terminalIni -Raw -Encoding Unicode
@@ -8579,24 +8624,43 @@ if (Test-Path $terminalIni) {
       $iniRaw += $crlf + '[Experts]' + $crlf + 'WebRequest=' + $Server + $crlf
     }
     Set-Content -Path $terminalIni -Value $iniRaw -Encoding Unicode
-    Write-Host "WebRequest URL added: $Server" -ForegroundColor Green
+    Write-Ok 'Server URL whitelisted in MT5 settings'
   } else {
-    Write-Host 'WebRequest URL already allowed.' -ForegroundColor Green
+    Write-Ok 'Server URL was already whitelisted'
   }
 } else {
-  Write-Host "terminal.ini not found - add $Server manually under Tools, Options, Expert Advisors, Allow WebRequest." -ForegroundColor Yellow
+  Write-Warn 'MT5 config file not found yet.'
+  Write-Info ('Add this URL manually in MT5 -> Tools -> Options -> Expert Advisors:')
+  Write-Info ("   " + $Server)
 }
 
+# ============ DONE ============
 Write-Host ''
-Write-Host '======================================'
-Write-Host '  Install complete'
-Write-Host '======================================'
 Write-Host ''
-Write-Host '1) Restart MT5 if it is currently running.'
-Write-Host '2) In MT5, open a XAUUSD M1 chart.'
-Write-Host '3) Drag FlexbotEA_ReadyToUse_MasterBroadcast_v3_AllInOne onto the chart.'
-Write-Host '4) In the input dialog: click Load, choose the FlexBot preset, click OK.'
-Write-Host '5) Make sure AutoTrading is enabled (top toolbar).'
+Write-Host '   ============================================================' -ForegroundColor Green
+Write-Host '                                                            ' -BackgroundColor Black
+Write-Host '             INSTALLATION COMPLETE                          ' -ForegroundColor Green -BackgroundColor Black
+Write-Host '             You are ready to trade.                        ' -ForegroundColor White -BackgroundColor Black
+Write-Host '                                                            ' -BackgroundColor Black
+Write-Host '   ============================================================' -ForegroundColor Green
+Write-Host ''
+Write-Host '   NEXT STEPS in MT5:' -ForegroundColor Cyan
+Write-Host ''
+Write-Host '     1. ' -ForegroundColor Cyan -NoNewline
+Write-Host 'Restart MT5 if it is open right now (File -> Exit, reopen).' -ForegroundColor White
+Write-Host '     2. ' -ForegroundColor Cyan -NoNewline
+Write-Host 'Open an XAUUSD chart (any timeframe).' -ForegroundColor White
+Write-Host '     3. ' -ForegroundColor Cyan -NoNewline
+Write-Host 'Drag the EA from Navigator onto the chart.' -ForegroundColor White
+Write-Host '     4. ' -ForegroundColor Cyan -NoNewline
+Write-Host 'In the dialog: Inputs tab -> Load -> pick the preset -> OK.' -ForegroundColor White
+Write-Host '     5. ' -ForegroundColor Cyan -NoNewline
+Write-Host 'Make sure AutoTrading is ON (green button top toolbar).' -ForegroundColor White
+Write-Host ''
+Write-Host '   You will see a smiley/blue hat icon top-right of the chart.' -ForegroundColor DarkGray
+Write-Host '   That means the bot is live and watching the market.' -ForegroundColor DarkGray
+Write-Host ''
+Write-Host '   Questions? Reply to the message you received the link in.' -ForegroundColor DarkGray
 Write-Host ''
 
 } catch {
