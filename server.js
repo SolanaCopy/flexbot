@@ -8644,6 +8644,13 @@ app.post("/license/validate", async (req, res) => {
     const magic = body?.magic != null ? Number(body.magic) : 0;
     if (!apiKey) return res.status(400).json({ ok: false, status: "missing_key" });
 
+    // Master EA uses the global EA_API_KEY env var, not a license — treat it as
+    // a permanent unlimited license.
+    const masterKey = process.env.EA_API_KEY ? String(process.env.EA_API_KEY).trim() : "";
+    if (masterKey && apiKey === masterKey) {
+      return res.json({ ok: true, status: "active", magic: magic || 8210317741, is_master: true });
+    }
+
     const rows = await db.execute({
       sql: "SELECT id,status,magic,expires_at_ms FROM licenses WHERE api_key=? LIMIT 1",
       args: [apiKey],
