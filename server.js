@@ -2259,7 +2259,9 @@ app.post("/signal/closed", async (req, res) => {
 
 // Lightweight poll-log so we can debug 'why didn't customer X get a signal' cases
 // without asking them for screenshots. Auto-prunes anything older than 48 hours.
+let _pollLogTableReady = false;
 async function _ensurePollLogTable(db) {
+  if (_pollLogTableReady) return;
   try {
     await db.execute(
       "CREATE TABLE IF NOT EXISTS ea_polls (" +
@@ -2273,9 +2275,14 @@ async function _ensurePollLogTable(db) {
       ")"
     );
     await db.execute("CREATE INDEX IF NOT EXISTS idx_ea_polls_account ON ea_polls(account_login, ts_ms DESC)");
+    _pollLogTableReady = true;
   } catch { /* ignore */ }
 }
 async function _logPoll(db, account_login, server, symbol, since_ms, returned_signal_id, result) {
+  // Only log NON-trivial events to keep DB load low: signal returned/canceled.
+  // The empty "no_signal" case fires every 30s per customer × N customers,
+  // which was saturating the Turso connection pool.
+  if (!returned_signal_id) return;
   try {
     await db.execute({
       sql: "INSERT INTO ea_polls (ts_ms, account_login, server, symbol, since_ms, returned_signal_id, result) VALUES (?,?,?,?,?,?,?)",
