@@ -7840,6 +7840,25 @@ app.post("/admin/license/:id/revoke", async (req, res) => {
   }
 });
 
+// POST /admin/signal/:id/close  (?key=DASHBOARD_KEY)
+// Admin-only forced close — used by the test harness so we can clean up
+// simulated broadcasts without needing the SIGNAL_SECRET env var.
+app.post("/admin/signal/:id/close", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const id = String(req.params.id);
+    await db.execute({
+      sql: "UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+      args: [Date.now(), "ADMIN_CLOSE", "test cleanup", id],
+    });
+    return res.json({ ok: true, closed: id });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /admin/customer/:login  (?key=DASHBOARD_KEY)
 // One-stop diagnostic for a specific customer. Shows last seen, balance/equity,
 // executions, and recent broadcast signals with a per-signal "took/missed" flag.
