@@ -7840,9 +7840,41 @@ app.post("/admin/license/:id/revoke", async (req, res) => {
   }
 });
 
+// POST /admin/signal/:id/simulate-close  (?key=DASHBOARD_KEY)
+// Calls the same close logic /signal/closed runs (including the spurious-close
+// guard), but authed by DASHBOARD_KEY so test harness can exercise it without
+// the SIGNAL_SECRET. Returns whatever /signal/closed would return.
+app.post("/admin/signal/:id/simulate-close", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const id = String(req.params.id);
+    const sigRow = await db.execute({
+      sql: "SELECT id,status,created_at_ms FROM signals WHERE id=? LIMIT 1",
+      args: [id],
+    });
+    const sig = sigRow.rows?.[0];
+    if (!sig) return res.status(404).json({ ok: false, error: "signal_not_found" });
+
+    const createdAtMs = sig.created_at_ms != null ? Number(sig.created_at_ms) : 0;
+    const ageMsServer = createdAtMs ? Date.now() - createdAtMs : Infinity;
+    if (createdAtMs && ageMsServer < 30000 && String(sig.status) === "active") {
+      return res.json({ ok: true, ignored: "too_soon_after_open", age_ms_server: ageMsServer });
+    }
+
+    await db.execute({
+      sql: "UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?",
+      args: [Date.now(), "SIM_CLOSE", "test simulation", id],
+    });
+    return res.json({ ok: true, closed: id, age_ms_server: ageMsServer });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // POST /admin/signal/:id/close  (?key=DASHBOARD_KEY)
-// Admin-only forced close — used by the test harness so we can clean up
-// simulated broadcasts without needing the SIGNAL_SECRET env var.
+// Admin-only forced close (bypasses guard) — used by test harness for cleanup.
 app.post("/admin/signal/:id/close", async (req, res) => {
   if (!mcAuthDashboard(req, res)) return;
   try {
