@@ -7789,6 +7789,102 @@ app.post("/admin/license/:id/revoke", async (req, res) => {
   }
 });
 
+// GET /admin/customer/:login  (?key=DASHBOARD_KEY)
+// One-stop diagnostic for a specific customer. Shows last seen, balance/equity,
+// executions, and recent broadcast signals with a per-signal "took/missed" flag.
+// Use this instead of asking the customer for screenshots.
+app.get("/admin/customer/:login", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const login = String(req.params.login);
+
+    // 1) Last seen + balance/equity from ea_positions
+    const posRows = await db.execute({
+      sql: "SELECT account_login,server,magic,symbol,has_position,tickets_json,equity,balance,updated_at_ms FROM ea_positions WHERE account_login=? ORDER BY updated_at_ms DESC",
+      args: [login],
+    });
+    const positions = posRows.rows || [];
+    const lastSeen = positions[0]?.updated_at_ms ? Number(positions[0].updated_at_ms) : null;
+
+    // 2) License info (by login)
+    const licRows = await db.execute({
+      sql: "SELECT id,api_key,magic,status,notes,expires_at_ms,last_seen_ms,last_seen_account_login,last_seen_server FROM licenses WHERE last_seen_account_login=? ORDER BY created_at_ms DESC LIMIT 1",
+      args: [login],
+    });
+    const license = licRows.rows?.[0] || null;
+
+    // 3) Recent broadcast signals (last 24h)
+    const since24h = Date.now() - 24 * 60 * 60 * 1000;
+    const sigRows = await db.execute({
+      sql: "SELECT id,symbol,direction,sl,tp_json,status,created_at_ms,closed_at_ms,close_outcome,close_result FROM signals WHERE created_at_ms >= ? ORDER BY created_at_ms DESC LIMIT 50",
+      args: [since24h],
+    });
+    const signals = sigRows.rows || [];
+
+    // 4) Customer's executions (last 24h)
+    const execRows = await db.execute({
+      sql: "SELECT signal_id,ticket,fill_price,filled_at_ms,ok_mod FROM signal_exec2 WHERE account_login=? AND filled_at_ms >= ? ORDER BY filled_at_ms DESC LIMIT 50",
+      args: [login, since24h],
+    });
+    const executedIds = new Set((execRows.rows || []).map((r) => String(r.signal_id)));
+
+    // 5) Enrich signals with took/missed flag
+    const sigDiagnostic = signals.map((s) => ({
+      id: String(s.id),
+      symbol: s.symbol,
+      direction: s.direction,
+      status: s.status,
+      created_at_ms: Number(s.created_at_ms),
+      closed_at_ms: s.closed_at_ms ? Number(s.closed_at_ms) : null,
+      close_outcome: s.close_outcome,
+      close_result: s.close_result,
+      took: executedIds.has(String(s.id)),
+      is_manual_broadcast: String(s.id).startsWith("m-"),
+      // Was this signal originally from this account? (i.e. master)
+      from_this_account: String(s.id).startsWith(`m-${login}-`),
+    }));
+
+    const tookCount = sigDiagnostic.filter((s) => s.took && !s.from_this_account).length;
+    const missedCount = sigDiagnostic.filter((s) => !s.took && !s.from_this_account).length;
+
+    return res.json({
+      ok: true,
+      login,
+      license: license ? {
+        id: license.id,
+        status: license.status,
+        notes: license.notes,
+        expires_at_ms: license.expires_at_ms,
+        license_last_seen_ms: license.last_seen_ms,
+        last_seen_server: license.last_seen_server,
+      } : null,
+      last_status_post_ms: lastSeen,
+      last_status_age_minutes: lastSeen ? Math.round((Date.now() - lastSeen) / 60000) : null,
+      positions: positions.map((p) => ({
+        server: p.server,
+        magic: p.magic,
+        symbol: p.symbol,
+        has_position: !!p.has_position,
+        equity: p.equity,
+        balance: p.balance,
+        updated_at_ms: p.updated_at_ms,
+        tickets: (() => { try { return JSON.parse(String(p.tickets_json || "[]")); } catch { return []; } })(),
+      })),
+      summary_24h: {
+        broadcast_signals: sigDiagnostic.filter((s) => !s.from_this_account).length,
+        took: tookCount,
+        missed: missedCount,
+      },
+      signals_24h: sigDiagnostic,
+      executions_24h: execRows.rows || [],
+    });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // GET /admin/signals/recent  (?key=DASHBOARD_KEY[&limit=20][&symbol=XAUUSD])
 // Returns recent signals with their full status + execution history per account.
 // Built for debugging "why didn't customer X get this signal" cases.
