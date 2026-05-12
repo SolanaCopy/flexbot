@@ -448,8 +448,35 @@ async function getDb() {
   try { await libsqlClient.execute("ALTER TABLE licenses ADD COLUMN short_code TEXT"); } catch {}
   try { await libsqlClient.execute("ALTER TABLE licenses ADD COLUMN referred_by_short_code TEXT"); } catch {}
   try { await libsqlClient.execute("ALTER TABLE licenses ADD COLUMN referred_at_ms INTEGER"); } catch {}
+  try { await libsqlClient.execute("ALTER TABLE licenses ADD COLUMN telegram_invite_link TEXT"); } catch {}
   try { await libsqlClient.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_licenses_short_code ON licenses(short_code)"); } catch {}
   try { await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_licenses_ref ON licenses(referred_by_short_code)"); } catch {}
+
+  // Telegram-group join attribution (free members tracked separately from paid).
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS telegram_invites (" +
+      "telegram_user_id INTEGER PRIMARY KEY," +
+      "inviter_short_code TEXT NOT NULL," +
+      "joined_at_ms INTEGER NOT NULL," +
+      "verified_at_ms INTEGER," +
+      "username TEXT" +
+    ")"
+  );
+  await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_tginv_inviter ON telegram_invites(inviter_short_code, verified_at_ms)");
+
+  // Non-customer inviters: anyone in the Telegram community who isn't (yet)
+  // a paying customer but is bringing in members. Gets their own short_code
+  // so they can appear on the leaderboard and compete for the lifetime prize.
+  await libsqlClient.execute(
+    "CREATE TABLE IF NOT EXISTS inviters (" +
+      "telegram_user_id INTEGER PRIMARY KEY," +
+      "short_code TEXT UNIQUE NOT NULL," +
+      "username TEXT," +
+      "telegram_invite_link TEXT," +
+      "created_at_ms INTEGER NOT NULL" +
+    ")"
+  );
+  await libsqlClient.execute("CREATE INDEX IF NOT EXISTS idx_inviters_code ON inviters(short_code)");
 
   await libsqlClient.execute(
     "CREATE INDEX IF NOT EXISTS idx_signals_symbol_created ON signals(symbol, created_at_ms DESC)"
@@ -7913,6 +7940,8 @@ function genApiKey(bytes = 24) {
 }
 
 // Short, URL-safe referral code (base36, 6 chars). Avoid ambiguous chars.
+// Uniqueness checked across both `licenses.short_code` and `inviters.short_code`
+// so the two namespaces share a single key space.
 async function genUniqueShortCode(db) {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789"; // no o/0/i/l/1 ambiguity
   for (let i = 0; i < 12; i++) {
@@ -7921,8 +7950,10 @@ async function genUniqueShortCode(db) {
       code += alphabet[Math.floor(Math.random() * alphabet.length)];
     }
     try {
-      const exist = await db.execute({ sql: "SELECT 1 FROM licenses WHERE short_code=? LIMIT 1", args: [code] });
-      if (!exist.rows?.length) return code;
+      const inLic = await db.execute({ sql: "SELECT 1 FROM licenses WHERE short_code=? LIMIT 1", args: [code] });
+      if (inLic.rows?.length) continue;
+      const inInv = await db.execute({ sql: "SELECT 1 FROM inviters WHERE short_code=? LIMIT 1", args: [code] });
+      if (!inInv.rows?.length) return code;
     } catch { return code; }
   }
   throw new Error("could not allocate unique short_code");
@@ -8143,8 +8174,166 @@ app.get("/leaderboard", async (req, res) => {
   }
 });
 
+// Weight configuration for combined leaderboard scoring.
+// Paid customer = 10 points by default, verified group join = 1 point.
+const REF_WEIGHT_PAID = Math.max(1, Number(process.env.REFERRAL_PAID_WEIGHT) || 10);
+const REF_WEIGHT_GROUP = Math.max(0, Number(process.env.REFERRAL_GROUP_WEIGHT) || 1);
+
+// Helper: aggregate paid invites + verified telegram joins per inviter for
+// a given UTC window, returned as a Map<code, { paid, group, points }>.
+async function _aggregateReferralScores(db, startMs, endMs) {
+  const map = new Map();
+  const paid = await db.execute({
+    sql:
+      "SELECT referred_by_short_code AS code, COUNT(*) AS cnt FROM licenses " +
+      "WHERE referred_by_short_code IS NOT NULL " +
+      "  AND referred_at_ms >= ? AND referred_at_ms < ? " +
+      "GROUP BY referred_by_short_code",
+    args: [startMs, endMs],
+  });
+  for (const r of paid.rows || []) {
+    const code = String(r.code);
+    const cnt = Number(r.cnt);
+    const e = map.get(code) || { paid: 0, group: 0, points: 0 };
+    e.paid += cnt;
+    map.set(code, e);
+  }
+  const grp = await db.execute({
+    sql:
+      "SELECT inviter_short_code AS code, COUNT(*) AS cnt FROM telegram_invites " +
+      "WHERE verified_at_ms IS NOT NULL " +
+      "  AND verified_at_ms >= ? AND verified_at_ms < ? " +
+      "GROUP BY inviter_short_code",
+    args: [startMs, endMs],
+  });
+  for (const r of grp.rows || []) {
+    const code = String(r.code);
+    const cnt = Number(r.cnt);
+    const e = map.get(code) || { paid: 0, group: 0, points: 0 };
+    e.group += cnt;
+    map.set(code, e);
+  }
+  for (const v of map.values()) v.points = v.paid * REF_WEIGHT_PAID + v.group * REF_WEIGHT_GROUP;
+  return map;
+}
+
+// Resolve short_codes to display names from BOTH the licenses (paid customers)
+// and inviters (free community members) tables. Returns Map<code, name>.
+async function _resolveShortCodeNames(db, codes) {
+  const out = {};
+  if (!codes || codes.length === 0) return out;
+  const placeholders = codes.map(() => "?").join(",");
+  try {
+    const licRows = await db.execute({
+      sql: `SELECT short_code, notes, email FROM licenses WHERE short_code IN (${placeholders})`,
+      args: codes,
+    });
+    for (const row of licRows.rows || []) {
+      const code = String(row.short_code);
+      const m = String(row.notes || "").match(/@([A-Za-z0-9_]+)/);
+      out[code] = m ? "@" + m[1] : (row.email || code);
+    }
+  } catch { /* best-effort */ }
+  // Inviters are non-customer community members; fall back to their username.
+  try {
+    const invRows = await db.execute({
+      sql: `SELECT short_code, username FROM inviters WHERE short_code IN (${placeholders})`,
+      args: codes,
+    });
+    for (const row of invRows.rows || []) {
+      const code = String(row.short_code);
+      if (out[code]) continue; // license already supplied a name
+      const u = String(row.username || "").replace(/^@+/, "");
+      out[code] = u ? "@" + u : code;
+    }
+  } catch { /* best-effort */ }
+  return out;
+}
+
+// Get-or-create an `inviters` row for a Telegram user, including their
+// personal Telegram chat-invite link. Idempotent: if the row already exists
+// (or the link is cached), it's returned unchanged. The bot must be admin
+// in TELEGRAM_CHAT_ID with "can_invite_users" permission.
+async function _getOrCreateInviter(db, telegramUserId, username) {
+  const uid = Number(telegramUserId);
+  if (!Number.isFinite(uid) || uid <= 0) throw new Error("bad_telegram_user_id");
+
+  // First check if this telegram user is already a paying customer; if so we
+  // reuse their license short_code instead of issuing a duplicate one.
+  try {
+    const licByUid = await db.execute({
+      sql: "SELECT id, short_code, telegram_invite_link FROM licenses WHERE notes LIKE ? LIMIT 1",
+      args: [`%tg:${uid}%`],
+    });
+    const lic = licByUid.rows?.[0];
+    if (lic && lic.short_code) {
+      return {
+        source: "license",
+        license_id: String(lic.id),
+        short_code: String(lic.short_code),
+        telegram_invite_link: lic.telegram_invite_link || null,
+        new: false,
+      };
+    }
+  } catch { /* best-effort */ }
+
+  const existing = await db.execute({
+    sql: "SELECT short_code, telegram_invite_link FROM inviters WHERE telegram_user_id=? LIMIT 1",
+    args: [uid],
+  });
+  let code, link;
+  let isNew = false;
+  if (existing.rows?.length) {
+    code = String(existing.rows[0].short_code);
+    link = existing.rows[0].telegram_invite_link || null;
+  } else {
+    code = await genUniqueShortCode(db);
+    await db.execute({
+      sql: "INSERT INTO inviters (telegram_user_id, short_code, username, created_at_ms) VALUES (?,?,?,?)",
+      args: [uid, code, username ? String(username).slice(0, 64) : null, Date.now()],
+    });
+    isNew = true;
+  }
+
+  // Create the Telegram invite link lazily on first request.
+  if (!link) {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    if (token) {
+      try {
+        const tgRes = await fetch(`https://api.telegram.org/bot${token}/createChatInviteLink`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, name: `ref:${code}`, creates_join_request: false }),
+        });
+        const tgJson = await tgRes.json();
+        if (tgJson.ok && tgJson.result?.invite_link) {
+          link = String(tgJson.result.invite_link);
+          await db.execute({
+            sql: "UPDATE inviters SET telegram_invite_link=? WHERE telegram_user_id=?",
+            args: [link, uid],
+          });
+        }
+      } catch { /* best-effort; user can retry */ }
+    }
+  }
+
+  // Update username if we got a fresher one.
+  if (username) {
+    try {
+      await db.execute({
+        sql: "UPDATE inviters SET username=? WHERE telegram_user_id=? AND (username IS NULL OR username != ?)",
+        args: [String(username).slice(0, 64), uid, String(username).slice(0, 64)],
+      });
+    } catch { /* best-effort */ }
+  }
+
+  return { source: "inviter", short_code: code, telegram_invite_link: link, new: isNew };
+}
+
 // GET /api/leaderboard  (?month=YYYY-MM optional)
 // Public referral leaderboard for the current calendar month (UTC).
+// Combined score: paid invite = REF_WEIGHT_PAID (10), group join = REF_WEIGHT_GROUP (1).
 app.get("/api/leaderboard", async (req, res) => {
   try {
     const db = await getDb();
@@ -8164,97 +8353,124 @@ app.get("/api/leaderboard", async (req, res) => {
       label = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
     }
 
-    const rows = await db.execute({
-      sql:
-        "SELECT l.referred_by_short_code AS code, COUNT(*) AS cnt " +
-        "FROM licenses l " +
-        "WHERE l.referred_by_short_code IS NOT NULL " +
-        "  AND l.referred_at_ms >= ? AND l.referred_at_ms < ? " +
-        "GROUP BY l.referred_by_short_code " +
-        "ORDER BY cnt DESC LIMIT 20",
-      args: [startMs, endMs],
-    });
+    const scoreMap = await _aggregateReferralScores(db, startMs, endMs);
+    const ranked = [...scoreMap.entries()]
+      .map(([code, v]) => ({ code, paid: v.paid, group: v.group, points: v.points }))
+      .sort((a, b) => b.points - a.points || b.paid - a.paid || b.group - a.group)
+      .slice(0, 20);
 
-    // Enrich with referrer's display name (parse @username from notes)
-    const codes = (rows.rows || []).map((r) => String(r.code));
-    let names = {};
-    if (codes.length > 0) {
-      const placeholders = codes.map(() => "?").join(",");
-      const lookup = await db.execute({
-        sql: `SELECT short_code, notes, email FROM licenses WHERE short_code IN (${placeholders})`,
-        args: codes,
-      });
-      for (const row of lookup.rows || []) {
-        const code = String(row.short_code);
-        const m = String(row.notes || "").match(/@([A-Za-z0-9_]+)/);
-        names[code] = m ? "@" + m[1] : (row.email || code);
-      }
-    }
+    // Enrich with referrer's display name (paid customers via licenses, free
+    // community members via inviters).
+    const names = await _resolveShortCodeNames(db, ranked.map((r) => r.code));
 
-    const list = (rows.rows || []).map((r, i) => ({
+    const list = ranked.map((r, i) => ({
       rank: i + 1,
-      code: String(r.code),
-      name: names[String(r.code)] || String(r.code),
-      invites: Number(r.cnt),
+      code: r.code,
+      name: names[r.code] || r.code,
+      points: r.points,
+      paid_invites: r.paid,
+      group_invites: r.group,
+      // Back-compat: existing leaderboard.html displays `invites` — surface total points there.
+      invites: r.points,
     }));
 
-    return res.json({ ok: true, month: label, leaderboard: list });
+    return res.json({
+      ok: true,
+      month: label,
+      weights: { paid: REF_WEIGHT_PAID, group: REF_WEIGHT_GROUP },
+      leaderboard: list,
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
 
-// GET /api/myref?api_key=...
-// Returns the caller's referral stats: their short_code, monthly count, rank.
+// GET /api/myref?api_key=...  OR  /api/myref?telegram_user_id=...[&username=...]
+// Returns the caller's referral stats. Customers identify via api_key (10pt/paid
+// signups available). Non-customers identify via their Telegram user_id and get
+// a lightweight inviter short_code auto-issued so they can compete on the
+// leaderboard for the lifetime prize.
 app.get("/api/myref", async (req, res) => {
   try {
     const apiKey = String(req.query.api_key || "").trim();
-    if (!apiKey) return res.status(400).json({ ok: false, error: "missing_api_key" });
+    const tgUidRaw = String(req.query.telegram_user_id || "").trim();
+    const tgUid = tgUidRaw ? Number(tgUidRaw) : null;
+    const tgUsername = String(req.query.username || "").trim() || null;
+    if (!apiKey && (!Number.isFinite(tgUid) || tgUid <= 0)) {
+      return res.status(400).json({ ok: false, error: "missing_api_key_or_telegram_user_id" });
+    }
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
 
-    const lic = await db.execute({
-      sql: "SELECT id,short_code,notes FROM licenses WHERE api_key=? LIMIT 1",
-      args: [apiKey],
-    });
-    const me = lic.rows?.[0];
-    if (!me) return res.status(404).json({ ok: false, error: "unknown_api_key" });
+    let me = null;
+    let isInviter = false;
+    let inviterTgLink = null;
+
+    if (apiKey) {
+      const licR = await db.execute({
+        sql: "SELECT id,short_code,notes,telegram_invite_link FROM licenses WHERE api_key=? LIMIT 1",
+        args: [apiKey],
+      });
+      me = licR.rows?.[0];
+      if (!me) return res.status(404).json({ ok: false, error: "unknown_api_key" });
+    } else {
+      // Non-customer: get-or-create inviter row (also lazily mints the Telegram invite link).
+      const inv = await _getOrCreateInviter(db, tgUid, tgUsername);
+      me = { short_code: inv.short_code, telegram_invite_link: inv.telegram_invite_link };
+      inviterTgLink = inv.telegram_invite_link;
+      isInviter = inv.source !== "license";
+    }
 
     const code = String(me.short_code || "").toLowerCase();
-    if (!code) return res.json({ ok: true, short_code: null, invites_this_month: 0, total_invites: 0 });
+    if (!code) return res.json({
+      ok: true, short_code: null,
+      points_this_month: 0, invites_this_month: 0,
+      paid_invites_this_month: 0, group_invites_this_month: 0,
+      total_invites: 0, total_paid_invites: 0, total_group_invites: 0,
+      weights: { paid: REF_WEIGHT_PAID, group: REF_WEIGHT_GROUP },
+    });
 
     const now = new Date();
     const startMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0);
     const endMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0);
 
-    const month = await db.execute({
-      sql: "SELECT COUNT(*) AS cnt FROM licenses WHERE referred_by_short_code=? AND referred_at_ms >= ? AND referred_at_ms < ?",
-      args: [code, startMs, endMs],
-    });
-    const total = await db.execute({
+    const scoreMap = await _aggregateReferralScores(db, startMs, endMs);
+    const mine = scoreMap.get(code) || { paid: 0, group: 0, points: 0 };
+
+    // Total invites all-time (paid + verified group joins).
+    const totalPaid = await db.execute({
       sql: "SELECT COUNT(*) AS cnt FROM licenses WHERE referred_by_short_code=?",
       args: [code],
     });
-
-    // Rank (count of referrers with strictly more invites this month + 1)
-    const rankRow = await db.execute({
-      sql:
-        "SELECT COUNT(*) AS ahead FROM (" +
-        "  SELECT referred_by_short_code, COUNT(*) AS c FROM licenses " +
-        "  WHERE referred_by_short_code IS NOT NULL AND referred_at_ms >= ? AND referred_at_ms < ? " +
-        "  GROUP BY referred_by_short_code HAVING c > ? AND referred_by_short_code != ?" +
-        ")",
-      args: [startMs, endMs, Number(month.rows?.[0]?.cnt || 0), code],
+    const totalGroup = await db.execute({
+      sql: "SELECT COUNT(*) AS cnt FROM telegram_invites WHERE inviter_short_code=? AND verified_at_ms IS NOT NULL",
+      args: [code],
     });
+
+    // Rank = number of inviters strictly ahead of us on points, +1.
+    let ahead = 0;
+    for (const [c, v] of scoreMap.entries()) {
+      if (c !== code && v.points > mine.points) ahead++;
+    }
 
     const publicSite = String(process.env.PUBLIC_SITE_URL || "https://www.fxflexbot.com").trim().replace(/\/+$/, "");
     return res.json({
       ok: true,
       short_code: code,
+      is_customer: !isInviter,
       ref_link: `${publicSite}/r/${code}`,
-      invites_this_month: Number(month.rows?.[0]?.cnt || 0),
-      total_invites: Number(total.rows?.[0]?.cnt || 0),
-      rank_this_month: Number(rankRow.rows?.[0]?.ahead || 0) + 1,
+      telegram_invite_link: me.telegram_invite_link || inviterTgLink || null,
+      weights: { paid: REF_WEIGHT_PAID, group: REF_WEIGHT_GROUP },
+      // New canonical fields:
+      paid_invites_this_month: mine.paid,
+      group_invites_this_month: mine.group,
+      points_this_month: mine.points,
+      // Back-compat: existing clients read invites_this_month — give them total points.
+      invites_this_month: mine.points,
+      total_paid_invites: Number(totalPaid.rows?.[0]?.cnt || 0),
+      total_group_invites: Number(totalGroup.rows?.[0]?.cnt || 0),
+      total_invites: Number(totalPaid.rows?.[0]?.cnt || 0) + Number(totalGroup.rows?.[0]?.cnt || 0),
+      rank_this_month: ahead + 1,
     });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
@@ -8332,46 +8548,83 @@ async function _runMonthlyReferralWinnerJob(db, opts) {
     if (ex.rows?.length) return { ok: true, skipped: "already_announced", month: monthLabel };
   }
 
-  // Find top referrer of previous month.
-  const top = await db.execute({
-    sql:
-      "SELECT referred_by_short_code AS code, COUNT(*) AS cnt FROM licenses " +
-      "WHERE referred_by_short_code IS NOT NULL AND referred_at_ms >= ? AND referred_at_ms < ? " +
-      "GROUP BY referred_by_short_code ORDER BY cnt DESC LIMIT 1",
-    args: [prevMonthStart, prevMonthEnd],
-  });
-  const winner = top.rows?.[0];
-  if (!winner) return { ok: true, skipped: "no_invites_last_month", month: monthLabel };
+  // Find top referrer of previous month by weighted points (paid + group).
+  const scoreMap = await _aggregateReferralScores(db, prevMonthStart, prevMonthEnd);
+  let winner = null;
+  for (const [c, v] of scoreMap.entries()) {
+    if (!winner || v.points > winner.points) winner = { code: c, points: v.points, paid: v.paid, group: v.group };
+  }
+  if (!winner || winner.points <= 0) return { ok: true, skipped: "no_invites_last_month", month: monthLabel };
 
   const code = String(winner.code);
-  const cnt = Number(winner.cnt);
+  const cnt = Number(winner.points);
+  const paidCnt = Number(winner.paid);
+  const groupCnt = Number(winner.group);
 
-  // Look up the winner's license + display name.
+  // Look up the winner — first as a paying customer (licenses), else as a
+  // free community inviter. Non-customers win a fresh LIFETIME license.
   const licRow = await db.execute({
     sql: "SELECT id, notes, email FROM licenses WHERE short_code=? LIMIT 1",
     args: [code],
   });
-  const lic = licRow.rows?.[0];
-  if (!lic) return { ok: true, skipped: "winner_license_not_found", month: monthLabel, code };
+  let lic = licRow.rows?.[0] || null;
+  let prizeKind = "extend_30d";  // default: existing customer gets +30d
+  let newExp = null;
+  let displayName;
 
-  const m2 = String(lic.notes || "").match(/@([A-Za-z0-9_]+)/);
-  const displayName = m2 ? "@" + m2[1] : (lic.email || code);
+  if (lic) {
+    const m2 = String(lic.notes || "").match(/@([A-Za-z0-9_]+)/);
+    displayName = m2 ? "@" + m2[1] : (lic.email || code);
 
-  // Extend their license by 30 days.
-  const baseExp = await db.execute({ sql: "SELECT expires_at_ms FROM licenses WHERE id=?", args: [String(lic.id)] });
-  const curExp = baseExp.rows?.[0]?.expires_at_ms != null ? Number(baseExp.rows[0].expires_at_ms) : null;
-  const base = curExp && curExp > Date.now() ? curExp : Date.now();
-  const newExp = base + 30 * 24 * 60 * 60 * 1000;
-  await db.execute({ sql: "UPDATE licenses SET expires_at_ms=?, status='active' WHERE id=?", args: [newExp, String(lic.id)] });
+    const baseExp = await db.execute({ sql: "SELECT expires_at_ms FROM licenses WHERE id=?", args: [String(lic.id)] });
+    const curExp = baseExp.rows?.[0]?.expires_at_ms != null ? Number(baseExp.rows[0].expires_at_ms) : null;
+    const base = curExp && curExp > Date.now() ? curExp : Date.now();
+    newExp = base + 30 * 24 * 60 * 60 * 1000;
+    await db.execute({ sql: "UPDATE licenses SET expires_at_ms=?, status='active' WHERE id=?", args: [newExp, String(lic.id)] });
+  } else {
+    // Non-customer winner — issue a lifetime license tied to their telegram_user_id.
+    const invRow = await db.execute({
+      sql: "SELECT telegram_user_id, username FROM inviters WHERE short_code=? LIMIT 1",
+      args: [code],
+    });
+    const inv = invRow.rows?.[0];
+    if (!inv) return { ok: true, skipped: "winner_not_found_in_licenses_or_inviters", month: monthLabel, code };
+
+    const tgUid = Number(inv.telegram_user_id);
+    const username = inv.username ? String(inv.username).replace(/^@+/, "") : null;
+    displayName = username ? "@" + username : `tg:${tgUid}`;
+
+    const newId = crypto.randomUUID();
+    const newApiKey = genApiKey();
+    const newMagic = await genUniqueMagic(db);
+    const notes = `LIFETIME prize ${monthLabel} | tg:${tgUid}${username ? " | @" + username : ""}`;
+    await db.execute({
+      sql: "INSERT INTO licenses (id,email,api_key,magic,status,notes,created_at_ms,expires_at_ms,short_code,referred_by_short_code,referred_at_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      args: [newId, null, newApiKey, newMagic, "active", notes, Date.now(), null, code, null, null],
+    });
+    // Hand the short_code over: future invites for this code should attribute
+    // to the customer record, not the inviter row (otherwise duplicate name).
+    try { await db.execute({ sql: "DELETE FROM inviters WHERE short_code=?", args: [code] }); } catch {}
+    lic = { id: newId, notes, email: null };
+    prizeKind = "lifetime_new_license";
+    newExp = null; // lifetime
+  }
 
   // Telegram announcement (community group).
   try {
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    const breakdown =
+      `(${paidCnt} paid × ${REF_WEIGHT_PAID}pt + ${groupCnt} group × ${REF_WEIGHT_GROUP}pt)`;
+    const prizeLine = prizeKind === "lifetime_new_license"
+      ? `You've earned a **LIFETIME Flexbot license** 🚀\n` +
+        `Admin will DM you your api_key + install steps shortly.`
+      : `You've earned **+1 month free** on your Flexbot license.\n` +
+        `Already applied — your expiry is now extended.`;
     const text =
       `🏆 *Monthly Referral Winner — ${monthLabel}*\n\n` +
-      `Congrats *${displayName}* — ${cnt} invite${cnt === 1 ? "" : "s"} 🎉\n\n` +
-      `You've earned **+1 month free** on your Flexbot license.\n` +
-      `Already applied — your expiry is now extended.\n\n` +
+      `Congrats *${displayName}* — ${cnt} points 🎉\n` +
+      `${breakdown}\n\n` +
+      `${prizeLine}\n\n` +
       `Want next month's prize? Share your invite link.\n` +
       `Use /myref to get yours, /toprefs to see the board.`;
     await tgSendMessage({ chatId, text });
@@ -8382,7 +8635,19 @@ async function _runMonthlyReferralWinnerJob(db, opts) {
     args: [dedupKey, "month", prevMonthStart, Date.now()],
   });
 
-  return { ok: true, month: monthLabel, winner_code: code, winner_name: displayName, invites: cnt, new_expiry_ms: newExp };
+  return {
+    ok: true,
+    month: monthLabel,
+    winner_code: code,
+    winner_name: displayName,
+    points: cnt,
+    paid_invites: paidCnt,
+    group_invites: groupCnt,
+    weights: { paid: REF_WEIGHT_PAID, group: REF_WEIGHT_GROUP },
+    prize_kind: prizeKind,
+    new_expiry_ms: newExp,
+    winner_license_id: lic?.id ? String(lic.id) : null,
+  };
 }
 
 // POST/GET /admin/cron/referral-winner?key=DASHBOARD_KEY[&force=1]
@@ -8399,6 +8664,113 @@ app.all("/admin/cron/referral-winner", async (req, res) => {
     }
     const result = await _runMonthlyReferralWinnerJob(db, { force });
     return res.json(result);
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// POST /admin/license/:id/telegram-invite?key=DASHBOARD_KEY
+// Creates (or reuses) a unique Telegram chat invite link for this license's
+// short_code via Telegram createChatInviteLink. The bot must already be an
+// admin in the target chat with "can_invite_users" permission. The invite
+// link's `name` field encodes "ref:<short_code>" so chat_member events can
+// attribute new joiners back to the inviter.
+app.post("/admin/license/:id/telegram-invite", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const id = String(req.params.id);
+    const row = await db.execute({
+      sql: "SELECT short_code, telegram_invite_link FROM licenses WHERE id=? LIMIT 1",
+      args: [id],
+    });
+    const lic = row.rows?.[0];
+    if (!lic) return res.status(404).json({ ok: false, error: "license_not_found" });
+    let code = String(lic.short_code || "").trim().toLowerCase();
+    if (!code) {
+      code = await genUniqueShortCode(db);
+      await db.execute({ sql: "UPDATE licenses SET short_code=? WHERE id=?", args: [code, id] });
+    }
+    // Reuse if we've already generated one for this license.
+    if (lic.telegram_invite_link && !String(req.query.force || "").length) {
+      return res.json({ ok: true, license_id: id, short_code: code, invite_link: lic.telegram_invite_link, reused: true });
+    }
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    if (!token) return res.status(500).json({ ok: false, error: "missing_TELEGRAM_BOT_TOKEN" });
+    const tgRes = await fetch(`https://api.telegram.org/bot${token}/createChatInviteLink`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        name: `ref:${code}`,
+        creates_join_request: false,
+      }),
+    });
+    const tgJson = await tgRes.json();
+    if (!tgJson.ok) return res.status(502).json({ ok: false, error: "telegram_api_failed", detail: tgJson });
+    const link = String(tgJson.result?.invite_link || "");
+    if (!link) return res.status(502).json({ ok: false, error: "no_invite_link_returned", detail: tgJson });
+    await db.execute({ sql: "UPDATE licenses SET telegram_invite_link=? WHERE id=?", args: [link, id] });
+    return res.json({ ok: true, license_id: id, short_code: code, invite_link: link, reused: false });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// POST /api/telegram-join?key=DASHBOARD_KEY
+// Called by the community Telegram bot whenever a new member joins the group.
+// Body: { telegram_user_id, username?, inviter_short_code, joined_at_ms? }
+// Inserts the attribution row (unverified). Score only counts after the user
+// passes the anti-bot captcha (see /api/telegram-verify below).
+app.post("/api/telegram-join", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const body = req.body || {};
+    const userId = Number(body.telegram_user_id);
+    let code = String(body.inviter_short_code || "").trim().toLowerCase();
+    if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ ok: false, error: "missing_telegram_user_id" });
+    if (!code) return res.status(400).json({ ok: false, error: "missing_inviter_short_code" });
+    // Optional safety: drop the "ref:" prefix if the bot forwarded the raw invite-link name.
+    if (code.startsWith("ref:")) code = code.slice(4);
+    // Verify the code maps to an existing license — otherwise the row is junk.
+    const ok = await db.execute({ sql: "SELECT 1 FROM licenses WHERE short_code=? LIMIT 1", args: [code] });
+    if (!ok.rows?.length) return res.status(404).json({ ok: false, error: "unknown_short_code" });
+    const joinedMs = Number(body.joined_at_ms) || Date.now();
+    const username = body.username ? String(body.username).slice(0, 64) : null;
+    // ON CONFLICT: keep first attribution (a user can't switch inviters by rejoining).
+    await db.execute({
+      sql:
+        "INSERT INTO telegram_invites (telegram_user_id, inviter_short_code, joined_at_ms, username) VALUES (?,?,?,?) " +
+        "ON CONFLICT(telegram_user_id) DO NOTHING",
+      args: [userId, code, joinedMs, username],
+    });
+    return res.json({ ok: true, telegram_user_id: userId, inviter_short_code: code });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// POST /api/telegram-verify?key=DASHBOARD_KEY
+// Called by the bot after the new joiner passes the anti-bot captcha. Sets
+// verified_at_ms — only verified joins count toward the leaderboard.
+// Body: { telegram_user_id, verified_at_ms? }
+app.post("/api/telegram-verify", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+    const userId = Number((req.body || {}).telegram_user_id);
+    if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ ok: false, error: "missing_telegram_user_id" });
+    const ts = Number((req.body || {}).verified_at_ms) || Date.now();
+    const r = await db.execute({
+      sql: "UPDATE telegram_invites SET verified_at_ms=? WHERE telegram_user_id=? AND verified_at_ms IS NULL",
+      args: [ts, userId],
+    });
+    return res.json({ ok: true, telegram_user_id: userId, updated: r.rowsAffected || 0 });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
