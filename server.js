@@ -7854,6 +7854,54 @@ app.post("/admin/license/:id/revoke", async (req, res) => {
   }
 });
 
+// GET /admin/render-test/closed  (?key=DASHBOARD_KEY&signal_id=...)
+// Renders the closed-card PNG for a specific signal and returns it directly.
+// Used to debug why the Telegram closed message fell back to plain text.
+app.get("/admin/render-test/closed", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).send("db_unavailable");
+    const id = String(req.query.signal_id || "");
+    if (!id) return res.status(400).send("missing signal_id");
+    const sigRow = await db.execute({
+      sql: "SELECT id,symbol,direction,sl,tp_json,close_outcome,close_result FROM signals WHERE id=? LIMIT 1",
+      args: [id],
+    });
+    const sig = sigRow.rows?.[0];
+    if (!sig) return res.status(404).send("not_found");
+
+    const exRow = await db.execute({
+      sql: "SELECT fill_price FROM signal_exec2 WHERE signal_id=? AND ok_mod=1 LIMIT 1",
+      args: [id],
+    });
+    const entry = exRow.rows?.[0]?.fill_price != null ? Number(exRow.rows[0].fill_price) : null;
+    let tp = [];
+    try { tp = JSON.parse(String(sig.tp_json || "[]")); } catch { tp = []; }
+
+    const payload = {
+      id, symbol: sig.symbol, direction: sig.direction,
+      entry, sl: sig.sl != null ? Number(sig.sl) : null, tp,
+      outcome: sig.close_outcome, result: sig.close_result,
+    };
+    try {
+      const svg = createClosedCardSvgV3(payload);
+      const png = renderSvgToPngBuffer(svg);
+      res.setHeader("Content-Type", "image/png");
+      return res.send(png);
+    } catch (e) {
+      return res.status(500).json({
+        ok: false,
+        error: String(e?.message || e),
+        stack: String(e?.stack || "").split("\n").slice(0, 5),
+        payload,
+      });
+    }
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // POST /admin/signal/create  (?key=DASHBOARD_KEY)
 // Body: { symbol, direction, sl, tp, risk_pct?, comment? }
 // Creates a new server-side signal that BOTH the master EA AND all customer EAs
