@@ -7846,6 +7846,53 @@ app.post("/admin/license/:id/revoke", async (req, res) => {
   }
 });
 
+// POST /admin/signal/create  (?key=DASHBOARD_KEY)
+// Body: { symbol, direction, sl, tp, risk_pct?, comment? }
+// Creates a new server-side signal that BOTH the master EA AND all customer EAs
+// will pick up via /signal/next on their next poll. Use this for admin-initiated
+// broadcasts when you want the trade opened on every connected account.
+app.post("/admin/signal/create", async (req, res) => {
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    let body = req.body;
+    if (typeof body === "string") body = JSON.parse(firstJsonObject(body) || body);
+
+    const symbol = body?.symbol ? String(body.symbol).toUpperCase() : "XAUUSD";
+    const direction = body?.direction ? String(body.direction).toUpperCase() : "";
+    const sl = Number(body?.sl);
+    let risk_pct = body?.risk_pct != null ? Number(body.risk_pct) : 0.5;
+    if (!Number.isFinite(risk_pct) || risk_pct <= 0) risk_pct = 0.5;
+    const comment = body?.comment != null ? String(body.comment) : "admin";
+
+    let tp = body?.tp;
+    if (typeof tp === "number") tp = [tp];
+    if (typeof tp === "string") {
+      tp = tp.split(",").map((x) => Number(String(x).trim())).filter((n) => Number.isFinite(n) && n > 0);
+    }
+    if (!Array.isArray(tp)) tp = [];
+
+    if (!["BUY", "SELL"].includes(direction)) return res.status(400).json({ ok: false, error: "bad_direction" });
+    if (!Number.isFinite(sl) || sl <= 0) return res.status(400).json({ ok: false, error: "bad_sl" });
+    if (!tp.length) return res.status(400).json({ ok: false, error: "bad_tp" });
+
+    const id = `admin-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+    const nowMs = Date.now();
+    const created_at_mt5 = formatMt5(nowMs);
+
+    await db.execute({
+      sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      args: [id, symbol, direction, sl, JSON.stringify(tp), risk_pct, comment, "new", nowMs, created_at_mt5],
+    });
+
+    return res.json({ ok: true, id, symbol, direction, sl, tp, risk_pct, created_at_ms: nowMs });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // POST /admin/signal/:id/simulate-close  (?key=DASHBOARD_KEY)
 // Calls the same close logic /signal/closed runs (including the spurious-close
 // guard), but authed by DASHBOARD_KEY so test harness can exercise it without
