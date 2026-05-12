@@ -8589,13 +8589,31 @@ async function _runMonthlyReferralWinnerJob(db, opts) {
     if (ex.rows?.length) return { ok: true, skipped: "already_announced", month: monthLabel };
   }
 
-  // Find top referrer of previous month by weighted points (paid + group).
+  // Find top NON-CUSTOMER referrer of previous month. Existing customers
+  // can show up on the leaderboard for clout but they are NOT eligible for
+  // the prize — only fresh community members compete for the LIFETIME license.
   const scoreMap = await _aggregateReferralScores(db, prevMonthStart, prevMonthEnd);
+
+  // Pre-resolve which short_codes belong to existing customers so we can skip them.
+  const allCodes = [...scoreMap.keys()];
+  const customerCodes = new Set();
+  if (allCodes.length > 0) {
+    const ph = allCodes.map(() => "?").join(",");
+    try {
+      const licCodes = await db.execute({
+        sql: `SELECT short_code FROM licenses WHERE short_code IN (${ph})`,
+        args: allCodes,
+      });
+      for (const r of licCodes.rows || []) customerCodes.add(String(r.short_code));
+    } catch { /* best-effort */ }
+  }
+
   let winner = null;
   for (const [c, v] of scoreMap.entries()) {
+    if (customerCodes.has(c)) continue; // customers ineligible for prize
     if (!winner || v.points > winner.points) winner = { code: c, points: v.points, paid: v.paid, group: v.group };
   }
-  if (!winner || winner.points <= 0) return { ok: true, skipped: "no_invites_last_month", month: monthLabel };
+  if (!winner || winner.points <= 0) return { ok: true, skipped: "no_eligible_non_customer_inviter", month: monthLabel };
 
   const code = String(winner.code);
   const cnt = Number(winner.points);
@@ -8656,11 +8674,9 @@ async function _runMonthlyReferralWinnerJob(db, opts) {
     const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
     const breakdown =
       `(${paidCnt} paid × ${REF_WEIGHT_PAID}pt + ${groupCnt} group × ${REF_WEIGHT_GROUP}pt)`;
-    const prizeLine = prizeKind === "lifetime_new_license"
-      ? `You've earned a **LIFETIME Flexbot license** 🚀\n` +
-        `Admin will DM you your api_key + install steps shortly.`
-      : `You've earned **+1 month free** on your Flexbot license.\n` +
-        `Already applied — your expiry is now extended.`;
+    const prizeLine =
+      `You've earned a **LIFETIME Flexbot license** 🚀\n` +
+      `Admin will DM you your api_key + install steps shortly.`;
     const text =
       `🏆 *Monthly Referral Winner — ${monthLabel}*\n\n` +
       `Congrats *${displayName}* — ${cnt} points 🎉\n` +
