@@ -3013,6 +3013,10 @@ app.post("/ea/status", async (req, res) => {
     }
 
     // --- Auto-close: if EA reports no position but there's an active signal, close it ---
+    // Apply the same 30s spurious-close guard as /signal/closed: if the signal
+    // was just created, the EA's "no position" status is almost certainly a
+    // race against the open (status arrived before the master EA registered the
+    // new position internally). Don't kill the broadcast in that window.
     let auto_closed = null;
     if (!has_position && db) {
       try {
@@ -3023,7 +3027,9 @@ app.post("/ea/status", async (req, res) => {
           args: [symbol || "XAUUSD"],
         });
         const activeSignal = activeRows.rows?.[0];
-        if (activeSignal) {
+        if (activeSignal && (Date.now() - Number(activeSignal.created_at_ms || 0)) < 30000) {
+          // Skip auto-close — signal too young, likely status/open race
+        } else if (activeSignal) {
           // Get previous balance from the last ea_positions record to calculate P/L
           const prevRows = await db.execute({
             sql: `SELECT balance FROM ea_positions WHERE account_login=? AND server=? AND symbol=? AND has_position=1 ORDER BY updated_at_ms DESC LIMIT 1`,
@@ -3040,7 +3046,7 @@ app.post("/ea/status", async (req, res) => {
           }
           await db.execute({
             sql: `UPDATE signals SET status='closed', closed_at_ms=?, close_outcome=?, close_result=? WHERE id=?`,
-            args: [Number(updated_at_ms) || Date.now(), String(outcome), resultStr != null ? String(resultStr) : "", String(activeSignal.id)],
+            args: [Date.now(), String(outcome), resultStr != null ? String(resultStr) : "", String(activeSignal.id)],
           });
           auto_closed = { signal_id: activeSignal.id, outcome, result: resultStr };
           console.log(`[auto-close] Signal ${activeSignal.id} closed: ${outcome} ${resultStr}`);
