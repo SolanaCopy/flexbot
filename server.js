@@ -6752,41 +6752,39 @@ async function autoNewsPreviewHandler(req, res) {
 app.post("/auto/news/preview/run", autoNewsPreviewHandler);
 app.get("/auto/news/preview/run", autoNewsPreviewHandler);
 
-// GET/POST /auto/signal/live-update/run
 // Re-renders the Telegram OPEN message of every active signal with a live
-// PnL progress block (SL↔TP bar + current price + age). Intended to be hit by
-// cron-job.org every minute.
-async function autoSignalLiveUpdateHandler(req, res) {
-  try {
-    const db = await getDb();
-    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+// PnL progress block. Returns { ok, acted, updated, errors, total, reason? }.
+// Called by both /auto/signal/live-update/run and the internal interval.
+async function _runLivePnlUpdate() {
+  const db = await getDb();
+  if (!db) return { ok: false, error: "db_unavailable" };
 
-    // Active signals (last 24h) that have a Telegram open-message we can edit.
-    // Older orphans are skipped: their TG messages are usually deleted/expired.
-    const since = Date.now() - 24 * 60 * 60 * 1000;
-    const rows = await db.execute({
-      sql:
-        "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,created_at_ms," +
-        "tg_open_chat_id,tg_open_message_id " +
-        "FROM signals " +
-        "WHERE status IN ('new','active') " +
-        "AND created_at_ms >= ? " +
-        "AND tg_open_chat_id IS NOT NULL AND tg_open_message_id IS NOT NULL " +
-        "ORDER BY created_at_ms DESC LIMIT 20",
-      args: [since],
-    });
+  // Active signals (last 24h) that have a Telegram open-message we can edit.
+  // Older orphans are skipped: their TG messages are usually deleted/expired.
+  const since = Date.now() - 24 * 60 * 60 * 1000;
+  const rows = await db.execute({
+    sql:
+      "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,created_at_ms," +
+      "tg_open_chat_id,tg_open_message_id " +
+      "FROM signals " +
+      "WHERE status IN ('new','active') " +
+      "AND created_at_ms >= ? " +
+      "AND tg_open_chat_id IS NOT NULL AND tg_open_message_id IS NOT NULL " +
+      "ORDER BY created_at_ms DESC LIMIT 20",
+    args: [since],
+  });
 
-    if (!last || !Number.isFinite(Number(last.bid)) || !Number.isFinite(Number(last.ask))) {
-      return res.json({ ok: true, acted: false, reason: "no_price_yet", updated: 0 });
-    }
-    const bid = Number(last.bid);
-    const ask = Number(last.ask);
+  if (!last || !Number.isFinite(Number(last.bid)) || !Number.isFinite(Number(last.ask))) {
+    return { ok: true, acted: false, reason: "no_price_yet", updated: 0, total: (rows.rows || []).length };
+  }
+  const bid = Number(last.bid);
+  const ask = Number(last.ask);
 
-    const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
+  const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
 
-    let updated = 0;
-    const errors = [];
-    for (const r of rows.rows || []) {
+  let updated = 0;
+  const errors = [];
+  for (const r of rows.rows || []) {
       try {
         const dir = String(r.direction || "").toUpperCase();
         // For BUY we exit at bid; for SELL we exit at ask. Use as current "mark".
@@ -6857,7 +6855,15 @@ async function autoSignalLiveUpdateHandler(req, res) {
       }
     }
 
-    return res.json({ ok: true, acted: updated > 0, updated, errors, total: (rows.rows || []).length });
+  return { ok: true, acted: updated > 0, updated, errors, total: (rows.rows || []).length };
+}
+
+// GET/POST /auto/signal/live-update/run — external cron entrypoint.
+// Also runs internally every 20s (see bootstrap setInterval).
+async function autoSignalLiveUpdateHandler(req, res) {
+  try {
+    const result = await _runLivePnlUpdate();
+    return res.json(result);
   } catch (e) {
     return res.status(500).json({ ok: false, error: "auto_signal_live_update_failed", message: String(e?.message || e) });
   }
@@ -11395,6 +11401,18 @@ async function main() {
     }
   }, 3 * 60 * 1000);
   console.log("[cron] news pause scheduler armed (3 min interval)");
+
+  // Live PnL update — refresh open-signal Telegram messages every 20s so the
+  // progress bar reflects the current price without depending on external cron.
+  setInterval(async () => {
+    try {
+      const r = await _runLivePnlUpdate();
+      if (r?.errors?.length) console.log("[cron] live-pnl errors:", r.errors.length);
+    } catch (e) {
+      console.error("[cron] live-pnl update failed:", e?.message || e);
+    }
+  }, 20 * 1000);
+  console.log("[cron] live PnL update scheduler armed (20s interval)");
 
   // Monthly referral winner — check once per hour, only acts on the 1st of the
   // month (de-duped via ea_notifs).
