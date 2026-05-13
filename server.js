@@ -7100,7 +7100,10 @@ app.get("/auto/daily/plan/run", autoDailyPlanHandler);
 async function autoDailyRecapHandler(req, res) {
   try {
     const db = await getDb();
-    const chatId = process.env.TELEGRAM_CHAT_ID || "-1003611276978";
+    // Optional ?chat_id= override for debugging: lets the owner trigger a
+    // recap to their own DM (e.g. 8210317741) instead of the public group.
+    const chatIdOverride = req.query.chat_id != null ? String(req.query.chat_id).trim() : "";
+    const chatId = chatIdOverride || process.env.TELEGRAM_CHAT_ID || "-1003611276978";
 
     if (!db) {
       await tgSendMessage({ chatId, text: "#RECAP XAUUSD\nNo data." });
