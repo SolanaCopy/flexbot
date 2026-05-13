@@ -4980,20 +4980,42 @@ function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs, entry 
   const progressFromSl = dir === "BUY" ? ratio : 1 - ratio;
   const pctSl = Math.round(progressFromSl * 100);
 
-  // Clean line bar with inline cursor marker:
-  //   🛑━━━🔴━━━━━━━━━🎯 35%
-  // 12 dash chars with 🔴 inserted at the cursor index. Color of the cursor
-  // reflects PnL direction: 🟢 if past midpoint toward TP, 🔴 if closer to SL.
+  // Bar with two markers: 📍 = entry, 🔴/🟢 = current price.
+  // Cursor color reflects PnL vs entry (green = in profit, red = in loss).
+  //   🛑━━📍━━🔴━━━━━━🎯 24%
+  // If markers collide we show the cursor (more dynamic info).
   const BAR_LEN = 12;
-  const cursorIdx = Math.max(0, Math.min(BAR_LEN, Math.round(progressFromSl * BAR_LEN)));
-  const marker = progressFromSl >= 0.5 ? "🟢" : "🔴";
-  const pre = "━".repeat(cursorIdx);
-  const post = "━".repeat(Math.max(0, BAR_LEN - cursorIdx));
-  const barLine = `🛑${pre}${marker}${post}🎯 ${pctSl}%`;
-
   const entryN = Number(entry);
-  const entryStr = Number.isFinite(entryN) ? `📍 Entry: ${entryN.toFixed(2)} · ` : "";
-  const live = `${entryStr}📊 Now: ${cur.toFixed(2)}`;
+
+  const cursorIdx = Math.max(0, Math.min(BAR_LEN, Math.round(progressFromSl * BAR_LEN)));
+
+  let entryIdx = -1;
+  if (Number.isFinite(entryN)) {
+    const entryRatioRaw = (entryN - lo) / (hi - lo);
+    const entryRatio = Math.max(0, Math.min(1, entryRatioRaw));
+    const entryProgressFromSl = dir === "BUY" ? entryRatio : 1 - entryRatio;
+    entryIdx = Math.max(0, Math.min(BAR_LEN, Math.round(entryProgressFromSl * BAR_LEN)));
+  }
+
+  // Cursor color: in profit (cur past entry toward TP) = green, otherwise red.
+  let cursorMarker = "🔴";
+  if (Number.isFinite(entryN)) {
+    const inProfit = dir === "BUY" ? cur > entryN : cur < entryN;
+    cursorMarker = inProfit ? "🟢" : "🔴";
+  } else {
+    cursorMarker = progressFromSl >= 0.5 ? "🟢" : "🔴";
+  }
+
+  let bar = "🛑";
+  for (let i = 0; i <= BAR_LEN; i++) {
+    if (i === cursorIdx) bar += cursorMarker;
+    else if (i === entryIdx) bar += "📍";
+    else bar += "━";
+  }
+  bar += "🎯";
+  const barLine = `${bar} ${pctSl}%`;
+
+  const live = `📊 Now: ${cur.toFixed(2)}`;
 
   let ageStr = "";
   if (Number.isFinite(Number(openedAtMs))) {
