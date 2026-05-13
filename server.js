@@ -4417,6 +4417,32 @@ async function tgEditMessageText({ chatId, messageId, text }) {
   return json;
 }
 
+async function tgEditMessageCaption({ chatId, messageId, caption }) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("missing_TELEGRAM_BOT_TOKEN");
+  if (!chatId) throw new Error("missing_chatId");
+  if (!messageId) throw new Error("missing_messageId");
+
+  const url = `https://api.telegram.org/bot${token}/editMessageCaption`;
+  const r = await fetchFn(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, caption }),
+  });
+
+  const bodyText = await r.text();
+  let json = null;
+  try { json = JSON.parse(bodyText); } catch { json = { ok: false, raw: bodyText }; }
+
+  if (!r.ok || !json?.ok) {
+    const err = json?.description || `telegram_http_${r.status}`;
+    const e = new Error(err);
+    e.details = json;
+    throw e;
+  }
+  return json;
+}
+
 // --- Telegram inbound (webhook) ---
 // Minimal auto-replies in the community group (no FAQ engine).
 // Configure:
@@ -6716,15 +6742,19 @@ async function autoSignalLiveUpdateHandler(req, res) {
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
 
-    // Active signals that have a Telegram open-message we can edit.
+    // Active signals (last 24h) that have a Telegram open-message we can edit.
+    // Older orphans are skipped: their TG messages are usually deleted/expired.
+    const since = Date.now() - 24 * 60 * 60 * 1000;
     const rows = await db.execute({
       sql:
         "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,created_at_ms," +
         "tg_open_chat_id,tg_open_message_id " +
         "FROM signals " +
         "WHERE status IN ('new','active') " +
+        "AND created_at_ms >= ? " +
         "AND tg_open_chat_id IS NOT NULL AND tg_open_message_id IS NOT NULL " +
         "ORDER BY created_at_ms DESC LIMIT 20",
+      args: [since],
     });
 
     if (!last || !Number.isFinite(Number(last.bid)) || !Number.isFinite(Number(last.ask))) {
@@ -6762,11 +6792,28 @@ async function autoSignalLiveUpdateHandler(req, res) {
           },
         });
 
-        await tgEditMessageText({
-          chatId: r.tg_open_chat_id,
-          messageId: r.tg_open_message_id,
-          text,
-        });
+        // Signal open messages are sent as photo+caption (mascot image), so
+        // editMessageText fails with "no text in the message to edit". Try
+        // text first (for older text-only sends), fall back to caption.
+        try {
+          await tgEditMessageText({
+            chatId: r.tg_open_chat_id,
+            messageId: r.tg_open_message_id,
+            text,
+          });
+        } catch (e1) {
+          const m = String(e1?.message || e1);
+          if (/no text in the message|message to edit not found/i.test(m)) {
+            if (/not found/i.test(m)) throw e1;
+            await tgEditMessageCaption({
+              chatId: r.tg_open_chat_id,
+              messageId: r.tg_open_message_id,
+              caption: text,
+            });
+          } else {
+            throw e1;
+          }
+        }
         updated++;
       } catch (e) {
         const msg = String(e?.message || e);
