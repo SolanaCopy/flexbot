@@ -1818,6 +1818,11 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
     if(InpDebugHttp) Print("POST /signal/manual/open code=", st2, " id=", manualId);
     if(st2 >= 200 && st2 < 300) {
       GlobalVariableSet(gv, 1.0);
+      // FIX: persist ticket->signal_id mapping so subsequent SL/TP modifies
+      // on this manual trade trigger /signal/modify broadcasts to customers.
+      // Without this PosMap entry, OnTradeTransaction's modify-broadcast
+      // path can't find a signal_id and silently skips the broadcast.
+      PosMapSet(posTicket, manualId);
     }
     return;
   }
