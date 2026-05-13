@@ -8905,6 +8905,7 @@ app.get("/admin/render-test/closed", async (req, res) => {
 // (2) starting = optional ?start_balance=100000 for FTMO-style total DD vs the
 // challenge starting capital. Stale rows (updated >24h ago) are flagged.
 app.get("/admin/positions/all", async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
   if (!mcAuthDashboard(req, res)) return;
   try {
     const db = await getDb();
