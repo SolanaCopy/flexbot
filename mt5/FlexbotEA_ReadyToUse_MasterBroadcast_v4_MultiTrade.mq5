@@ -80,7 +80,7 @@ input bool   InpEnableBanner = true;
 
 // Safety
 input bool InpBlockSameDirection = true;
-input int InpCooldownMinutes = 30;
+input int InpCooldownMinutes = 0; // v4: default 0 so customers never miss back-to-back master trades. Set >0 only on FTMO-strict accounts.
 
 // Prop / FTMO guard
 // Daily loss (banner) is measured on BALANCE: (DayStartBalance - currentBalance) / DayStartBalance.
