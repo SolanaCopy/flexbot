@@ -365,6 +365,15 @@ async function getDb() {
       " closed_at_ms INTEGER NOT NULL," +
       " PRIMARY KEY(signal_id, account_login, server)" +
       ")",
+    // v4 install tracker — every hit on /ea/close-pending upserts this row.
+    // Only v4 EAs poll that endpoint, so a fresh last_poll_ms is proof the
+    // account is running v4. Surfaced in /admin/positions/all.
+    "CREATE TABLE IF NOT EXISTS v4_pollers (" +
+      " account_login TEXT NOT NULL," +
+      " server TEXT NOT NULL," +
+      " last_poll_ms INTEGER NOT NULL," +
+      " PRIMARY KEY(account_login, server)" +
+      ")",
   ];
   for (const sql of alterCols) {
     try {
@@ -3432,6 +3441,16 @@ app.get("/ea/close-pending", async (req, res) => {
 
     const db = await getDb();
     if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    // Stamp this caller as a v4-active account (only v4 EAs poll this
+    // endpoint). The kopers_dashboard surfaces last_poll_ms to show install
+    // status per customer.
+    try {
+      await db.execute({
+        sql: "INSERT OR REPLACE INTO v4_pollers (account_login, server, last_poll_ms) VALUES (?,?,?)",
+        args: [account_login, server, Date.now()],
+      });
+    } catch { /* table missing on old DBs; boot alter creates it */ }
 
     // Window: only signals master closed in the last 24h. Anything older is
     // either already handled or stale.
@@ -9231,9 +9250,12 @@ app.get("/admin/positions/all", async (req, res) => {
 
     const rows = await db.execute({
       sql:
-        "SELECT account_login, server, magic, symbol, has_position, tickets_json, " +
-        "equity, balance, updated_at_ms " +
-        "FROM ea_positions ORDER BY updated_at_ms DESC",
+        "SELECT p.account_login, p.server, p.magic, p.symbol, p.has_position, p.tickets_json, " +
+        "p.equity, p.balance, p.updated_at_ms, " +
+        "v.last_poll_ms AS v4_last_poll_ms " +
+        "FROM ea_positions p " +
+        "LEFT JOIN v4_pollers v ON v.account_login = p.account_login AND v.server = p.server " +
+        "ORDER BY p.updated_at_ms DESC",
     });
 
     const now = Date.now();
@@ -9254,6 +9276,7 @@ app.get("/admin/positions/all", async (req, res) => {
       let tickets = [];
       try { tickets = JSON.parse(String(r.tickets_json || "[]")); } catch {}
 
+      const v4PollMs = r.v4_last_poll_ms != null ? Number(r.v4_last_poll_ms) : null;
       return {
         account_login: String(r.account_login),
         server: String(r.server),
@@ -9270,6 +9293,11 @@ app.get("/admin/positions/all", async (req, res) => {
         age_sec: ageMs != null ? Math.round(ageMs / 1000) : null,
         stale: ageMs != null && ageMs > 24 * 60 * 60 * 1000,
         updated_at_ms: updMs,
+        // v4 install detection: only v4 EAs poll /ea/close-pending, so a
+        // fresh last_poll_ms (within a few minutes) is proof the EA on this
+        // account is running v4.
+        v4_last_poll_ms: v4PollMs,
+        v4_active: v4PollMs != null && (Date.now() - v4PollMs) < 5 * 60 * 1000,
       };
     });
 
