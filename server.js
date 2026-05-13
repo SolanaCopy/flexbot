@@ -9269,9 +9269,13 @@ app.get("/admin/positions/all", async (req, res) => {
       sql:
         "SELECT p.account_login, p.server, p.magic, p.symbol, p.has_position, p.tickets_json, " +
         "p.equity, p.balance, p.updated_at_ms, " +
-        "v.last_poll_ms AS v4_last_poll_ms " +
+        "v.last_poll_ms AS v4_last_poll_ms, " +
+        "l.expires_at_ms AS license_expires_at_ms, " +
+        "l.status AS license_status, " +
+        "l.notes AS license_notes " +
         "FROM ea_positions p " +
         "LEFT JOIN v4_pollers v ON v.account_login = p.account_login AND v.server = p.server " +
+        "LEFT JOIN licenses l ON l.magic = p.magic " +
         "ORDER BY p.updated_at_ms DESC",
     });
 
@@ -9312,6 +9316,8 @@ app.get("/admin/positions/all", async (req, res) => {
       });
 
       const v4PollMs = r.v4_last_poll_ms != null ? Number(r.v4_last_poll_ms) : null;
+      const licExpMs = r.license_expires_at_ms != null ? Number(r.license_expires_at_ms) : null;
+      const licDaysLeft = licExpMs ? Math.ceil((licExpMs - Date.now()) / (24 * 60 * 60 * 1000)) : null;
       return {
         account_login: String(r.account_login),
         server: String(r.server),
@@ -9320,6 +9326,9 @@ app.get("/admin/positions/all", async (req, res) => {
         has_position: Number(r.has_position) === 1,
         open_tickets: tickets.length,
         tickets,
+        license_expires_at_ms: licExpMs,
+        license_days_left: licDaysLeft,
+        license_status: r.license_status != null ? String(r.license_status) : null,
         balance: bal,
         equity: eq,
         floating_usd: floating != null ? Number(floating.toFixed(2)) : null,
