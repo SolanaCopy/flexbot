@@ -340,7 +340,11 @@ async function getDb() {
       // Simple close metadata (optional)
       "closed_at_ms INTEGER," +
       "close_outcome TEXT," +
-      "close_result TEXT" +
+      "close_result TEXT," +
+      // Close-sync: when the master account reports /signal/closed for this id,
+      // we stamp this column. Customer EAs poll /ea/close-pending and use it
+      // to know they should close their own copies of the trade.
+      "master_closed_at_ms INTEGER" +
     ")"
   );
 
@@ -351,6 +355,16 @@ async function getDb() {
     "ALTER TABLE signals ADD COLUMN closed_at_ms INTEGER",
     "ALTER TABLE signals ADD COLUMN close_outcome TEXT",
     "ALTER TABLE signals ADD COLUMN close_result TEXT",
+    "ALTER TABLE signals ADD COLUMN master_closed_at_ms INTEGER",
+    // Per-account close ledger for close-sync (one row per customer who
+    // confirmed they closed their copy of a signal).
+    "CREATE TABLE IF NOT EXISTS signal_close2 (" +
+      " signal_id TEXT NOT NULL," +
+      " account_login TEXT NOT NULL," +
+      " server TEXT NOT NULL," +
+      " closed_at_ms INTEGER NOT NULL," +
+      " PRIMARY KEY(signal_id, account_login, server)" +
+      ")",
   ];
   for (const sql of alterCols) {
     try {
@@ -2132,10 +2146,29 @@ app.post("/signal/closed", async (req, res) => {
         sql: "UPDATE signals SET status='closed', closed_at_ms=COALESCE(closed_at_ms,?), close_outcome=COALESCE(close_outcome,?), close_result=COALESCE(close_result,?) WHERE id=?",
         args: [closed_at_ms, outcome, result, signal_id],
       });
+      // Close-sync ledger: record that this account has now closed its copy
+      // so /ea/close-pending no longer asks it to close (idempotent INSERT).
+      try {
+        await db.execute({
+          sql: "INSERT OR IGNORE INTO signal_close2 (signal_id, account_login, server, closed_at_ms) VALUES (?,?,?,?)",
+          args: [signal_id, reqLogin, reqServer, closed_at_ms],
+        });
+      } catch { /* table missing on old DBs — boot-time alter creates it */ }
       return res.json({ ok: true, signal_id, posted: false, reason: "non_master_account" });
     }
 
     const canBroadcast = true;
+
+    // Close-sync: stamp master_closed_at_ms so /ea/close-pending can tell
+    // customer EAs to close their copies of this trade. Only the master path
+    // reaches here (non-master returned above). COALESCE preserves the first
+    // value if the master EA fires multiple times for the same close.
+    try {
+      await db.execute({
+        sql: "UPDATE signals SET master_closed_at_ms=COALESCE(master_closed_at_ms,?) WHERE id=?",
+        args: [closed_at_ms, signal_id],
+      });
+    } catch { /* column might be missing on very old DBs; alter-table at boot fixes that */ }
 
     // De-dupe CLOSED posting across multiple EA accounts (DB + in-memory).
     // Only one request should do Telegram side-effects (edit open + post closed card + streak).
@@ -3378,6 +3411,77 @@ app.post("/ea/daily-stop", async (req, res) => {
     return res.json({ ok: true, broadcast: true, active });
   } catch {
     return res.status(400).json({ ok: false, error: "bad_json" });
+  }
+});
+
+// GET /ea/close-pending?account_login=X&server=Y[&symbol=XAUUSD]
+// Returns signals where the master EA reported close but this customer
+// account hasn't yet closed its copy. Customer EAs poll this every cycle
+// and close their matching positions (looked up by signal_id in position
+// comment, set at open time). Idempotent: once the EA closes its position
+// and posts /signal/closed for itself, this endpoint stops returning the
+// signal for that account.
+app.get("/ea/close-pending", async (req, res) => {
+  try {
+    const account_login = req.query.account_login != null ? String(req.query.account_login).trim() : "";
+    const server = req.query.server != null ? String(req.query.server).trim() : "";
+    const symbol = req.query.symbol != null ? String(req.query.symbol).toUpperCase() : null;
+    if (!account_login || !server) {
+      return res.status(400).json({ ok: false, error: "missing_account_identity" });
+    }
+
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    // Window: only signals master closed in the last 24h. Anything older is
+    // either already handled or stale.
+    const since = Date.now() - 24 * 60 * 60 * 1000;
+
+    // Signals where:
+    //  - master_closed_at_ms is set (master closed)
+    //  - this account executed it (signal_exec2 row with ok_mod=1)
+    //  - no /signal/closed has been posted by this account yet (signal_close2 row missing)
+    // The signal_close2 table is created lazily on first close-by-account.
+    await db.execute({
+      sql:
+        "CREATE TABLE IF NOT EXISTS signal_close2 (" +
+        " signal_id TEXT NOT NULL," +
+        " account_login TEXT NOT NULL," +
+        " server TEXT NOT NULL," +
+        " closed_at_ms INTEGER NOT NULL," +
+        " PRIMARY KEY(signal_id, account_login, server)" +
+        ")",
+    });
+
+    const args = [account_login, server, account_login, server, since];
+    let sql =
+      "SELECT s.id, s.symbol, s.direction, s.master_closed_at_ms " +
+      "FROM signals s " +
+      "JOIN signal_exec2 e ON e.signal_id = s.id " +
+      " AND e.account_login = ? AND e.server = ? AND e.ok_mod = 1 " +
+      "LEFT JOIN signal_close2 c ON c.signal_id = s.id " +
+      " AND c.account_login = ? AND c.server = ? " +
+      "WHERE s.master_closed_at_ms IS NOT NULL " +
+      " AND s.master_closed_at_ms >= ? " +
+      " AND c.signal_id IS NULL ";
+    if (symbol) {
+      sql += " AND s.symbol = ? ";
+      args.push(symbol);
+    }
+    sql += "ORDER BY s.master_closed_at_ms ASC LIMIT 20";
+
+    const rows = await db.execute({ sql, args });
+    const closes = (rows.rows || []).map((r) => ({
+      signal_id: String(r.id),
+      symbol: String(r.symbol),
+      direction: String(r.direction),
+      master_closed_at_ms: Number(r.master_closed_at_ms),
+    }));
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    return res.json({ ok: true, count: closes.length, closes });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "close_pending_failed", message: String(e?.message || e) });
   }
 });
 
