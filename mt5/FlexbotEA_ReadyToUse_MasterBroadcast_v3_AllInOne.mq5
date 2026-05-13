@@ -1678,7 +1678,54 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
       ulong posT = trans.position;
       if(posT != 0 && PositionSelectByTicket(posT)) {
         string mappedSig = "";
-        if(PosMapGet(posT, mappedSig) && Trim(mappedSig) != "") {
+        bool haveSig = PosMapGet(posT, mappedSig) && Trim(mappedSig) != "";
+
+        // Late-broadcast safety net: if this is a manual (magic=0) position
+        // that wasn't broadcast at open time (e.g. SL/TP filled in afterward,
+        // or the original /signal/manual/open POST failed), broadcast it NOW
+        // as a fresh manual_open. That puts it in PosMap and lets future
+        // modify/close events sync to customers.
+        long posMagic = (long)PositionGetInteger(POSITION_MAGIC);
+        double psl0 = PositionGetDouble(POSITION_SL);
+        double ptp0 = PositionGetDouble(POSITION_TP);
+        if(!haveSig && posMagic == 0 && psl0 > 0.0 && ptp0 > 0.0
+           && Trim(InpEaApiKey) != "" && Trim(InpBaseUrl) != "") {
+          string sym0 = PositionGetString(POSITION_SYMBOL);
+          double fillP0 = PositionGetDouble(POSITION_PRICE_OPEN);
+          long posType0 = PositionGetInteger(POSITION_TYPE);
+          string dir0 = (posType0 == POSITION_TYPE_BUY ? "BUY" : (posType0 == POSITION_TYPE_SELL ? "SELL" : ""));
+          if(dir0 != "") {
+            int dig0 = (int)SymbolInfoInteger(sym0, SYMBOL_DIGITS);
+            long login0 = AccountInfoInteger(ACCOUNT_LOGIN);
+            string manualId0 = "m-" + (string)login0 + "-" + (string)posT;
+            string body0 = "{";
+            body0 += "\"id\":\"" + manualId0 + "\"";
+            body0 += ",\"symbol\":\"" + sym0 + "\"";
+            body0 += ",\"direction\":\"" + dir0 + "\"";
+            body0 += ",\"sl\":" + DoubleToString(psl0, dig0);
+            body0 += ",\"tp\":[" + DoubleToString(ptp0, dig0) + "]";
+            body0 += ",\"ticket\":\"" + (string)posT + "\"";
+            body0 += ",\"fill_price\":" + DoubleToString(fillP0, dig0);
+            body0 += ",\"risk_pct\":" + DoubleToString(InpRiskPercent, 2);
+            body0 += ",\"comment\":\"manual_late\"";
+            body0 += ",\"account_login\":" + (string)login0;
+            body0 += ",\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\"";
+            body0 += ",\"time\":" + (string)NowMsUtc();
+            body0 += "}";
+            string hdr0 = "X-API-Key: " + InpEaApiKey + "\r\n";
+            int stLate = HttpPostJson(BuildUrl("/signal/manual/open"), body0, hdr0);
+            if(InpDebugHttp) Print("POST /signal/manual/open (LATE) code=", stLate, " id=", manualId0);
+            if(stLate >= 200 && stLate < 300) {
+              PosMapSet(posT, manualId0);
+              mappedSig = manualId0;
+              haveSig = true;
+              string gv0 = GVManualSig(posT);
+              GlobalVariableSet(gv0, 1.0);
+            }
+          }
+        }
+
+        if(haveSig) {
           double psl = PositionGetDouble(POSITION_SL);
           double ptp = PositionGetDouble(POSITION_TP);
           string sym = PositionGetString(POSITION_SYMBOL);
@@ -1879,16 +1926,26 @@ void ProcessCloseSync()
     pos = valEnd + 1;
     if(StringLen(signal_id) == 0) continue;
 
-    // Find the position whose comment matches this signal_id.
+    // Find the position to close. Two strategies, in order:
+    //  1) PosMap reverse lookup (ticket->signal_id file map). This is robust
+    //     for trades opened by older EA versions where the position comment
+    //     wasn't set to signal_id.
+    //  2) Fallback: scan PositionsTotal() and match position comment against
+    //     signal_id (works for trades opened by v4+ where we tag the comment).
     ulong closeTicket = 0;
-    for(int p = PositionsTotal() - 1; p >= 0; p--) {
-      ulong t = PositionGetTicket(p);
-      if(t == 0) continue;
-      if(!PositionSelectByTicket(t)) continue;
-      string pcom = PositionGetString(POSITION_COMMENT);
-      if(StringFind(pcom, signal_id) >= 0) {
-        closeTicket = t;
-        break;
+    if(PosMapGetBySig(signal_id, closeTicket) && closeTicket != 0) {
+      if(!PositionSelectByTicket(closeTicket)) closeTicket = 0;
+    }
+    if(closeTicket == 0) {
+      for(int p = PositionsTotal() - 1; p >= 0; p--) {
+        ulong t = PositionGetTicket(p);
+        if(t == 0) continue;
+        if(!PositionSelectByTicket(t)) continue;
+        string pcom = PositionGetString(POSITION_COMMENT);
+        if(StringFind(pcom, signal_id) >= 0) {
+          closeTicket = t;
+          break;
+        }
       }
     }
     if(closeTicket == 0) continue; // already closed locally, or never opened
