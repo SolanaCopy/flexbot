@@ -9290,8 +9290,26 @@ app.get("/admin/positions/all", async (req, res) => {
       const fromStart = (eq != null && startBalance) ? eq - startBalance : null;
       const fromStartPct = (fromStart != null && startBalance > 0) ? (fromStart / startBalance) * 100 : null;
 
-      let tickets = [];
-      try { tickets = JSON.parse(String(r.tickets_json || "[]")); } catch {}
+      let ticketsRaw = [];
+      try { ticketsRaw = JSON.parse(String(r.tickets_json || "[]")); } catch {}
+      // Accept both old (["123","456"]) and new ([{ticket,dir,lot,entry,...}])
+      // EA push formats. Always emit the rich shape so the dashboard can
+      // render lot/SL/TP/PnL per ticket where available.
+      const tickets = (Array.isArray(ticketsRaw) ? ticketsRaw : []).map((t) => {
+        if (t && typeof t === "object") {
+          return {
+            ticket: t.ticket != null ? String(t.ticket) : null,
+            dir: t.dir != null ? String(t.dir) : null,
+            magic: t.magic != null ? Number(t.magic) : null,
+            lot: t.lot != null && Number.isFinite(Number(t.lot)) ? Number(t.lot) : null,
+            entry: t.entry != null && Number.isFinite(Number(t.entry)) ? Number(t.entry) : null,
+            sl: t.sl != null && Number.isFinite(Number(t.sl)) ? Number(t.sl) : null,
+            tp: t.tp != null && Number.isFinite(Number(t.tp)) ? Number(t.tp) : null,
+            profit: t.profit != null && Number.isFinite(Number(t.profit)) ? Number(t.profit) : null,
+          };
+        }
+        return { ticket: String(t), dir: null, magic: null, lot: null, entry: null, sl: null, tp: null, profit: null };
+      });
 
       const v4PollMs = r.v4_last_poll_ms != null ? Number(r.v4_last_poll_ms) : null;
       return {
@@ -9301,6 +9319,7 @@ app.get("/admin/positions/all", async (req, res) => {
         symbol: String(r.symbol),
         has_position: Number(r.has_position) === 1,
         open_tickets: tickets.length,
+        tickets,
         balance: bal,
         equity: eq,
         floating_usd: floating != null ? Number(floating.toFixed(2)) : null,

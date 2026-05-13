@@ -1058,13 +1058,53 @@ bool ShouldLogOk(long &lastMs, const long intervalMs) {
   return true;
 }
 
+// Build a rich tickets JSON containing every position on this symbol that
+// matches either InpMagic (signal-opened) or magic=0 (manual broadcasts).
+// Old format was ["12345","67890"] — we now emit:
+//   [{"ticket":"12345","dir":"BUY","lot":0.50,"entry":4690.00,
+//     "sl":4670.00,"tp":4700.00,"profit":12.34}]
+// Server parses both shapes for backward compatibility.
+string BuildRichTicketsJson(const string sym)
+{
+  string out = "[";
+  bool first = true;
+  int dig = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+  for(int i = PositionsTotal() - 1; i >= 0; i--) {
+    ulong t = PositionGetTicket(i);
+    if(t == 0) continue;
+    if(!PositionSelectByTicket(t)) continue;
+    if(PositionGetString(POSITION_SYMBOL) != sym) continue;
+    ulong pmagic = (ulong)PositionGetInteger(POSITION_MAGIC);
+    if(pmagic != InpMagic && pmagic != 0) continue;
+    long ptype = PositionGetInteger(POSITION_TYPE);
+    string pdir = (ptype == POSITION_TYPE_BUY) ? "BUY" : (ptype == POSITION_TYPE_SELL) ? "SELL" : "-";
+    double plot = PositionGetDouble(POSITION_VOLUME);
+    double pentry = PositionGetDouble(POSITION_PRICE_OPEN);
+    double psl = PositionGetDouble(POSITION_SL);
+    double ptp = PositionGetDouble(POSITION_TP);
+    double pprofit = PositionGetDouble(POSITION_PROFIT);
+    if(!first) out += ",";
+    first = false;
+    out += "{\"ticket\":\"" + (string)t + "\"";
+    out += ",\"dir\":\"" + pdir + "\"";
+    out += ",\"magic\":" + (string)pmagic;
+    out += ",\"lot\":" + DoubleToString(plot, 2);
+    out += ",\"entry\":" + DoubleToString(pentry, dig);
+    out += ",\"sl\":" + DoubleToString(psl, dig);
+    out += ",\"tp\":" + DoubleToString(ptp, dig);
+    out += ",\"profit\":" + DoubleToString(pprofit, 2);
+    out += "}";
+  }
+  out += "]";
+  return out;
+}
+
 void ReportPositionStateThrottled() {
   long nowMs = NowMsUtc();
   if(g_lastPosReportMs!=0 && (ulong)(nowMs - (long)g_lastPosReportMs) < (ulong)InpStatusPostSeconds*1000) return;
   g_lastPosReportMs = (ulong)nowMs;
-  string ticket;
-  bool hasPos = HasOpenPositionForMagic(InpSymbol, InpMagic, ticket);
-  string ticketsJson = (ticket != "" ? "[\"" + ticket + "\"]" : "[]");
+  string ticketsJson = BuildRichTicketsJson(InpSymbol);
+  bool hasPos = (ticketsJson != "[]");
   long login = AccountInfoInteger(ACCOUNT_LOGIN);
   string server = AccountInfoString(ACCOUNT_SERVER);
   double equity = AccountInfoDouble(ACCOUNT_EQUITY);
