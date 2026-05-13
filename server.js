@@ -4963,7 +4963,7 @@ async function fetchJson(url, timeoutMs) {
 // Builds the live PnL block: progress bar between SL and TP, current price,
 // trade age, and last-updated timestamp. Returns null if any required field
 // is missing or invalid (caller skips the block in that case).
-function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs }) {
+function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs, entry }) {
   const slN = Number(sl);
   const tpN = Number(tp);
   const cur = Number(currentPrice);
@@ -4991,7 +4991,9 @@ function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs }) {
   const post = "━".repeat(Math.max(0, BAR_LEN - cursorIdx));
   const barLine = `🛑${pre}${marker}${post}🎯 ${pctSl}%`;
 
-  const live = `📊 Now: ${cur.toFixed(2)}`;
+  const entryN = Number(entry);
+  const entryStr = Number.isFinite(entryN) ? `📍 Entry: ${entryN.toFixed(2)} · ` : "";
+  const live = `${entryStr}📊 Now: ${cur.toFixed(2)}`;
 
   let ageStr = "";
   if (Number.isFinite(Number(openedAtMs))) {
@@ -6758,6 +6760,8 @@ async function autoSignalLiveUpdateHandler(req, res) {
     const bid = Number(last.bid);
     const ask = Number(last.ask);
 
+    const masterLogin = String(process.env.MASTER_LOGIN || process.env.MAIN_ACCOUNT_LOGIN || "511253083").trim();
+
     let updated = 0;
     const errors = [];
     for (const r of rows.rows || []) {
@@ -6772,6 +6776,18 @@ async function autoSignalLiveUpdateHandler(req, res) {
         const sl = Number(r.sl);
         if (!Number.isFinite(sl) || !Number.isFinite(tp)) continue;
 
+        // Master's fill price = the public "entry" we show. If master hasn't
+        // executed yet, leave undefined so the block omits the Entry line.
+        let entry = null;
+        try {
+          const ex = await db.execute({
+            sql: "SELECT fill_price FROM signal_exec2 WHERE signal_id=? AND account_login=? LIMIT 1",
+            args: [String(r.id), masterLogin],
+          });
+          const fp = ex.rows?.[0]?.fill_price;
+          if (fp != null && Number.isFinite(Number(fp))) entry = Number(fp);
+        } catch { /* signal_exec2 missing or query fails — skip entry */ }
+
         const text = formatSignalCaption({
           id: r.id,
           symbol: r.symbol,
@@ -6784,6 +6800,7 @@ async function autoSignalLiveUpdateHandler(req, res) {
             tp,
             currentPrice: cur,
             openedAtMs: Number(r.created_at_ms) || null,
+            entry,
           },
         });
 
