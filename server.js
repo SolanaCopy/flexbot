@@ -5793,13 +5793,22 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
     const s = String(v || "").trim().toLowerCase();
     if (s === "sl hit" || s === "sl") return "SL";
     if (s === "tp hit" || s === "tp") return "TP";
+    // Compact 2-char abbreviations so the fixed-width outcome badge never
+    // overflows into the PnL column (was visible in 2026-05-13 recap).
+    if (s === "locked profit") return "LP";
+    if (s === "break-even" || s === "breakeven" || s === "be") return "BE";
+    if (s === "admin_close" || s === "admin close") return "AC";
     if (s === "closed" || s === "manual" || s === "manual close" || s === "early") return "CLOSED";
-    return String(v || "").trim();
+    // Fallback: ensure anything else still fits — take first 6 chars.
+    const raw = String(v || "").trim();
+    return raw.length > 6 ? raw.slice(0, 6).toUpperCase() : raw;
   };
   const colOut = out => {
     const s = String(out || "").toLowerCase();
-    if (s.includes("tp")) return "#00d084";
-    if (s.includes("sl")) return "#ff4757";
+    if (s === "tp" || s.includes("tp")) return "#00d084";
+    if (s === "sl" || s.includes("sl")) return "#ff4757";
+    if (s === "lp") return "#00d084"; // Locked Profit = green (it's a win)
+    if (s === "be" || s === "ac") return "rgba(255,255,255,0.78)";
     if (s.includes("closed")) return "rgba(255,255,255,0.78)";
     return "rgba(255,255,255,0.88)";
   };
@@ -5872,13 +5881,18 @@ function createDailyRecapSvg({ symbol, dayLabel, closedCount, totalUsdStr, total
       // Outcome badge
       outRaw ? `<rect x="${baseX + outBadgeX}" y="${badgeY}" width="${outBadgeW}" height="${badgeH}" rx="${badgeR}" fill="${outBg}" stroke="${outStroke}" stroke-width="1"/>` : "",
       outRaw ? `<text x="${baseX + outBadgeX + outBadgeW / 2}" y="${textY}" text-anchor="middle" font-family="Inter,Segoe UI,Arial" font-size="${textFs - 2}" fill="${outFill}" font-weight="900">${esc(out)}</text>` : "",
-      // PnL amount with subtle glow
+      // PnL amount with subtle glow. Only render when res parses as a numeric
+      // amount; non-numeric strings (e.g. "test cleanup" from ADMIN_CLOSE) get
+      // a single "—" so they don't overflow into the badge column.
       res ? (() => {
         const resMatch = res.match(/^([+-]?)([\d.]+)\s*(.*)/);
-        const sign = resMatch ? resMatch[1] : "";
-        const amt = resMatch ? resMatch[2] : res;
-        const unit = resMatch ? resMatch[3] : "";
         const unitX = baseX + resOffX + (twoCols ? 116 : 128);
+        if (!resMatch) {
+          return `<text x="${unitX}" y="${textY}" text-anchor="end" font-family="JetBrains Mono,Consolas,monospace" font-size="${textFs}" fill="rgba(255,255,255,0.35)" font-weight="700">—</text>`;
+        }
+        const sign = resMatch[1];
+        const amt = resMatch[2];
+        const unit = resMatch[3];
         return [
           `<text x="${unitX}" y="${textY}" text-anchor="end" font-family="JetBrains Mono,Consolas,monospace" font-size="${textFs}" fill="${resFill}" font-weight="700" style="font-variant-numeric: tabular-nums;">${esc(sign + amt)}</text>`,
           unit ? `<text x="${unitX + 6}" y="${textY}" font-family="Inter,Segoe UI,Arial" font-size="${textFs - 6}" fill="rgba(255,255,255,0.25)" font-weight="500" letter-spacing="0.5">${esc(unit)}</text>` : "",
