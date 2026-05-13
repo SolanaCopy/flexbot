@@ -4980,8 +4980,8 @@ function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs, entry 
   const progressFromSl = dir === "BUY" ? ratio : 1 - ratio;
   const pctSl = Math.round(progressFromSl * 100);
 
-  // Bar with two markers: 📍 = entry, 🔴/🟢 = current price.
-  // Cursor color reflects PnL vs entry (green = in profit, red = in loss).
+  // Bar with two markers: 📍 = entry, 🔴/🔵 = current price.
+  // Cursor color reflects PnL vs entry (blue = in profit, red = in loss).
   //   🛑━━📍━━🔴━━━━━━🎯 24%
   // If markers collide we show the cursor (more dynamic info).
   const BAR_LEN = 12;
@@ -5001,9 +5001,9 @@ function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs, entry 
   let cursorMarker = "🔴";
   if (Number.isFinite(entryN)) {
     const inProfit = dir === "BUY" ? cur > entryN : cur < entryN;
-    cursorMarker = inProfit ? "🟢" : "🔴";
+    cursorMarker = inProfit ? "🔵" : "🔴";
   } else {
-    cursorMarker = progressFromSl >= 0.5 ? "🟢" : "🔴";
+    cursorMarker = progressFromSl >= 0.5 ? "🔵" : "🔴";
   }
 
   let bar = "🛑";
