@@ -5133,9 +5133,7 @@ function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs, entry 
   return barLine + "\n" + live + ageStr + ` · upd ${updUtc} UTC`;
 }
 
-function formatSignalCaption({ id, symbol, direction, riskPct, comment, live }) {
-  const riskStr = String(riskPct);
-
+function formatSignalCaption({ id, symbol, direction, comment, live }) {
   const sym = String(symbol || "").toUpperCase();
   const dir = String(direction || "").toUpperCase();
 
@@ -5152,9 +5150,7 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment, live }) 
     `${kind}: ${sym} ${dir}\n` +
     `\n` +
     `🚀 Start Flexbot: www.fxflexbot.com\n` +
-    `\n` +
-    `💰 Risk: ${riskStr}%\n` +
-    (liveBlock ? `\n${liveBlock}\n` : "") +
+    (liveBlock ? `\n${liveBlock}\n` : "\n") +
     `❗ Not Financial Advice.`
   );
 }
