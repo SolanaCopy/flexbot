@@ -9257,6 +9257,100 @@ app.get("/admin/render-test/closed", async (req, res) => {
 // for an instant "are they currently underwater on open positions" view, and
 // (2) starting = optional ?start_balance=100000 for FTMO-style total DD vs the
 // challenge starting capital. Stale rows (updated >24h ago) are flagged.
+// GET /admin/customers — combined view for the kopers dashboard.
+// Returns every active license (so pending customers without an EA yet show
+// up) joined with their latest ea_positions row (live equity, tickets) and
+// v4 poll info. Drives the customer table in kopers_dashboard.html.
+app.get("/admin/customers", async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  if (!mcAuthDashboard(req, res)) return;
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    const rows = await db.execute({
+      sql:
+        "SELECT l.id AS license_id, l.magic, l.status AS license_status, " +
+        "l.expires_at_ms AS license_expires_at_ms, l.notes AS license_notes, " +
+        "l.created_at_ms AS license_created_at_ms, l.last_seen_account_login, " +
+        "l.last_seen_server, " +
+        "p.account_login, p.server, p.symbol, p.has_position, p.tickets_json, " +
+        "p.equity, p.balance, p.updated_at_ms, " +
+        "v.last_poll_ms AS v4_last_poll_ms " +
+        "FROM licenses l " +
+        "LEFT JOIN ea_positions p ON p.magic = l.magic AND p.symbol = 'XAUUSD' " +
+        "LEFT JOIN v4_pollers v ON v.account_login = COALESCE(p.account_login, l.last_seen_account_login) " +
+        "AND v.server = COALESCE(p.server, l.last_seen_server) " +
+        "WHERE l.status = 'active' " +
+        "ORDER BY l.created_at_ms ASC",
+    });
+
+    const now = Date.now();
+    const customers = (rows.rows || []).map((r) => {
+      const eq = r.equity != null ? Number(r.equity) : null;
+      const bal = r.balance != null ? Number(r.balance) : null;
+      const updMs = r.updated_at_ms != null ? Number(r.updated_at_ms) : 0;
+      const ageMs = updMs ? now - updMs : null;
+      const floating = (eq != null && bal != null) ? eq - bal : null;
+      const floatingPct = (floating != null && bal > 0) ? (floating / bal) * 100 : null;
+
+      let ticketsRaw = [];
+      try { ticketsRaw = JSON.parse(String(r.tickets_json || "[]")); } catch {}
+      const tickets = (Array.isArray(ticketsRaw) ? ticketsRaw : []).map((t) => {
+        if (t && typeof t === "object") {
+          return {
+            ticket: t.ticket != null ? String(t.ticket) : null,
+            dir: t.dir != null ? String(t.dir) : null,
+            lot: t.lot != null ? Number(t.lot) : null,
+            entry: t.entry != null ? Number(t.entry) : null,
+            sl: t.sl != null ? Number(t.sl) : null,
+            tp: t.tp != null ? Number(t.tp) : null,
+            profit: t.profit != null ? Number(t.profit) : null,
+          };
+        }
+        return { ticket: String(t), dir: null, lot: null, entry: null, sl: null, tp: null, profit: null };
+      });
+
+      const v4PollMs = r.v4_last_poll_ms != null ? Number(r.v4_last_poll_ms) : null;
+      const licExpMs = r.license_expires_at_ms != null ? Number(r.license_expires_at_ms) : null;
+      const licDaysLeft = licExpMs ? Math.ceil((licExpMs - now) / (24 * 60 * 60 * 1000)) : null;
+
+      // Pending = license exists but EA never reported status yet.
+      const everReported = r.account_login != null;
+
+      return {
+        license_id: String(r.license_id),
+        magic: Number(r.magic),
+        license_status: r.license_status != null ? String(r.license_status) : null,
+        license_expires_at_ms: licExpMs,
+        license_days_left: licDaysLeft,
+        license_notes: r.license_notes != null ? String(r.license_notes) : null,
+        license_created_at_ms: r.license_created_at_ms != null ? Number(r.license_created_at_ms) : null,
+        account_login: r.account_login != null ? String(r.account_login) : null,
+        server: r.server != null ? String(r.server) : null,
+        symbol: r.symbol != null ? String(r.symbol) : "XAUUSD",
+        has_position: Number(r.has_position) === 1,
+        open_tickets: tickets.length,
+        tickets,
+        balance: bal,
+        equity: eq,
+        floating_usd: floating != null ? Number(floating.toFixed(2)) : null,
+        floating_pct: floatingPct != null ? Number(floatingPct.toFixed(3)) : null,
+        age_sec: ageMs != null ? Math.round(ageMs / 1000) : null,
+        stale: ageMs != null && ageMs > 24 * 60 * 60 * 1000,
+        updated_at_ms: updMs || null,
+        v4_last_poll_ms: v4PollMs,
+        v4_active: v4PollMs != null && (now - v4PollMs) < 5 * 60 * 1000,
+        pending: !everReported,
+      };
+    });
+
+    return res.json({ ok: true, count: customers.length, customers });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 app.get("/admin/positions/all", async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   if (!mcAuthDashboard(req, res)) return;
