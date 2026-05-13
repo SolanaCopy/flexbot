@@ -102,10 +102,13 @@ input int MinSLDistancePoints = 300;
 input int MinTPDistancePoints = 300;
 
 // ===== Trade Management (Echo: BE at 1.3R, Trail at 1.0R) =====
-input bool   InpEnableBreakEven   = true;   // Move SL to entry when profit reaches BE threshold
-input double InpBreakEvenPct      = 39.4;   // % of TP distance to trigger BE (1.3R/3.3R = 39.4%)
-input double InpBreakEvenBuffer   = 0.25;   // Buffer above entry for BE (spread)
-input bool   InpEnableTrailing    = true;   // Trail SL behind price after BE
+// Break-even feature removed in v4 (boss request): SL stays at the signal's
+// original level for the full trade life. Inputs kept as constants so any old
+// chart-saved values are simply ignored.
+const bool   InpEnableBreakEven   = false;
+const double InpBreakEvenPct      = 0.0;
+const double InpBreakEvenBuffer   = 0.0;
+input bool   InpEnableTrailing    = false;  // Trail SL behind price (default OFF as of v4)
 input double InpTrailStartPct     = 39.4;   // % of TP distance to start trailing (same as BE)
 input double InpTrailDistPoints   = 0;      // Fixed trail points (0 = use R-based: trail dist = SL dist)
 input double InpTrailDistR        = 1.0;    // Trail distance as R-multiple (used when TrailDistPoints=0)
@@ -1315,7 +1318,12 @@ bool ExecuteSignal(const string json) {
   trade.SetExpertMagicNumber(InpMagic);
   trade.SetDeviationInPoints(MaxSlippagePoints > 0 ? MaxSlippagePoints : 30);
 
-  bool okOpen = (ot==ORDER_TYPE_BUY) ? trade.Buy(lotsTotal, sym, 0.0, 0.0, 0.0, comment) : trade.Sell(lotsTotal, sym, 0.0, 0.0, 0.0, comment);
+  // v4: tag the position with the signal id so close-sync can find it.
+  // MT5 position comment is capped (~31 chars). signal ids are ~26 chars,
+  // so we use them directly. The signal's human-readable comment (strategy
+  // name etc.) is still stored on the signal row in the server DB.
+  string posComment = (StringLen(id) > 0 ? id : comment);
+  bool okOpen = (ot==ORDER_TYPE_BUY) ? trade.Buy(lotsTotal, sym, 0.0, 0.0, 0.0, posComment) : trade.Sell(lotsTotal, sym, 0.0, 0.0, 0.0, posComment);
   if(!okOpen) { return false; }
 
   // NOTE: ResultOrder() is ORDER ticket (not position ticket)
@@ -1466,31 +1474,7 @@ void ManageOpenPosition()
 
    double profitPct = (profitDist / tpDist) * 100.0;
 
-   // --- Break-Even ---
-   if(InpEnableBreakEven && !g_breakEvenDone && profitPct >= InpBreakEvenPct)
-   {
-      double newSl;
-      if(type == POSITION_TYPE_BUY)
-         newSl = entry + InpBreakEvenBuffer;
-      else
-         newSl = entry - InpBreakEvenBuffer;
-
-      newSl = NormalizeDouble(newSl, digits);
-
-      // Only move if new SL is better than current SL
-      bool better = (type == POSITION_TYPE_BUY) ? (newSl > sl) : (newSl < sl);
-      if(better)
-      {
-         bool ok = trade.PositionModify(posTicket, newSl, tp);
-         if(ok) {
-            g_breakEvenDone = true;
-            if(InpDebugTrade) Print("BREAK-EVEN: moved SL to ", DoubleToString(newSl, digits), " (entry+buffer)");
-         }
-      }
-      else {
-         g_breakEvenDone = true; // SL already past entry
-      }
-   }
+   // --- Break-Even (removed v4: SL is NEVER moved toward / past entry) ---
 
    // --- Trailing Stop ---
    if(InpEnableTrailing && profitPct >= InpTrailStartPct)
@@ -1862,6 +1846,74 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
   }
 }
 
+// v4 close-sync: ask the server which signals master closed but this account
+// hasn't closed yet, then close matching local positions (looked up by the
+// signal_id stored in the position comment at open time). POSTs /signal/closed
+// for each closed position so the server marks it done and the next poll no
+// longer asks us to close it.
+void ProcessCloseSync()
+{
+  int st = 0;
+  long login = AccountInfoInteger(ACCOUNT_LOGIN);
+  string srvQ = UrlEncode(AccountInfoString(ACCOUNT_SERVER));
+  string url = BuildUrl("/ea/close-pending?account_login=" + (string)login +
+                        "&server=" + srvQ +
+                        "&symbol=" + InpSymbol);
+  string body = HttpGetText(url, st);
+  if(st < 200 || st >= 300) return;
+  if(StringLen(body) <= 0) return;
+
+  // Cheap walk through every "signal_id":"..." occurrence in the response.
+  // No allocator-heavy JSON parser needed; we only care about the ids.
+  string key = "\"signal_id\":\"";
+  int klen = StringLen(key);
+  int pos = 0;
+  int closed = 0;
+  for(int iter = 0; iter < 20; iter++) {
+    int kIdx = StringFind(body, key, pos);
+    if(kIdx < 0) break;
+    int valStart = kIdx + klen;
+    int valEnd = StringFind(body, "\"", valStart);
+    if(valEnd <= valStart) break;
+    string signal_id = StringSubstr(body, valStart, valEnd - valStart);
+    pos = valEnd + 1;
+    if(StringLen(signal_id) == 0) continue;
+
+    // Find the position whose comment matches this signal_id.
+    ulong closeTicket = 0;
+    for(int p = PositionsTotal() - 1; p >= 0; p--) {
+      ulong t = PositionGetTicket(p);
+      if(t == 0) continue;
+      if(!PositionSelectByTicket(t)) continue;
+      string pcom = PositionGetString(POSITION_COMMENT);
+      if(StringFind(pcom, signal_id) >= 0) {
+        closeTicket = t;
+        break;
+      }
+    }
+    if(closeTicket == 0) continue; // already closed locally, or never opened
+
+    trade.SetExpertMagicNumber((ulong)PositionGetInteger(POSITION_MAGIC));
+    bool ok = trade.PositionClose(closeTicket);
+    if(InpDebugTrade) Print("close-sync ", (ok?"ok":"FAIL"), " signal_id=", signal_id, " ticket=", (string)closeTicket);
+    if(!ok) continue;
+    closed++;
+
+    // Notify server so /ea/close-pending stops returning this signal for us.
+    string b = "{";
+    b += "\"secret\":\"" + InpSignalSecret + "\"";
+    b += ",\"signal_id\":\"" + signal_id + "\"";
+    b += ",\"outcome\":\"sync_close\"";
+    b += ",\"result\":\"\"";
+    b += ",\"account_login\":" + (string)login;
+    b += ",\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\"";
+    b += ",\"closed_at_ms\":" + (string)((long)TimeCurrent() * 1000);
+    b += "}";
+    int sc = HttpPostJson(BuildUrl("/signal/closed"), b);
+    if(InpDebugHttp) Print("close-sync POST /signal/closed code=", sc, " signal_id=", signal_id);
+  }
+}
+
 int OnInit() {
   string gv = GVNameSince();
   if(GlobalVariableCheck(gv)) g_sinceMs = (long)GlobalVariableGet(gv);
@@ -2097,6 +2149,15 @@ void OnTimer() {
               "DD Eq: " + DoubleToString(ddEq,2) + "% / " + DoubleToString(InpMaxDailyLossPercent,2) + "% | PnL T: " + DoubleToString(pnlT,2) + "$ | Open: " + DoubleToString(pnlO,2) + "$");
   }
 
-  if(st<200 || st>=300) return;
+  if(st<200 || st>=300) {
+    // Still run close-sync — server may want us to close positions even when
+    // there's no new signal to fetch.
+    ProcessCloseSync();
+    return;
+  }
   ExecuteSignal(body);
+
+  // Close-sync runs every cycle so manual master closes propagate within
+  // one poll interval (InpPollSeconds) to all follower accounts.
+  ProcessCloseSync();
 }

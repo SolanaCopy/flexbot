@@ -102,10 +102,13 @@ input int MinSLDistancePoints = 300;
 input int MinTPDistancePoints = 300;
 
 // ===== Trade Management (Echo: BE at 1.3R, Trail at 1.0R) =====
-input bool   InpEnableBreakEven   = true;   // Move SL to entry when profit reaches BE threshold
-input double InpBreakEvenPct      = 39.4;   // % of TP distance to trigger BE (1.3R/3.3R = 39.4%)
-input double InpBreakEvenBuffer   = 0.25;   // Buffer above entry for BE (spread)
-input bool   InpEnableTrailing    = true;   // Trail SL behind price after BE
+// Break-even feature removed in v4 (boss request): SL stays at the signal's
+// original level for the full trade life. Inputs kept as constants so any old
+// chart-saved values are simply ignored.
+const bool   InpEnableBreakEven   = false;
+const double InpBreakEvenPct      = 0.0;
+const double InpBreakEvenBuffer   = 0.0;
+input bool   InpEnableTrailing    = false;  // Trail SL behind price (default OFF as of v4)
 input double InpTrailStartPct     = 39.4;   // % of TP distance to start trailing (same as BE)
 input double InpTrailDistPoints   = 0;      // Fixed trail points (0 = use R-based: trail dist = SL dist)
 input double InpTrailDistR        = 1.0;    // Trail distance as R-multiple (used when TrailDistPoints=0)
@@ -1471,31 +1474,7 @@ void ManageOpenPosition()
 
    double profitPct = (profitDist / tpDist) * 100.0;
 
-   // --- Break-Even ---
-   if(InpEnableBreakEven && !g_breakEvenDone && profitPct >= InpBreakEvenPct)
-   {
-      double newSl;
-      if(type == POSITION_TYPE_BUY)
-         newSl = entry + InpBreakEvenBuffer;
-      else
-         newSl = entry - InpBreakEvenBuffer;
-
-      newSl = NormalizeDouble(newSl, digits);
-
-      // Only move if new SL is better than current SL
-      bool better = (type == POSITION_TYPE_BUY) ? (newSl > sl) : (newSl < sl);
-      if(better)
-      {
-         bool ok = trade.PositionModify(posTicket, newSl, tp);
-         if(ok) {
-            g_breakEvenDone = true;
-            if(InpDebugTrade) Print("BREAK-EVEN: moved SL to ", DoubleToString(newSl, digits), " (entry+buffer)");
-         }
-      }
-      else {
-         g_breakEvenDone = true; // SL already past entry
-      }
-   }
+   // --- Break-Even (removed v4: SL is NEVER moved toward / past entry) ---
 
    // --- Trailing Stop ---
    if(InpEnableTrailing && profitPct >= InpTrailStartPct)
