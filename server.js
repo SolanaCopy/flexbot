@@ -4934,7 +4934,57 @@ async function fetchJson(url, timeoutMs) {
   return r.json();
 }
 
-function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
+// Builds the live PnL block: progress bar between SL and TP, current price,
+// trade age, and last-updated timestamp. Returns null if any required field
+// is missing or invalid (caller skips the block in that case).
+function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs }) {
+  const slN = Number(sl);
+  const tpN = Number(tp);
+  const cur = Number(currentPrice);
+  const dir = String(direction || "").toUpperCase();
+  if (!Number.isFinite(slN) || !Number.isFinite(tpN) || !Number.isFinite(cur)) return null;
+  if (slN === tpN) return null;
+  if (dir !== "BUY" && dir !== "SELL") return null;
+
+  // Progress 0..1 along SL→TP axis (clamped). For BUY: SL<TP. For SELL: SL>TP.
+  const lo = dir === "BUY" ? slN : tpN;
+  const hi = dir === "BUY" ? tpN : slN;
+  const ratioRaw = (cur - lo) / (hi - lo);
+  const ratio = Math.max(0, Math.min(1, ratioRaw));
+  const progressFromSl = dir === "BUY" ? ratio : 1 - ratio;
+  const pctSl = Math.round(progressFromSl * 100);
+
+  // Render 15-char bar: 🛑 ─── cursor ─── 🎯
+  const BAR_LEN = 15;
+  const cursorIdx = Math.max(0, Math.min(BAR_LEN - 1, Math.round(progressFromSl * (BAR_LEN - 1))));
+  let bar = "";
+  for (let i = 0; i < BAR_LEN; i++) {
+    if (i === cursorIdx) bar += "🔵";
+    else if (i < cursorIdx) bar += "🟢";
+    else bar += "⚪";
+  }
+  const barLine = `🛑 ${bar} 🎯  ${pctSl}% to TP`;
+
+  // PnL relative to risk: at SL = -100%, at TP = +(TP-SL)/(entry-SL) which we
+  // approximate as +(TP distance from SL) / (current distance from SL).
+  // Without entry we show progress only — keep this honest.
+  const live =
+    `📍 Position: ${pctSl}% between SL and TP\n` +
+    `📊 Now: ${cur.toFixed(2)}`;
+
+  let ageStr = "";
+  if (Number.isFinite(Number(openedAtMs))) {
+    const ageMs = Date.now() - Number(openedAtMs);
+    const mins = Math.max(0, Math.floor(ageMs / 60000));
+    if (mins < 60) ageStr = ` · open ${mins}m`;
+    else ageStr = ` · open ${Math.floor(mins / 60)}h${mins % 60}m`;
+  }
+  const updUtc = new Date().toISOString().slice(11, 19);
+
+  return barLine + "\n" + live + ageStr + ` · upd ${updUtc} UTC`;
+}
+
+function formatSignalCaption({ id, symbol, direction, riskPct, comment, live }) {
   const riskStr = String(riskPct);
 
   const sym = String(symbol || "").toUpperCase();
@@ -4946,6 +4996,8 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
   const ref = String(id || "");
   const shortRef = ref ? ref.slice(-8) : "";
 
+  const liveBlock = live ? buildLivePnlBlock(live) : null;
+
   return (
     `🚨 LIVE SIGNAL OPEN${shortRef ? ` (Ref ${shortRef})` : ""}\n` +
     `${kind}: ${sym} ${dir}\n` +
@@ -4953,6 +5005,7 @@ function formatSignalCaption({ id, symbol, direction, riskPct, comment }) {
     `🚀 Start Flexbot: www.fxflexbot.com\n` +
     `\n` +
     `💰 Risk: ${riskStr}%\n` +
+    (liveBlock ? `\n${liveBlock}\n` : "") +
     `❗ Not Financial Advice.`
   );
 }
@@ -6653,6 +6706,83 @@ async function autoNewsPreviewHandler(req, res) {
 }
 app.post("/auto/news/preview/run", autoNewsPreviewHandler);
 app.get("/auto/news/preview/run", autoNewsPreviewHandler);
+
+// GET/POST /auto/signal/live-update/run
+// Re-renders the Telegram OPEN message of every active signal with a live
+// PnL progress block (SL↔TP bar + current price + age). Intended to be hit by
+// cron-job.org every minute.
+async function autoSignalLiveUpdateHandler(req, res) {
+  try {
+    const db = await getDb();
+    if (!db) return res.status(503).json({ ok: false, error: "db_unavailable" });
+
+    // Active signals that have a Telegram open-message we can edit.
+    const rows = await db.execute({
+      sql:
+        "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,created_at_ms," +
+        "tg_open_chat_id,tg_open_message_id " +
+        "FROM signals " +
+        "WHERE status IN ('new','active') " +
+        "AND tg_open_chat_id IS NOT NULL AND tg_open_message_id IS NOT NULL " +
+        "ORDER BY created_at_ms DESC LIMIT 20",
+    });
+
+    if (!last || !Number.isFinite(Number(last.bid)) || !Number.isFinite(Number(last.ask))) {
+      return res.json({ ok: true, acted: false, reason: "no_price_yet", updated: 0 });
+    }
+    const bid = Number(last.bid);
+    const ask = Number(last.ask);
+
+    let updated = 0;
+    const errors = [];
+    for (const r of rows.rows || []) {
+      try {
+        const dir = String(r.direction || "").toUpperCase();
+        // For BUY we exit at bid; for SELL we exit at ask. Use as current "mark".
+        const cur = dir === "BUY" ? bid : ask;
+
+        let tpArr = [];
+        try { tpArr = JSON.parse(String(r.tp_json || "[]")); } catch {}
+        const tp = Array.isArray(tpArr) && tpArr.length ? Number(tpArr[0]) : null;
+        const sl = Number(r.sl);
+        if (!Number.isFinite(sl) || !Number.isFinite(tp)) continue;
+
+        const text = formatSignalCaption({
+          id: r.id,
+          symbol: r.symbol,
+          direction: dir,
+          riskPct: r.risk_pct,
+          comment: r.comment,
+          live: {
+            direction: dir,
+            sl,
+            tp,
+            currentPrice: cur,
+            openedAtMs: Number(r.created_at_ms) || null,
+          },
+        });
+
+        await tgEditMessageText({
+          chatId: r.tg_open_chat_id,
+          messageId: r.tg_open_message_id,
+          text,
+        });
+        updated++;
+      } catch (e) {
+        const msg = String(e?.message || e);
+        // Telegram returns "message is not modified" when text is identical to
+        // the previous edit — that's a no-op, not an error worth flagging.
+        if (!/not modified/i.test(msg)) errors.push({ id: r.id, error: msg });
+      }
+    }
+
+    return res.json({ ok: true, acted: updated > 0, updated, errors, total: (rows.rows || []).length });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "auto_signal_live_update_failed", message: String(e?.message || e) });
+  }
+}
+app.post("/auto/signal/live-update/run", autoSignalLiveUpdateHandler);
+app.get("/auto/signal/live-update/run", autoSignalLiveUpdateHandler);
 
 // GET/POST /auto/daily/plan/run (simple no-LLM plan)
 async function autoDailyPlanHandler(req, res) {
