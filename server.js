@@ -4980,23 +4980,18 @@ function buildLivePnlBlock({ direction, sl, tp, currentPrice, openedAtMs }) {
   const progressFromSl = dir === "BUY" ? ratio : 1 - ratio;
   const pctSl = Math.round(progressFromSl * 100);
 
-  // Render 15-char bar: 🛑 ─── cursor ─── 🎯
-  const BAR_LEN = 15;
-  const cursorIdx = Math.max(0, Math.min(BAR_LEN - 1, Math.round(progressFromSl * (BAR_LEN - 1))));
-  let bar = "";
-  for (let i = 0; i < BAR_LEN; i++) {
-    if (i === cursorIdx) bar += "🔵";
-    else if (i < cursorIdx) bar += "🟢";
-    else bar += "⚪";
-  }
-  const barLine = `🛑 ${bar} 🎯  ${pctSl}% to TP`;
+  // Clean line bar with inline cursor marker:
+  //   🛑━━━🔴━━━━━━━━━🎯 35%
+  // 12 dash chars with 🔴 inserted at the cursor index. Color of the cursor
+  // reflects PnL direction: 🟢 if past midpoint toward TP, 🔴 if closer to SL.
+  const BAR_LEN = 12;
+  const cursorIdx = Math.max(0, Math.min(BAR_LEN, Math.round(progressFromSl * BAR_LEN)));
+  const marker = progressFromSl >= 0.5 ? "🟢" : "🔴";
+  const pre = "━".repeat(cursorIdx);
+  const post = "━".repeat(Math.max(0, BAR_LEN - cursorIdx));
+  const barLine = `🛑${pre}${marker}${post}🎯 ${pctSl}%`;
 
-  // PnL relative to risk: at SL = -100%, at TP = +(TP-SL)/(entry-SL) which we
-  // approximate as +(TP distance from SL) / (current distance from SL).
-  // Without entry we show progress only — keep this honest.
-  const live =
-    `📍 Position: ${pctSl}% between SL and TP\n` +
-    `📊 Now: ${cur.toFixed(2)}`;
+  const live = `📊 Now: ${cur.toFixed(2)}`;
 
   let ageStr = "";
   if (Number.isFinite(Number(openedAtMs))) {
