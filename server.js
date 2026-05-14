@@ -2452,7 +2452,13 @@ function _invalidateNextSignalCache(symbol) {
 
 app.get("/signal/next", async (req, res) => {
   try {
-    const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    const rawSymbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
+    // Normalize broker-specific symbol suffixes. Some FTMO/Vantage builds
+    // expose XAUUSD as XAUUSD.PI, XAUUSD.x, XAUUSD#, etc. Master signals are
+    // always stored under the base symbol (XAUUSD), so we strip the suffix
+    // for the lookup and echo the caller's original symbol back so trade
+    // execution stays on the EA's local chart symbol.
+    const symbol = rawSymbol.replace(/\.[A-Z0-9]+$|[#@]+$/i, "");
 
     // NEW: identify requester account (required for broadcast)
     const account_login = req.query.account_login != null ? String(req.query.account_login).trim() : "";
@@ -2567,7 +2573,10 @@ app.get("/signal/next", async (req, res) => {
         ok: true,
         signal: {
           id: String(r.id),
-          symbol: String(r.symbol),
+          // Echo the caller's local symbol (e.g. XAUUSD.PI) so the EA places
+          // the trade on its own broker symbol even though the DB row stores
+          // the base symbol (XAUUSD).
+          symbol: rawSymbol,
           direction: String(r.direction),
           sl: Number(r.sl),
           tp,
