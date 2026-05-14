@@ -356,6 +356,12 @@ async function getDb() {
     "ALTER TABLE signals ADD COLUMN close_outcome TEXT",
     "ALTER TABLE signals ADD COLUMN close_result TEXT",
     "ALTER TABLE signals ADD COLUMN master_closed_at_ms INTEGER",
+    // Equity-proportional copy: master EA pushes its actual lot + account
+    // equity at broadcast time. Customer EAs read these and scale their own
+    // lot to (master_lot × customer_equity / master_equity). Falls back to
+    // the legacy risk_pct logic if either field is missing.
+    "ALTER TABLE signals ADD COLUMN master_lot REAL",
+    "ALTER TABLE signals ADD COLUMN master_equity REAL",
     // Per-account close ledger for close-sync (one row per customer who
     // confirmed they closed their copy of a signal).
     "CREATE TABLE IF NOT EXISTS signal_close2 (" +
@@ -1614,6 +1620,12 @@ app.post("/signal/manual/open", async (req, res) => {
 
     const ticket = body?.ticket != null ? String(body.ticket) : null;
     const fill_price = body?.fill_price != null ? Number(body.fill_price) : null;
+    // Equity-proportional copy fields (optional). Customer EAs use these to
+    // scale their lot to (master_lot × customer_equity / master_equity).
+    const master_lot = body?.master_lot != null && Number.isFinite(Number(body.master_lot))
+      ? Number(body.master_lot) : null;
+    const master_equity = body?.master_equity != null && Number.isFinite(Number(body.master_equity))
+      ? Number(body.master_equity) : null;
 
     const tsMs = body?.time != null ? parseTimeToMs(body.time) : Date.now();
     const executed_at_ms = Number.isFinite(tsMs) ? tsMs : Date.now();
@@ -1637,8 +1649,8 @@ app.post("/signal/manual/open", async (req, res) => {
 
     // Insert as active (trade is already open)
     await db.execute({
-      sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      args: [id, symbol, direction, sl, JSON.stringify(tp), risk_pct, comment, "active", nowMs, created_at_mt5],
+      sql: "INSERT OR REPLACE INTO signals (id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5,master_lot,master_equity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+      args: [id, symbol, direction, sl, JSON.stringify(tp), risk_pct, comment, "active", nowMs, created_at_mt5, master_lot, master_equity],
     });
     try { _invalidateNextSignalCache(symbol); } catch {}
 
@@ -2496,7 +2508,7 @@ app.get("/signal/next", async (req, res) => {
     for (let attempt = 0; attempt < MAX_SKIP; attempt++) {
       const rows = await db.execute({
         sql:
-          "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5 " +
+          "SELECT id,symbol,direction,sl,tp_json,risk_pct,comment,status,created_at_ms,created_at_mt5,master_lot,master_equity " +
           "FROM signals " +
           "WHERE symbol=? AND status IN ('new','active') AND created_at_ms >= ? " +
           "AND NOT EXISTS (" +
@@ -2584,6 +2596,10 @@ app.get("/signal/next", async (req, res) => {
           created_at_ms: Number(r.created_at_ms),
           created_at: String(r.created_at_mt5),
           comment: r.comment != null ? String(r.comment) : null,
+          // Equity-proportional copy hints. When both are present, customer
+          // EAs scale: customer_lot = master_lot × customer_equity / master_equity.
+          master_lot: r.master_lot != null ? Number(r.master_lot) : null,
+          master_equity: r.master_equity != null ? Number(r.master_equity) : null,
         },
       };
       _nextSignalCache.set(cacheKey, { result, ts: Date.now() });

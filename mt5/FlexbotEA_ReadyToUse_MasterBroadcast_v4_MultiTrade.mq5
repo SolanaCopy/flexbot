@@ -1210,6 +1210,10 @@ bool ExecuteSignal(const string json) {
 
   string id="", sym="", dir="", comment="";
   double sl=0; double createdAt=0; double sigRiskPct=0; double sigTp=0;
+  // v5: equity-proportional copy hints from master. When both > 0 the EA
+  // sizes its lot to (master_lot × my_equity / master_equity), capped by
+  // InpMaxLot, instead of falling back to the risk_pct calc.
+  double sigMasterLot=0, sigMasterEquity=0;
 
   if(!JsonGetStringSimple(sig,"id",id)) return false;
   if(!JsonGetStringSimple(sig,"symbol",sym)) sym=InpSymbol;
@@ -1218,6 +1222,8 @@ bool ExecuteSignal(const string json) {
   JsonGetNumberSimple(sig,"sl",sl);
   JsonGetNumberSimple(sig,"created_at_ms",createdAt);
   JsonGetNumberSimple(sig,"risk_pct",sigRiskPct);
+  JsonGetNumberSimple(sig,"master_lot",sigMasterLot);
+  JsonGetNumberSimple(sig,"master_equity",sigMasterEquity);
 
   // Read first TP from array if present
   int tpKey = StringFind(sig, "\"tp\":[");
@@ -1299,7 +1305,26 @@ bool ExecuteSignal(const string json) {
   double riskPct = InpMaxRiskPercent;
   if(riskPct <= 0.0) riskPct = 1.0;
 
-  double allowedLots = CalcRiskLots(sym, ot, sl, riskPct);
+  // v5 equity-proportional copy: when master pushes its lot + equity in the
+  // signal, scale (master_lot × my_equity / master_equity). Falls back to
+  // CalcRiskLots when the master fields are absent (e.g. admin signals).
+  double allowedLots = 0.0;
+  if(sigMasterLot > 0.0 && sigMasterEquity > 0.0) {
+    double myEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    if(myEquity > 0.0) {
+      allowedLots = sigMasterLot * (myEquity / sigMasterEquity);
+      if(InpMaxLot > 0.0) allowedLots = MathMin(allowedLots, InpMaxLot);
+      allowedLots = ClampLots(sym, allowedLots);
+      if(InpDebugTrade) Print("EquityCopy | id=", id,
+                              " masterLot=", DoubleToString(sigMasterLot,2),
+                              " masterEq=", DoubleToString(sigMasterEquity,2),
+                              " myEq=", DoubleToString(myEquity,2),
+                              " allowedLots=", DoubleToString(allowedLots,2));
+    }
+  }
+  if(allowedLots <= 0.0) {
+    allowedLots = CalcRiskLots(sym, ot, sl, riskPct);
+  }
   if(allowedLots <= 0.0) { return false; }
 
   if(InpDebugTrade)
@@ -1839,6 +1864,11 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
     string hdr = "X-API-Key: " + InpEaApiKey + "\r\n";
     long nowMs = NowMsUtc();
 
+    // Read the position lot — needed by customers for equity-proportional copy.
+    double posLot = 0.0;
+    if(PositionSelectByTicket(posTicket)) posLot = PositionGetDouble(POSITION_VOLUME);
+    double masterEq = AccountInfoDouble(ACCOUNT_EQUITY);
+
     string body2 = "{";
     body2 += "\"id\":\"" + manualId + "\"";
     body2 += ",\"symbol\":\"" + sym + "\"";
@@ -1848,6 +1878,8 @@ void OnTradeTransaction(const MqlTradeTransaction& trans, const MqlTradeRequest&
     body2 += ",\"ticket\":\"" + (string)posTicket + "\"";
     body2 += ",\"fill_price\":" + DoubleToString(fillP, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS));
     body2 += ",\"risk_pct\":" + DoubleToString(InpRiskPercent, 2);
+    body2 += ",\"master_lot\":" + DoubleToString(posLot, 2);
+    body2 += ",\"master_equity\":" + DoubleToString(masterEq, 2);
     body2 += ",\"comment\":\"manual\"";
     body2 += ",\"account_login\":" + (string)AccountInfoInteger(ACCOUNT_LOGIN);
     body2 += ",\"server\":\"" + AccountInfoString(ACCOUNT_SERVER) + "\"";
