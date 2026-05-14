@@ -6334,6 +6334,14 @@ try {
 // Fully server-side: blackout + cooldown + claim + create signal + post ONE telegram photo.
 async function autoScalpRunHandler(req, res) {
   try {
+    // Boss kill switch (2026-05-15): auto-scalp signals are disabled by
+    // default. They were generating trades moham didn't authorize. Re-enable
+    // by setting AUTO_SCALP_ENABLED=1 on Render env if ever needed.
+    const enabled = String(process.env.AUTO_SCALP_ENABLED || "0").toLowerCase();
+    if (!["1", "true", "yes", "on"].includes(enabled)) {
+      return res.json({ ok: true, acted: false, reason: "auto_scalp_disabled" });
+    }
+
     const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : "XAUUSD";
     const cooldownMin = req.query.cooldown_min != null ? Number(req.query.cooldown_min) : 15;
 
